@@ -1,0 +1,22 @@
+{
+  "name": "outbox-event-bus/example-sqlite-outbox",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "test:e2e": "vitest run src/e2e.test.ts"
+  },
+  "types": "./src/index.ts",
+  "dependencies": {
+    "outbox-event-bus": "file:../..",
+    "better-sqlite3": "^11.8.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.0.3",
+    "typescript": "5.9.3",
+    "vitest": "^4.0.16"
+  }
+}
