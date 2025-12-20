@@ -18,11 +18,19 @@ export class OutboxEventBus implements IOutboxEventBus {
   ) {}
 
   async emit<T extends string, P>(event: BusEvent<T, P>): Promise<void> {
-    await this.outbox.publish([event])
+    const eventWithTimestamp = {
+      ...event,
+      occurredAt: event.occurredAt ?? new Date(),
+    }
+    await this.outbox.publish([eventWithTimestamp])
   }
 
   async emitMany<T extends string, P>(events: BusEvent<T, P>[]): Promise<void> {
-    await this.outbox.publish(events)
+    const eventsWithTimestamps = events.map((event) => ({
+      ...event,
+      occurredAt: event.occurredAt ?? new Date(),
+    }))
+    await this.outbox.publish(eventsWithTimestamps)
   }
 
   on<T extends string, P = unknown>(eventType: T, handler: EventHandler<T, P>): this {

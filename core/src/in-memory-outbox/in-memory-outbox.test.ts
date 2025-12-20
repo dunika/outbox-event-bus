@@ -85,6 +85,30 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
       expect(handler).toHaveBeenCalledWith(event1)
       expect(handler).toHaveBeenCalledWith(event2)
     })
+
+    it("should automatically add occurredAt when not provided", async () => {
+      const eventBus = createEventBus()
+      const handler = vi.fn().mockResolvedValue(undefined)
+
+      eventBus.on("usersService.create", handler)
+      eventBus.start()
+
+      // Emit event without occurredAt
+      await eventBus.emit({
+        id: "1",
+        type: "usersService.create",
+        payload: {
+          userId: "user-1",
+          email: "test@example.com",
+          name: "Test User",
+        },
+      })
+
+      expect(handler).toHaveBeenCalledTimes(1)
+      const receivedEvent = handler.mock.calls[0][0]
+      expect(receivedEvent.occurredAt).toBeInstanceOf(Date)
+      expect(receivedEvent.id).toBe("1")
+    })
   })
 
   describe("EventEmitter Interface", () => {

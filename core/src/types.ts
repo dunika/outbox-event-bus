@@ -2,7 +2,7 @@ export type BusEvent<T extends string = string, P = unknown> = {
   id: string
   type: T
   payload: P
-  occurredAt: Date
+  occurredAt?: Date
   metadata?: Record<string, unknown>
 }
 

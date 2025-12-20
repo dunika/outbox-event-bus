@@ -46,6 +46,38 @@ describe("OutboxEventBus", () => {
     expect(outbox.stop).toHaveBeenCalled()
   })
 
+  it("should automatically add occurredAt timestamp when not provided", async () => {
+    const eventWithoutTimestamp: BusEvent = {
+      id: "1",
+      type: "test-event",
+      payload: {},
+    }
+
+    await eventBus.emit(eventWithoutTimestamp)
+    
+    const publishedEvents = (outbox.publish as any).mock.calls[0][0]
+    expect(publishedEvents).toHaveLength(1)
+    expect(publishedEvents[0].occurredAt).toBeInstanceOf(Date)
+    expect(publishedEvents[0].id).toBe("1")
+    expect(publishedEvents[0].type).toBe("test-event")
+  })
+
+  it("should preserve custom occurredAt when provided", async () => {
+    const customDate = new Date("2023-01-01")
+    const eventWithTimestamp: BusEvent = {
+      id: "1",
+      type: "test-event",
+      payload: {},
+      occurredAt: customDate,
+    }
+
+    await eventBus.emit(eventWithTimestamp)
+    
+    const publishedEvents = (outbox.publish as any).mock.calls[0][0]
+    expect(publishedEvents).toHaveLength(1)
+    expect(publishedEvents[0].occurredAt).toBe(customDate)
+  })
+
   it("should dispatch events to subscribers", async () => {
     eventBus.start()
     const handler = vi.fn().mockResolvedValue(undefined)
