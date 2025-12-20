@@ -1,0 +1,47 @@
+{
+  "name": "outbox-event-bus",
+  "version": "0.0.1",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "format": "biome check --write .",
+    "format:check": "biome check ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.0.5",
+    "@eslint/js": "^9.39.2",
+    "@types/node": "catalog:",
+    "eslint": "^9.39.2",
+    "eslint-plugin-import": "2.32.0",
+    "eslint-plugin-vitest": "0.5.4",
+    "tsdown": "^0.18.0",
+    "typescript": "catalog:",
+    "typescript-eslint": "^8.50.0",
+    "vite-tsconfig-paths": "^6.0.2",
+    "vitest": "catalog:"
+  }
+}

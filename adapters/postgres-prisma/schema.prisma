@@ -1,0 +1,49 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OutboxStatus {
+  created
+  active
+  completed
+  failed
+  @@map("outbox_status")
+}
+
+model OutboxEvent {
+  id              String       @id @db.Uuid
+  type            String
+  payload         Json
+  occurredAt      DateTime     @map("occurred_at")
+  status          OutboxStatus @default(created)
+  retryCount      Int          @default(0) @map("retry_count")
+  lastError       String?      @map("last_error")
+  nextRetryAt     DateTime?    @map("next_retry_at")
+  createdOn       DateTime     @default(now()) @map("created_on")
+  startedOn       DateTime?    @map("started_on")
+  completedOn     DateTime?    @map("completed_on")
+  keepAlive       DateTime?    @map("keep_alive")
+  expireInSeconds Int          @default(300) @map("expire_in_seconds")
+
+  @@map("outbox_events")
+}
+
+model OutboxEventArchive {
+  id              String       @id @db.Uuid
+  type            String
+  payload         Json
+  occurredAt      DateTime     @map("occurred_at")
+  status          OutboxStatus
+  retryCount      Int          @map("retry_count")
+  lastError       String?      @map("last_error")
+  createdOn       DateTime     @map("created_on")
+  startedOn       DateTime?    @map("started_on")
+  completedOn     DateTime     @map("completed_on")
+
+  @@map("outbox_events_archive")
+}

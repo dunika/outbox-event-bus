@@ -1,0 +1,4 @@
+parity with node EventEmitter
+     */
+
+

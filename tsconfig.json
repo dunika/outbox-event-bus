@@ -1,43 +1,12 @@
 {
+  "extends": "@outbox-event-bus/config/tsconfig.base.json",
   "compilerOptions": {
-    "skipLibCheck": true,
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "allowSyntheticDefaultImports": true,
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
-    "noImplicitOverride": true,
-    "noFallthroughCasesInSwitch": true,
-    "forceConsistentCasingInFileNames": true,
-    "declaration": true,
-    "declarationMap": true,
-    "target": "ESNext",
-    "noEmit": true,
-    "esModuleInterop": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
-    "types": [
-      "vitest/globals",
-      "node"
-    ],
-    "baseUrl": ".",
-    "paths": {
-      "outbox-event-bus": [
-        "src/index.ts"
-      ]
-    }
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo"
   },
+  "files": [],
   "include": [
-    "src/**/*",
-    "examples/**/*",
-    "*.config.js",
-    "*.config.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist"
+    "vitest.workspace.ts",
+    "vitest.config.ts",
+    "eslint.config.js"
   ]
 }

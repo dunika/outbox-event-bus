@@ -1,0 +1,22 @@
+{
+  "name": "@outbox-event-bus/dynamodb-outbox",
+  "version": "0.0.1",
+  "private": false,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "outbox-event-bus": "workspace:*",
+    "@aws-sdk/client-dynamodb": "^3.712.0",
+    "@aws-sdk/lib-dynamodb": "^3.712.0"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "testcontainers": "^10.2.1",
+    "@types/node": "catalog:"
+  },
+  "scripts": {
+    "test": "vitest run src/dynamodb-outbox.test.ts",
+    "test:e2e": "docker-compose up -d --wait && vitest run src/e2e.test.ts; status=$?; docker-compose down; exit $status"
+  }
+}

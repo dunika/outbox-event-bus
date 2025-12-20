@@ -1,0 +1,165 @@
+import { describe, expect, it, beforeAll, afterAll } from "vitest"
+import { PrismaClient, OutboxStatus } from "@prisma/client"
+import { PostgresPrismaOutbox } from "./index"
+import { execSync } from "child_process"
+import { randomUUID } from "node:crypto"
+
+const DATABASE_URL = "postgresql://test_user:test_password@localhost:5432/outbox_test"
+
+describe("PostgresPrismaOutbox E2E", () => {
+  let prisma: PrismaClient
+  let outbox: PostgresPrismaOutbox
+
+  beforeAll(async () => {
+    process.env.DATABASE_URL = DATABASE_URL
+    
+    // Run db push to setup schema
+    try {
+      // Need to retry a few times as DB might be starting up even with --wait
+      let retries = 5
+      while (retries > 0) {
+        try {
+            execSync("npx prisma db push --skip-generate", { stdio: "inherit" })
+            break
+        } catch (e) {
+            retries--
+            if (retries === 0) throw e
+            await new Promise(r => setTimeout(r, 1000))
+        }
+      }
+    } catch (e) {
+      console.error("Failed to push db schema", e)
+      throw e
+    }
+
+    prisma = new PrismaClient()
+    await prisma.$connect()
+  })
+
+  afterAll(async () => {
+    if (prisma) {
+        await prisma.$disconnect()
+    }
+  })
+
+  it("should process events end-to-end", async () => {
+    outbox = new PostgresPrismaOutbox({
+      prisma,
+      pollIntervalMs: 100,
+      onError: (err: unknown) => console.error("Outbox Error:", err),
+    })
+
+    const eventId = randomUUID()
+    const event = {
+      id: eventId,
+      type: "test.created",
+      payload: { foo: "bar" },
+      occurredAt: new Date(),
+    }
+
+    // 1. Publish
+    await outbox.publish([event])
+
+    // Verify created
+    const saved = await prisma.outboxEvent.findUnique({ where: { id: eventId } })
+    expect(saved).toBeTruthy()
+    expect(saved?.status).toBe(OutboxStatus.created)
+    // Verify payload is stored correctly
+    expect(saved?.payload).toEqual(event.payload)
+
+    // 2. Start processing
+    const processedEvents: any[] = []
+    await outbox.start(async (events: any[]) => {
+      processedEvents.push(...events)
+    })
+
+    // Wait for poll
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+
+    expect(processedEvents).toHaveLength(1)
+    expect(processedEvents[0].id).toBe(eventId)
+
+    // 3. Verify cleanup and archive
+    const checkOriginal = await prisma.outboxEvent.findUnique({ where: { id: eventId } })
+    expect(checkOriginal).toBeNull()
+
+    const checkArchive = await prisma.outboxEventArchive.findUnique({ where: { id: eventId } })
+    expect(checkArchive).toBeTruthy()
+    expect(checkArchive?.status).toBe(OutboxStatus.completed)
+
+    await outbox.stop()
+  })
+
+  it("should retry failed events", async () => {
+    outbox = new PostgresPrismaOutbox({
+      prisma,
+      pollIntervalMs: 100,
+      baseBackoffMs: 100,
+      onError: () => {}, // Expected
+    })
+
+    const eventId = randomUUID()
+    const event = {
+      id: eventId,
+      type: "test.failed",
+      payload: {},
+      occurredAt: new Date(),
+    }
+
+    await outbox.publish([event])
+
+    let attempts = 0
+    await outbox.start(async () => {
+      attempts++
+      throw new Error("Processing failed")
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+
+    await outbox.stop()
+
+    const saved = await prisma.outboxEvent.findUnique({ where: { id: eventId } })
+    expect(saved).toBeTruthy()
+    expect(saved?.status).toBe(OutboxStatus.failed)
+    expect(saved?.retryCount).toBeGreaterThan(0)
+    expect(attempts).toBeGreaterThan(1)
+  })
+
+  it("should recover from stuck events", async () => {
+    outbox = new PostgresPrismaOutbox({
+      prisma,
+      pollIntervalMs: 100,
+      onError: (err) => console.error("Outbox Error:", err),
+    })
+
+    const eventId = randomUUID()
+    
+    // Manually insert a "stuck" event (status active, timed out)
+    // Default expireInSeconds is 300, so we set keepAlive to >300s ago
+    const now = new Date()
+    await (prisma as any).outboxEvent.create({
+      data: {
+        id: eventId,
+        type: "stuck.event",
+        payload: { stuck: true },
+        occurredAt: new Date(now.getTime() - 400000),
+        status: OutboxStatus.active,
+        retryCount: 0,
+        keepAlive: new Date(now.getTime() - 350000),
+        expireInSeconds: 300
+      }
+    })
+
+    const processedEvents: any[] = []
+    outbox.start(async (events) => {
+      processedEvents.push(...events)
+    })
+
+    // Wait for recovery poll
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+
+    expect(processedEvents.some(e => e.id === eventId)).toBe(true)
+
+    await outbox.stop()
+  })
+})

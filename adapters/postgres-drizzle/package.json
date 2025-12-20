@@ -1,0 +1,22 @@
+{
+  "name": "@outbox-event-bus/postgres-drizzle-outbox",
+  "version": "0.0.1",
+  "private": false,
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run --exclude \"**/*.e2e.test.ts\"",
+    "test:e2e": "docker-compose up -d --wait && vitest run src/e2e.test.ts; status=$?; docker-compose down; exit $status"
+  },
+  "types": "./src/index.ts",
+  "dependencies": {
+    "outbox-event-bus": "workspace:*",
+    "drizzle-orm": "^0.45.1",
+    "postgres": "^3.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "drizzle-kit": "^0.31.8",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
