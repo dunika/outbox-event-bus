@@ -9,12 +9,12 @@
   },
   "types": "./src/index.ts",
   "dependencies": {
-    "outbox-event-bus": "workspace:*",
-    "@prisma/client": "^6.1.0"
+    "@prisma/client": "^7.2.0",
+    "outbox-event-bus": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "prisma": "^6.1.0",
+    "prisma": "^7.2.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

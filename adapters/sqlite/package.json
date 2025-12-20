@@ -10,8 +10,8 @@
   },
   "types": "./src/index.ts",
   "dependencies": {
-    "outbox-event-bus": "workspace:*",
-    "better-sqlite3": "^11.8.1"
+    "better-sqlite3": "^12.5.0",
+    "outbox-event-bus": "workspace:*"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

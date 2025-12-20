@@ -8,20 +8,23 @@
     "lint": "pnpm -r lint",
     "format": "biome check --write .",
     "format:check": "biome check .",
-    "test:e2e": "pnpm -r --if-present test:e2e"
+    "test:e2e": "pnpm -r --if-present test:e2e",
+    "outdated": "pnpm -r outdated",
+    "update": "pnpm -r update",
+    "update:latest": "pnpm -r update --latest"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.0.5",
-    "@eslint/js": "^9.39.2",
+    "@biomejs/biome": "catalog:",
+    "@eslint/js": "catalog:",
+    "@outbox-event-bus/config": "workspace:*",
     "@types/node": "catalog:",
-    "eslint": "^9.39.2",
-    "eslint-plugin-import": "2.32.0",
-    "eslint-plugin-vitest": "0.5.4",
+    "eslint": "catalog:",
+    "eslint-plugin-import": "catalog:",
+    "eslint-plugin-vitest": "catalog:",
+    "tsdown": "catalog:",
     "typescript": "catalog:",
-    "typescript-eslint": "^8.50.0",
-    "vite-tsconfig-paths": "^6.0.2",
-    "vitest": "catalog:",
-    "tsdown": "^0.18.0",
-    "@outbox-event-bus/config": "workspace:*"
+    "typescript-eslint": "catalog:",
+    "vite-tsconfig-paths": "catalog:",
+    "vitest": "catalog:"
   }
 }

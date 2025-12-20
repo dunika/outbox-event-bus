@@ -1,0 +1,19 @@
+{
+  "name": "@outbox-event-bus/redis-streams-publisher",
+  "version": "0.0.1",
+  "private": false,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "outbox-event-bus": "workspace:*",
+    "ioredis": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "@types/node": "catalog:"
+  },
+  "scripts": {
+    "test": "vitest run src/redis-streams-publisher.test.ts"
+  }
+}
