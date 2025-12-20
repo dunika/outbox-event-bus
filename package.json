@@ -11,10 +11,14 @@
     "test:e2e": "pnpm -r --if-present test:e2e",
     "outdated": "pnpm -r outdated",
     "update": "pnpm -r update",
-    "update:latest": "pnpm -r update --latest"
+    "update:latest": "pnpm -r update --latest",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm build && changeset publish"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
+    "@changesets/cli": "^2.29.8",
     "@eslint/js": "catalog:",
     "@outbox-event-bus/config": "workspace:*",
     "@types/node": "catalog:",

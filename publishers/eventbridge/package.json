@@ -2,18 +2,42 @@
   "name": "@outbox-event-bus/eventbridge-publisher",
   "version": "0.0.1",
   "private": false,
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run src/*.test.ts"
+  },
   "dependencies": {
     "@aws-sdk/client-eventbridge": "^3.956.0",
     "outbox-event-bus": "workspace:*"
   },
   "devDependencies": {
+    "@outbox-event-bus/config": "workspace:*",
     "@types/node": "catalog:",
+    "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
-  },
-  "scripts": {
-    "test": "vitest run src/*.test.ts"
   }
 }
