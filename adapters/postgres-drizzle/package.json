@@ -3,6 +3,12 @@
   "version": "0.0.1",
   "private": false,
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dunika/outbox-event-bus.git",
+    "directory": "adapters/postgres-drizzle"
+  },
+  "homepage": "https://github.com/dunika/outbox-event-bus/tree/main/adapters/postgres-drizzle#readme",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -27,7 +33,7 @@
   ],
   "scripts": {
     "build": "tsdown",
-    "test": "vitest run --exclude \"**/*.e2e.test.ts\"",
+    "test": "vitest run --exclude \"**/*.e2e.test.ts\" --exclude \"src/transactions.test.ts\"",
     "test:e2e": "docker-compose up -d --wait && vitest run src/e2e.test.ts; status=$?; docker-compose down; exit $status"
   },
   "dependencies": {

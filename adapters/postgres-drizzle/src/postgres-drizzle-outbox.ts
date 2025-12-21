@@ -1,97 +1,67 @@
 import { and, eq, inArray, lt, or, sql } from "drizzle-orm"
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js"
-import type { BusEvent, IOutbox } from "outbox-event-bus"
+import { type BusEvent, type IOutbox, type OutboxConfig, type ResolvedOutboxConfig, PollingService } from "outbox-event-bus"
 import { outboxEvents, outboxEventsArchive } from "./schema"
 
-export interface PostgresDrizzleOutboxConfig {
+export interface PostgresDrizzleOutboxConfig extends OutboxConfig {
   db: PostgresJsDatabase<Record<string, unknown>>
-  getExecutor?: () => PostgresJsDatabase<Record<string, unknown>> | undefined
-  maxRetries?: number
-  baseBackoffMs?: number
-  pollIntervalMs?: number
-  batchSize?: number
-  onError: (error: unknown) => void
+  getExecutor?: (() => PostgresJsDatabase<Record<string, unknown>> | undefined) | undefined
 }
 
 export class PostgresDrizzleOutbox implements IOutbox {
-  private readonly db: PostgresJsDatabase<Record<string, unknown>>
-  private readonly getExecutor?: (() => PostgresJsDatabase<Record<string, unknown>> | undefined) | undefined
-  private readonly maxRetries: number
-  private readonly baseBackoffMs: number
-  private readonly batchSize: number
-  private readonly pollIntervalMs: number
-  private readonly onError: (error: unknown) => void
-
-  private isPolling = false
-  private pollTimer: NodeJS.Timeout | null = null
-  private errorCount = 0
-  private readonly maxErrorBackoffMs = 30000
+  private readonly config: Required<PostgresDrizzleOutboxConfig>
+  private readonly poller: PollingService
 
   constructor(config: PostgresDrizzleOutboxConfig) {
-    this.db = config.db
-    this.getExecutor = config.getExecutor
-    this.maxRetries = config.maxRetries ?? 5
-    this.baseBackoffMs = config.baseBackoffMs ?? 1000
-    this.pollIntervalMs = config.pollIntervalMs ?? 1000
-    this.batchSize = config.batchSize ?? 50
-    this.onError = config.onError
+    this.config = {
+      batchSize: config.batchSize ?? 50,
+      pollIntervalMs: config.pollIntervalMs ?? 1000,
+      maxRetries: config.maxRetries ?? 5,
+      baseBackoffMs: config.baseBackoffMs ?? 1000,
+      processingTimeoutMs: config.processingTimeoutMs ?? 30000,
+      maxErrorBackoffMs: config.maxErrorBackoffMs ?? 30000,
+      onError: config.onError,
+      db: config.db,
+      getExecutor: config.getExecutor,
+    }
+
+    this.poller = new PollingService(
+      {
+        pollIntervalMs: this.config.pollIntervalMs,
+        baseBackoffMs: this.config.baseBackoffMs,
+        maxErrorBackoffMs: this.config.maxErrorBackoffMs,
+        onError: this.config.onError,
+        processBatch: (handler) => this.processBatch(handler),
+      }
+    )
   }
 
   async publish(
     events: BusEvent[],
   ): Promise<void> {
-    const db = this.getExecutor?.() ?? this.db
+    const executor = this.config.getExecutor?.() ?? this.config.db
 
-    await db.insert(outboxEvents).values(
+    await executor.insert(outboxEvents).values(
       events.map((e) => ({
         id: e.id,
         type: e.type,
         payload: e.payload,
-        occurredAt: e.occurredAt,
+        occurredAt: e.occurredAt ?? new Date(),
         status: "created" as const,
       }))
     )
   }
 
   start(handler: (events: BusEvent[]) => Promise<void>): void {
-    if (this.isPolling) return
-    
-    this.isPolling = true
-    void this.poll(handler)
+    this.poller.start(handler)
   }
 
   async stop(): Promise<void> {
-    this.isPolling = false
-    if (this.pollTimer) {
-      clearTimeout(this.pollTimer)
-      this.pollTimer = null
-    }
-  }
-
-  private async poll(handler: (events: BusEvent[]) => Promise<void>) {
-    if (!this.isPolling) return
-
-    try {
-      await this.processBatch(handler)
-      this.errorCount = 0 // Reset on success
-    } catch (error) {
-      this.onError(error)
-      this.errorCount++
-    } finally {
-      if (this.isPolling) {
-        const backoff = Math.min(
-          this.pollIntervalMs * Math.pow(2, this.errorCount),
-          this.maxErrorBackoffMs
-        )
-        this.pollTimer = setTimeout(() => {
-          void this.poll(handler)
-        }, backoff)
-      }
-    }
+    await this.poller.stop()
   }
 
   private async processBatch(handler: (events: BusEvent[]) => Promise<void>) {
-    await this.db.transaction(async (tx) => {
+    await this.config.db.transaction(async (tx) => {
       const now = new Date()
 
       const events = await tx
@@ -102,7 +72,7 @@ export class PostgresDrizzleOutbox implements IOutbox {
             eq(outboxEvents.status, "created"),
             and(
               eq(outboxEvents.status, "failed"),
-              lt(outboxEvents.retryCount, this.maxRetries),
+              lt(outboxEvents.retryCount, this.config.maxRetries),
               lt(outboxEvents.nextRetryAt, now)
             ),
             and(
@@ -114,7 +84,7 @@ export class PostgresDrizzleOutbox implements IOutbox {
             )
           )
         )
-        .limit(this.batchSize)
+        .limit(this.config.batchSize)
         .for("update", { skipLocked: true })
 
       if (events.length === 0) return
@@ -156,12 +126,12 @@ export class PostgresDrizzleOutbox implements IOutbox {
 
         await tx.delete(outboxEvents).where(inArray(outboxEvents.id, eventIds))
       } catch (e: unknown) {
-        this.onError(e)
+        this.config.onError(e)
         const msNow = Date.now()
         await Promise.all(
           events.map((event) => {
             const retryCount = event.retryCount + 1
-            const delay = this.baseBackoffMs * 2 ** (retryCount - 1)
+            const delay = this.poller.calculateBackoff(retryCount)
 
             return tx
               .update(outboxEvents)

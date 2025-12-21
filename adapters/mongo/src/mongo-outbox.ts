@@ -1,15 +1,10 @@
 import { ObjectId, type Collection, type MongoClient } from "mongodb"
-import type { BusEvent, IOutbox } from "outbox-event-bus"
+import { type BusEvent, type IOutbox, type OutboxConfig, type ResolvedOutboxConfig, PollingService } from "outbox-event-bus"
 
-export interface MongoOutboxConfig {
+export interface MongoOutboxConfig extends OutboxConfig {
   client: MongoClient
   dbName: string
   collectionName?: string
-  maxRetries?: number
-  baseBackoffMs?: number
-  pollIntervalMs?: number
-  batchSize?: number
-  onError: (error: unknown) => void
 }
 
 interface OutboxDocument {
@@ -29,27 +24,37 @@ interface OutboxDocument {
 }
 
 export class MongoOutbox implements IOutbox {
+  private readonly config: Required<MongoOutboxConfig>
   private readonly collection: Collection<OutboxDocument>
-  private readonly maxRetries: number
-  private readonly baseBackoffMs: number
-  private readonly pollIntervalMs: number
-  private readonly batchSize: number
-  private readonly onError: (error: unknown) => void
-
-  private isPolling = false
-  private pollTimer: NodeJS.Timeout | null = null
-  private errorCount = 0
-  private readonly maxErrorBackoffMs = 30000
+  private readonly poller: PollingService
 
   constructor(config: MongoOutboxConfig) {
+    this.config = {
+      batchSize: config.batchSize ?? 50,
+      pollIntervalMs: config.pollIntervalMs ?? 1000,
+      maxRetries: config.maxRetries ?? 5,
+      baseBackoffMs: config.baseBackoffMs ?? 1000,
+      processingTimeoutMs: config.processingTimeoutMs ?? 30000,
+      maxErrorBackoffMs: config.maxErrorBackoffMs ?? 30000,
+      collectionName: config.collectionName ?? "outbox_events",
+      onError: config.onError,
+      client: config.client,
+      dbName: config.dbName,
+    }
+    
     this.collection = config.client
       .db(config.dbName)
-      .collection(config.collectionName ?? "outbox_events")
-    this.maxRetries = config.maxRetries ?? 5
-    this.baseBackoffMs = config.baseBackoffMs ?? 1000
-    this.pollIntervalMs = config.pollIntervalMs ?? 1000
-    this.batchSize = config.batchSize ?? 50
-    this.onError = config.onError
+      .collection<OutboxDocument>(this.config.collectionName)
+
+    this.poller = new PollingService(
+      {
+        pollIntervalMs: this.config.pollIntervalMs,
+        baseBackoffMs: this.config.baseBackoffMs,
+        maxErrorBackoffMs: this.config.maxErrorBackoffMs,
+        onError: this.config.onError,
+        processBatch: (handler) => this.processBatch(handler),
+      }
+    )
   }
 
   async publish(events: BusEvent[]): Promise<void> {
@@ -61,7 +66,7 @@ export class MongoOutbox implements IOutbox {
       eventId: e.id,
       type: e.type,
       payload: e.payload,
-      occurredAt: e.occurredAt,
+      occurredAt: e.occurredAt ?? now,
       status: "created",
       retryCount: 0,
       nextRetryAt: now,
@@ -73,39 +78,11 @@ export class MongoOutbox implements IOutbox {
   }
 
   start(handler: (events: BusEvent[]) => Promise<void>): void {
-    if (this.isPolling) return
-    this.isPolling = true
-    void this.poll(handler)
+    this.poller.start(handler)
   }
 
   async stop(): Promise<void> {
-    this.isPolling = false
-    if (this.pollTimer) {
-      clearTimeout(this.pollTimer)
-      this.pollTimer = null
-    }
-  }
-
-  private async poll(handler: (events: BusEvent[]) => Promise<void>) {
-    if (!this.isPolling) return
-
-    try {
-      await this.processBatch(handler)
-      this.errorCount = 0
-    } catch (error) {
-      this.onError(error)
-      this.errorCount++
-    } finally {
-      if (this.isPolling) {
-        const backoff = Math.min(
-          this.pollIntervalMs * Math.pow(2, this.errorCount),
-          this.maxErrorBackoffMs
-        )
-        this.pollTimer = setTimeout(() => {
-          void this.poll(handler)
-        }, backoff)
-      }
-    }
+    await this.poller.stop()
   }
 
   private async processBatch(handler: (events: BusEvent[]) => Promise<void>) {
@@ -113,21 +90,21 @@ export class MongoOutbox implements IOutbox {
 
     const lockedEvents: OutboxDocument[] = []
     
-    for (let i = 0; i < this.batchSize; i++) {
+    for (let i = 0; i < this.config.batchSize; i++) {
       const result = await this.collection.findOneAndUpdate(
         {
           $or: [
             { status: "created" },
             { 
               status: "failed", 
-              retryCount: { $lt: this.maxRetries },
-              nextRetryAt: { $lte: now }
+              retryCount: { $lt: this.config.maxRetries },
+              nextRetryAt: { $lt: now },
             },
             {
               status: "active",
-              keepAlive: { $lt: new Date(now.getTime() - 60000) }
-            }
-          ]
+              keepAlive: { $lt: now },
+            },
+          ],
         },
         {
           $set: {
@@ -165,28 +142,32 @@ export class MongoOutbox implements IOutbox {
         }
       )
       
-    } catch (error: unknown) {
+    } catch (e: unknown) {
+      this.config.onError(e)
+      // Mark failed
       const msNow = Date.now()
-      for (const event of lockedEvents) {
-        const retryCount = event.retryCount + 1
-        const delay = this.baseBackoffMs * 2 ** (retryCount - 1)
-        
-        try {
-          await this.collection.updateOne(
-            { _id: event._id },
-            {
-              $set: {
-                status: "failed",
-                retryCount,
-                lastError: error instanceof Error ? error.message : String(error),
-                nextRetryAt: new Date(msNow + delay)
+      await Promise.all(
+        lockedEvents.map(async (event) => {
+          const retryCount = event.retryCount + 1
+          const delay = this.poller.calculateBackoff(retryCount)
+          
+          try {
+            await this.collection.updateOne(
+              { _id: event._id },
+              {
+                $set: {
+                  status: "failed",
+                  retryCount,
+                  lastError: e instanceof Error ? e.message : String(e),
+                  nextRetryAt: new Date(msNow + delay)
+                }
               }
-            }
-          )
-        } catch (updateError) {
-          this.onError(updateError)
-        }
-      }
+            )
+          } catch (updateError) {
+             this.config.onError(updateError)
+          }
+        })
+      )
     }
   }
 }

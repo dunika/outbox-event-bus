@@ -19,7 +19,7 @@ describe("PostgresPrismaOutbox E2E", () => {
       let retries = 5
       while (retries > 0) {
         try {
-            execSync("npx prisma db push --skip-generate", { stdio: "inherit" })
+            execSync("npx prisma db push --accept-data-loss", { stdio: "inherit", env: { ...process.env, DATABASE_URL } })
             break
         } catch (e) {
             retries--

@@ -13,7 +13,7 @@ describe("OutboxEventBus", () => {
   beforeEach(() => {
     outbox = {
       publish: vi.fn().mockResolvedValue(undefined),
-      start: vi.fn((handler) => {
+      start: vi.fn((handler, onError) => {
         outboxHandler = handler
       }),
       stop: vi.fn().mockResolvedValue(undefined),
@@ -40,7 +40,7 @@ describe("OutboxEventBus", () => {
 
   it("should start and stop the outbox", async () => {
     eventBus.start()
-    expect(outbox.start).toHaveBeenCalled()
+    expect(outbox.start).toHaveBeenCalledWith(expect.any(Function), onError)
 
     await eventBus.stop()
     expect(outbox.stop).toHaveBeenCalled()

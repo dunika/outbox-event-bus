@@ -4,7 +4,7 @@
     "baseUrl": ".",
     "paths": {
       "outbox-event-bus": [
-        "src/index.ts"
+        "../../core/src/index.ts"
       ]
     }
   },

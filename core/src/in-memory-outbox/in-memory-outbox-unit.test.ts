@@ -13,10 +13,10 @@ describe("InMemoryOutbox Unit", () => {
 
   it("should process events when they are published", async () => {
     const onError = vi.fn()
-    outbox = new InMemoryOutbox({ onError })
+    outbox = new InMemoryOutbox()
     const handler = vi.fn().mockResolvedValue(undefined)
 
-    outbox.start(handler)
+    outbox.start(handler, onError)
 
     const event = {
       id: "1",
@@ -33,7 +33,7 @@ describe("InMemoryOutbox Unit", () => {
 
   it("should process buffered events when started", async () => {
     const onError = vi.fn()
-    outbox = new InMemoryOutbox({ onError })
+    outbox = new InMemoryOutbox()
     const handler = vi.fn().mockResolvedValue(undefined)
 
     const event = {
@@ -46,17 +46,17 @@ describe("InMemoryOutbox Unit", () => {
     await outbox.publish([event])
     expect(handler).not.toHaveBeenCalled()
 
-    outbox.start(handler)
+    outbox.start(handler, onError)
     expect(handler).toHaveBeenCalledWith([event])
   })
 
   it("should call onError when handler fails", async () => {
     const onError = vi.fn()
-    outbox = new InMemoryOutbox({ onError })
+    outbox = new InMemoryOutbox()
     const error = new Error("failed")
     const handler = vi.fn().mockRejectedValue(error)
 
-    outbox.start(handler)
+    outbox.start(handler, onError)
 
     const event = {
       id: "1",
@@ -73,10 +73,10 @@ describe("InMemoryOutbox Unit", () => {
 
   it("should stop processing when stopped", async () => {
     const onError = vi.fn()
-    outbox = new InMemoryOutbox({ onError })
+    outbox = new InMemoryOutbox()
     const handler = vi.fn().mockResolvedValue(undefined)
 
-    outbox.start(handler)
+    outbox.start(handler, onError)
     await outbox.stop()
 
     const event = {

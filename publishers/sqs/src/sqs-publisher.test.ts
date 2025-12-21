@@ -53,9 +53,8 @@ describe("SQSPublisher", () => {
     expect(command.input.MessageAttributes?.EventType?.StringValue).toBe(event.type)
   })
 
-  it("should call onError when SQS send fails", async () => {
-    const onError = vi.fn()
-    const publisher = new SQSPublisher(mockBus, { ...config, sqsClient: mockSqsClient, onError })
+  it("should throw error when SQS send fails", async () => {
+    const publisher = new SQSPublisher(mockBus, { ...config, sqsClient: mockSqsClient })
     
     publisher.subscribe(["user.created"])
     const handler = mockBus.subscribe.mock.calls[0][1]
@@ -63,8 +62,6 @@ describe("SQSPublisher", () => {
     const error = new Error("SQS Error")
     mockSqsClient.send.mockRejectedValue(error)
     
-    await handler({ type: "user.created" } as any)
-    
-    expect(onError).toHaveBeenCalledWith(error)
+    await expect(handler({ type: "user.created" } as any)).rejects.toThrow("SQS Error")
   })
 })

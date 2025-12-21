@@ -13,3 +13,9 @@ export type EventHandler<T extends string = string, P = unknown> = (
 export type AnyListener = (...args: unknown[]) => unknown
 
 export type ErrorHandler = (error: unknown) => void
+
+export interface RetryOptions {
+  maxAttempts?: number
+  initialDelayMs?: number
+  maxDelayMs?: number
+}

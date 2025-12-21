@@ -20,7 +20,7 @@ function createTestEvent(): BusEvent<
 }
 
 function createEventBus() {
-  const outbox = new InMemoryOutbox(vi.fn())
+  const outbox = new InMemoryOutbox()
   return new OutboxEventBus(
     outbox,
     (_bus, _type, _count) => {},

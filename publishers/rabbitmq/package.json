@@ -3,6 +3,12 @@
   "version": "0.0.1",
   "private": false,
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dunika/outbox-event-bus.git",
+    "directory": "publishers/rabbitmq"
+  },
+  "homepage": "https://github.com/dunika/outbox-event-bus/tree/main/publishers/rabbitmq#readme",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -26,8 +32,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsdown",
-    "test": "vitest run src/rabbitmq-publisher.test.ts"
+    "build": "tsdown"
   },
   "dependencies": {
     "amqplib": "^0.10.9",

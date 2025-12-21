@@ -1,20 +1,14 @@
 import type { IOutbox } from "../interfaces"
 import type { BusEvent } from "../types"
 
-export interface InMemoryOutboxConfig {
-  onError: (error: unknown) => void
-}
 
 export class InMemoryOutbox implements IOutbox {
   private events: BusEvent[] = []
   private handler: ((events: BusEvent[]) => Promise<void>) | null = null
   private processingPromise: Promise<void> | null = null
-  private readonly onError: (error: unknown) => void
+  public onError?: (error: unknown) => void
 
-  constructor(config: InMemoryOutboxConfig)
-  constructor(configOrCallback: InMemoryOutboxConfig | ((error: unknown) => void)) {
-    this.onError = typeof configOrCallback === 'function' ? configOrCallback : configOrCallback.onError
-  }
+  constructor() {}
 
   async publish(events: BusEvent[]): Promise<void> {
     this.events.push(...events)
@@ -47,7 +41,7 @@ export class InMemoryOutbox implements IOutbox {
           try {
             await this.handler(batch)
           } catch (error) {
-            this.onError(error)
+            this.onError?.(error)
           }
         }
       } finally {

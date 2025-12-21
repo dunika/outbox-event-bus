@@ -1,6 +1,11 @@
-# PostgreSQL Drizzle Outbox
+# PostgreSQL (Drizzle) Outbox
 
-PostgreSQL adapter for [outbox-event-bus](../../README.md) using [Drizzle ORM](https://orm.drizzle.team/). Provides reliable event storage with `SELECT FOR UPDATE SKIP LOCKED` for safe distributed processing.
+![npm version](https://img.shields.io/npm/v/@outbox-event-bus/postgres-drizzle-outbox?style=flat-square&color=2563eb)
+![license](https://img.shields.io/npm/l/@outbox-event-bus/postgres-drizzle-outbox?style=flat-square&color=2563eb)
+
+> **Relational Event Storage with Drizzle ORM**
+
+PostgreSQL adapter for [outbox-event-bus](../../README.md) using [Drizzle ORM](https://orm.drizzle.team/). Provides robust event storage with `SELECT FOR UPDATE SKIP LOCKED` for safe distributed processing.
 
 ```typescript
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -16,14 +21,13 @@ const outbox = new PostgresDrizzleOutbox({
 });
 ```
 
-This adapter uses PostgreSQL's row-level locking to ensure only one worker processes each event.
+## When to Use
 
-- [Installation](#installation)
-- [Database Schema](#database-schema)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [Features](#features)
-- [Back to Main Documentation](../../README.md)
+**Choose Postgres Drizzle Outbox when:**
+- You are using **PostgreSQL** as your primary database.
+- You prefer **SQL-standard** relational data models.
+- You need **transactional consistency** (emitting events within the same transaction as business logic).
+- You want **type safety** provided by Drizzle ORM.
 
 ## Installation
 
@@ -33,7 +37,7 @@ npm install @outbox-event-bus/postgres-drizzle-outbox drizzle-orm postgres
 
 ## Database Schema
 
-Run the migration to create required tables:
+Run the following SQL to create the required tables:
 
 ```sql
 CREATE TABLE outbox_events (
@@ -78,18 +82,12 @@ interface PostgresDrizzleOutboxConfig {
   getExecutor?: () => PostgresJsDatabase<Record<string, unknown>> | undefined;
   maxRetries?: number;              // Max retry attempts (default: 5)
   baseBackoffMs?: number;           // Base retry backoff (default: 1000ms)
+  maxErrorBackoffMs?: number;       // Max polling error backoff (default: 30000ms)
   pollIntervalMs?: number;          // Polling interval (default: 1000ms)
   batchSize?: number;               // Events per poll (default: 50)
   onError: (error: unknown) => void; // Error handler
 }
 ```
-
-### getExecutor Option
-
-The `getExecutor` option allows you to provide a custom database executor, useful for:
-- Transaction support with async local storage
-- Custom connection pooling
-- Multi-tenancy scenarios
 
 ## Usage
 
@@ -106,23 +104,16 @@ const db = drizzle(client);
 
 const outbox = new PostgresDrizzleOutbox({
   db,
-  onError: (error) => console.error('Outbox error:', error)
+  onError: console.error
 });
 
-const bus = new OutboxEventBus(
-  outbox,
-  (bus, eventType, count) => console.warn(`Max listeners: ${eventType}`),
-  (error) => console.error('Bus error:', error)
-);
-
-bus.on('user.created', async (event) => {
-  console.log('User created:', event.payload);
-});
-
+const bus = new OutboxEventBus(outbox, console.warn, console.error);
 bus.start();
 ```
 
-### With Transaction Support
+### With Transactions
+
+The `getExecutor` option allows you to integrate with transactions, ensuring events are only processed if the transaction commits.
 
 ```typescript
 import { AsyncLocalStorage } from 'async_hooks';
@@ -135,20 +126,12 @@ const outbox = new PostgresDrizzleOutbox({
   onError: console.error
 });
 
-// In your application code
-async function createUser(userData) {
+// In your service
+async function createUser(user) {
   await db.transaction(async (tx) => {
     txStorage.run(tx, async () => {
-      // Insert user
-      await tx.insert(users).values(userData);
-      
-      // Emit event (uses transaction from async local storage)
-      await bus.emit({
-        id: crypto.randomUUID(),
-        type: 'user.created',
-        payload: userData,
-        occurredAt: new Date()
-      });
+      await tx.insert(users).values(user);
+      await bus.emit({ type: 'user.created', payload: user });
     });
   });
 }
@@ -156,29 +139,17 @@ async function createUser(userData) {
 
 ## Features
 
-### SELECT FOR UPDATE SKIP LOCKED
+- **SKIP LOCKED**: Uses `SELECT ... FOR UPDATE SKIP LOCKED` to efficiently claim events without blocking other workers.
+- **Transactional Integrity**: Supports emitting events within the same transaction as your data changes (Atomic Phase 1).
+- **Archiving**: Automatically moves processed events to an archive table to keep the active table small and fast.
+- **Stuck Event Recovery**: Reclaims events that have timed out (stalled workers) based on `keep_alive` + `expire_in_seconds`.
 
-Uses PostgreSQL's row-level locking for safe distributed processing:
+## Troubleshooting
 
-```sql
-SELECT * FROM outbox_events
-WHERE status = 'created'
-LIMIT 50
-FOR UPDATE SKIP LOCKED
-```
+### `SerializationFailure`
+- **Cause**: Transaction conflicts.
+- **Solution**: The `SKIP LOCKED` clause minimizes this, but ensure your `pollIntervalMs` isn't too aggressive if high contention exists.
 
-### Automatic Archiving
-
-Completed events are moved to `outbox_events_archive` table for audit trail.
-
-### Stuck Event Recovery
-
-Events with stale `keep_alive` timestamps are automatically reclaimed.
-
-### Exponential Backoff Retry
-
-Failed events retry with exponential backoff (max 5 retries by default).
-
-## Back to Main Documentation
-
-[← Back to outbox-event-bus](../../README.md)
+### Events not appearing
+- **Cause**: Transaction rollback.
+- **Solution**: If using transactions, ensure `bus.emit` is awaited *inside* the transaction scope and the transaction actually commits.

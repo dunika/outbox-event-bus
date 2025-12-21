@@ -1,16 +1,28 @@
-# Outbox Event Bus
+# outbox-event-bus
 
-A TypeScript event bus implementation using the [Transactional Outbox Pattern](https://microservices.io/patterns/data/transactional-outbox.html) to ensure reliable, at-least-once event delivery across distributed systems.
+![npm version](https://img.shields.io/npm/v/outbox-event-bus?style=flat-square&color=2563eb)
+![zero dependencies](https://img.shields.io/badge/dependencies-0-success?style=flat-square)
+![license](https://img.shields.io/npm/l/outbox-event-bus?style=flat-square&color=2563eb)
+
+> **Never Lose an Event Again**
+>
+> `outbox-event-bus` guarantees reliable, at-least-once event delivery using the Transactional Outbox Pattern.
+
+## Quick Start
+
+```bash
+npm install outbox-event-bus @outbox-event-bus/postgres-drizzle-outbox @outbox-event-bus/sqs-publisher
+```
 
 ```typescript
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
+import { SQSClient } from '@aws-sdk/client-sqs';
 import { OutboxEventBus } from 'outbox-event-bus';
 import { PostgresDrizzleOutbox } from '@outbox-event-bus/postgres-drizzle-outbox';
 import { SQSPublisher } from '@outbox-event-bus/sqs-publisher';
-import { SQSClient } from '@aws-sdk/client-sqs';
 
-// Setup outbox with PostgreSQL
+// Setup outbox with PostgreSQL (one of several built-in adapters)
 const client = postgres(process.env.DATABASE_URL!);
 const db = drizzle(client);
 const outbox = new PostgresDrizzleOutbox({
@@ -25,253 +37,122 @@ const bus = new OutboxEventBus(
   (error) => console.error('Bus error:', error)
 );
 
-// Setup SQS publisher
-const publisher = new SQSPublisher(bus, {
-  sqsClient: new SQSClient({}),
-  queueUrl: process.env.QUEUE_URL!
-});
-publisher.subscribe(['user.created', 'order.placed']);
-
-// Subscribe to events locally
+// Subscribe to events
 bus.on('user.created', async (event) => {
   console.log('User created:', event.payload);
 });
 
-// Emit events
+// Emit events - they're persisted before processing
 await bus.emit({ 
   id: crypto.randomUUID(), 
   type: 'user.created', 
   payload: { userId: '123' }, 
-  occurredAt: new Date() 
 });
+
+// Setup SQS publisher (one of several built-in publishers)
+const publisher = new SQSPublisher(bus, {
+  sqsClient: new SQSClient({ region: 'us-east-1' }),
+  queueUrl: 'https://sqs.us-east-1.amazonaws.com/12345/my-queue',
+  onError: (error) => console.error('SQS error:', error)
+});
+publisher.subscribe(['user.created', .'order.placed']);
 
 // Start processing
 bus.start();
 ```
 
-This library provides a reliable event bus that persists events to an outbox table before processing them, ensuring events are never lost even if your application crashes. It's designed to work seamlessly with various storage backends and message brokers.
+**What makes this different?** Events are persisted to your database before processing, ensuring they're never lost—even if your application crashes mid-execution.
 
-- [Why This Exists](#why-this-exists)
-- [Core Concepts](#core-concepts)
+---
+
+- [The Problem](#the-problem)
+- [The Solution](#the-solution)
+- [Philosophy](#philosophy)
 - [Installation](#installation)
-- [Quick Start](#quick-start)
+- [Core Concepts](#core-concepts)
 - [Adapters](#adapters)
 - [Publishers](#publishers)
 - [API Reference](#api-reference)
+- [Development](#development)
 - [Architecture](#architecture)
 - [License](#license)
 
-## Why This Exists
+---
 
-In distributed systems, ensuring reliable event delivery is challenging. Traditional event emitters can lose events if the application crashes before processing completes. The Transactional Outbox Pattern solves this by:
+## The Problem
 
-1. **Persisting events atomically** with your business logic
-2. **Processing events asynchronously** from the outbox table
-3. **Guaranteeing at-least-once delivery** through retries and recovery
+In distributed systems, **events get lost**. Traditional event emitters fail silently when:
 
-This library provides a production-ready implementation with:
+1. **Your application crashes** before the event handler completes.
+2. **The database transaction rolls back** but the event was already emitted.
+3. **Network failures** occur during message broker communication.
+4. **Race conditions** cause events to be processed out of order.
 
-- **Node.js EventEmitter-compatible API** for familiar usage patterns
-- **Multiple storage adapters** (DynamoDB, MongoDB, PostgreSQL, Redis, SQLite)
-- **Multiple publisher integrations** (EventBridge, Kafka, RabbitMQ, SQS, SNS, Redis Streams)
-- **Automatic retry logic** with exponential backoff
-- **Stuck event recovery** to handle processing failures
-- **Type-safe event handling** with full TypeScript support
+```typescript
+// BEFORE: Traditional EventEmitter - Events can be lost
+emitter.emit('user.created', user); // 💥 Lost if app crashes
+```
 
-## Core Concepts
+## The Solution
 
-### Outbox
+`outbox-event-bus` makes event delivery reliable by treating events as data.
 
-An **outbox** is a storage adapter that persists events and manages their lifecycle. It implements three core operations:
+1. **Persist** events to your database atomically with your business logic.
+2. **Poll** the outbox table for pending events.
+3. **Process** events with automatic retries and recovery.
+4. **Guarantee** at-least-once delivery—no event is ever lost.
 
-- `publish(events)` - Persist events to storage
-- `start(handler)` - Begin polling for pending events
-- `stop()` - Stop polling
+```typescript
+// AFTER: Outbox Event Bus - Events are never lost
+await bus.emit({ type: 'user.created', payload: user }); // ✅ Guaranteed delivery
+```
 
-### Event Bus
+## Philosophy
 
-The **event bus** provides an EventEmitter-like API for emitting and subscribing to events. It coordinates between the outbox and event handlers.
-
-### Publisher
-
-A **publisher** subscribes to specific event types and forwards them to external systems (message brokers, event buses, etc.).
+- **Durability First** - Persist before process. Events are data, not ephemeral signals.
+- **At-Least-Once Delivery** - Accept idempotency requirements in exchange for guaranteed delivery.
+- **Explicit Failure Handling** - Retries, backoff, and recovery are built-in.
+- **Production-Ready** - Designed for distributed systems with horizontal scaling and stuck event recovery.
 
 ## Installation
 
 Install the core library:
-
 ```bash
 npm install outbox-event-bus
 ```
 
-Install your chosen adapter(s):
+Choose your **Storage Adapter**:
+- [DynamoDB](https://github.com/dunikax/outbox-event-bus/tree/main/adapters/dynamodb)
+- [MongoDB](https://github.com/dunikax/outbox-event-bus/tree/main/adapters/mongo)
+- [Postgres (Drizzle)](https://github.com/dunikax/outbox-event-bus/tree/main/adapters/postgres-drizzle)
+- [Postgres (Prisma)](https://github.com/dunikax/outbox-event-bus/tree/main/adapters/postgres-prisma)
+- [Redis](https://github.com/dunikax/outbox-event-bus/tree/main/adapters/redis)
+- [SQLite](https://github.com/dunikax/outbox-event-bus/tree/main/adapters/sqlite)
 
-```bash
-# DynamoDB
-npm install @outbox-event-bus/dynamodb-outbox
+Choose your **Message Publisher**:
+- [EventBridge](https://github.com/dunikax/outbox-event-bus/tree/main/publishers/eventbridge)
+- [RabbitMQ](https://github.com/dunikax/outbox-event-bus/tree/main/publishers/rabbitmq)
+- [Redis Streams](https://github.com/dunikax/outbox-event-bus/tree/main/publishers/redis-streams)
+- [SNS](https://github.com/dunikax/outbox-event-bus/tree/main/publishers/sns)
+- [SQS](https://github.com/dunikax/outbox-event-bus/tree/main/publishers/sqs)
+- [Kafka](https://github.com/dunikax/outbox-event-bus/tree/main/publishers/kafka)
 
-# MongoDB
-npm install @outbox-event-bus/mongo-outbox
+## Core Concepts
 
-# PostgreSQL with Drizzle
-npm install @outbox-event-bus/postgres-drizzle-outbox
+### Outbox
+The storage backend (Database, Redis, etc.) that persists events and manages their lifecycle.
 
-# PostgreSQL with Prisma
-npm install @outbox-event-bus/postgres-prisma-outbox
+### Event Bus
+The main orchestrator that provides an EventEmitter-like API for emitting and subscribing to events.
 
-# Redis
-npm install @outbox-event-bus/redis-outbox
-
-# SQLite
-npm install @outbox-event-bus/sqlite-outbox
-```
-
-Install your chosen publisher(s):
-
-```bash
-# AWS EventBridge
-npm install @outbox-event-bus/eventbridge-publisher
-
-# Kafka
-npm install @outbox-event-bus/kafka-publisher
-
-# RabbitMQ
-npm install @outbox-event-bus/rabbitmq-publisher
-
-# AWS SQS
-npm install @outbox-event-bus/sqs-publisher
-
-# AWS SNS
-npm install @outbox-event-bus/sns-publisher
-
-# Redis Streams
-npm install @outbox-event-bus/redis-streams-publisher
-```
-
-## Quick Start
-
-### 1. Create an Outbox
-
-Choose a storage adapter and configure it:
-
-```typescript
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBOutbox } from '@outbox-event-bus/dynamodb-outbox';
-
-const outbox = new DynamoDBOutbox({
-  client: new DynamoDBClient({}),
-  tableName: 'events-outbox',
-  statusIndexName: 'status-gsiSortKey-index',
-  onError: (error) => console.error('Outbox error:', error)
-});
-```
-
-### 2. Create the Event Bus
-
-```typescript
-import { OutboxEventBus } from 'outbox-event-bus';
-
-const bus = new OutboxEventBus(
-  outbox,
-  (bus, eventType, count) => {
-    console.warn(`Max listeners (${count}) exceeded for event: ${eventType}`);
-  },
-  (error) => console.error('Bus error:', error)
-);
-```
-
-### 3. Subscribe to Events
-
-```typescript
-bus.on('user.created', async (event) => {
-  console.log('User created:', event.payload);
-});
-
-bus.on('order.placed', async (event) => {
-  console.log('Order placed:', event.payload);
-});
-```
-
-### 4. Emit Events
-
-```typescript
-// occurredAt is automatically added if not provided
-await bus.emit({
-  id: crypto.randomUUID(),
-  type: 'user.created',
-  payload: { userId: '123', email: 'user@example.com' }
-});
-
-// You can also provide a custom occurredAt if needed
-await bus.emit({
-  id: crypto.randomUUID(),
-  type: 'user.created',
-  payload: { userId: '123', email: 'user@example.com' },
-  occurredAt: new Date('2023-01-01')
-});
-```
-
-### 5. Start Processing
-
-```typescript
-bus.start();
-
-// When shutting down
-await bus.stop();
-```
-
-### 6. (Optional) Add Publishers
-
-Forward events to external systems:
-
-```typescript
-import { EventBridgeClient } from '@aws-sdk/client-eventbridge';
-import { EventBridgePublisher } from '@outbox-event-bus/eventbridge-publisher';
-
-const publisher = new EventBridgePublisher(bus, {
-  eventBridgeClient: new EventBridgeClient({}),
-  source: 'my-app',
-  onError: (error) => console.error('Publisher error:', error)
-});
-
-publisher.subscribe(['user.created', 'order.placed']);
-```
-
-## Adapters
-
-Adapters provide storage backends for the outbox pattern. Each adapter implements the `IOutbox` interface.
-
-| Adapter | Package | Description |
-|---------|---------|-------------|
-| **DynamoDB** | [`@outbox-event-bus/dynamodb-outbox`](./adapters/dynamodb/README.md) | AWS DynamoDB with GSI for status queries |
-| **MongoDB** | [`@outbox-event-bus/mongo-outbox`](./adapters/mongo/README.md) | MongoDB with change streams support |
-| **PostgreSQL (Drizzle)** | [`@outbox-event-bus/postgres-drizzle-outbox`](./adapters/postgres-drizzle/README.md) | PostgreSQL using Drizzle ORM |
-| **PostgreSQL (Prisma)** | [`@outbox-event-bus/postgres-prisma-outbox`](./adapters/postgres-prisma/README.md) | PostgreSQL using Prisma ORM |
-| **Redis** | [`@outbox-event-bus/redis-outbox`](./adapters/redis/README.md) | Redis with sorted sets for scheduling |
-| **SQLite** | [`@outbox-event-bus/sqlite-outbox`](./adapters/sqlite/README.md) | SQLite for local development |
-
-Click on any adapter name to view detailed documentation.
-
-## Publishers
-
-Publishers forward events from the bus to external messaging systems. Each publisher implements the `IPublisher` interface.
-
-| Publisher | Package | Description |
-|-----------|---------|-------------|
-| **EventBridge** | [`@outbox-event-bus/eventbridge-publisher`](./publishers/eventbridge/README.md) | AWS EventBridge event bus |
-| **Kafka** | [`@outbox-event-bus/kafka-publisher`](./publishers/kafka/README.md) | Apache Kafka topics |
-| **RabbitMQ** | [`@outbox-event-bus/rabbitmq-publisher`](./publishers/rabbitmq/README.md) | RabbitMQ exchanges |
-| **SQS** | [`@outbox-event-bus/sqs-publisher`](./publishers/sqs/README.md) | AWS SQS queues |
-| **SNS** | [`@outbox-event-bus/sns-publisher`](./publishers/sns/README.md) | AWS SNS topics |
-| **Redis Streams** | [`@outbox-event-bus/redis-streams-publisher`](./publishers/redis-streams/README.md) | Redis Streams |
-
-Click on any publisher name to view detailed documentation.
+### Publisher
+A specialized subscriber that forwards events to external systems (brokers, webhooks, etc.).
 
 ## API Reference
 
 ### OutboxEventBus
 
-The main event bus class that coordinates event emission and subscription.
+The main event bus class that coordinates event emission and subscription. It provides an API that is nearly at parity with Node.js's native [EventEmitter](https://nodejs.org/api/events.html#class-eventemitter), making it familiar and easy to use.
 
 #### Constructor
 
@@ -377,59 +258,45 @@ Event handler function signature:
 type EventHandler<T extends string, P> = (event: BusEvent<T, P>) => Promise<void>
 ```
 
+## Development
+
+This project is a monorepo managed with **pnpm**.
+
+### Clone and Install
+```bash
+git clone https://github.com/dunikax/outbox-event-bus.git
+cd outbox-event-bus
+pnpm install
+```
+
+### Build
+```bash
+pnpm build
+```
+
+### Test
+```bash
+pnpm test
+
+pnpm test:e2e
+```
+
+### Lint
+```bash
+pnpm lint
+```
+
 ## Architecture
 
-### Event Flow
-
+```mermaid
+graph TD
+    A[Application] -->|emit| B[OutboxEventBus]
+    B -->|publish| C[Storage Adapter]
+    C -->|poll| D[OutboxEventBus]
+    D -->|trigger| E[Subscribers]
+    E -->|process| F[Publishers]
+    F -->|send| G[External Broker]
 ```
-┌─────────────────┐
-│  Application    │
-│  Logic          │
-└────────┬────────┘
-         │ emit()
-         ▼
-┌─────────────────┐
-│  OutboxEventBus │
-└────────┬────────┘
-         │ publish()
-         ▼
-┌─────────────────┐
-│  Outbox Adapter │◄──┐
-│  (Storage)      │   │
-└────────┬────────┘   │
-         │            │ poll()
-         │ start()    │
-         ▼            │
-┌─────────────────┐   │
-│  Event Handler  │───┘
-│  (Subscribers)  │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Publishers     │
-│  (External)     │
-└─────────────────┘
-```
-
-### Key Features
-
-**Reliability**
-- Events are persisted before processing
-- Automatic retry with exponential backoff
-- Stuck event recovery for long-running failures
-- At-least-once delivery guarantee
-
-**Scalability**
-- Horizontal scaling through competing consumers
-- Batch processing for efficiency
-- Configurable polling intervals and batch sizes
-
-**Flexibility**
-- Pluggable storage adapters
-- Pluggable publishers
-- EventEmitter-compatible API
-- Full TypeScript support
 
 ## License
 

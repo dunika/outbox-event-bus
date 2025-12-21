@@ -7,48 +7,48 @@ import {
   QueryCommand as DocQueryCommand,
   BatchWriteCommand
 } from "@aws-sdk/lib-dynamodb";
-import type { BusEvent, IOutbox } from "outbox-event-bus";
+import { type BusEvent, type IOutbox, type OutboxConfig, type ResolvedOutboxConfig, PollingService } from "outbox-event-bus";
 
-export interface DynamoDBOutboxConfig {
+export interface DynamoDBOutboxConfig extends OutboxConfig {
   client: DynamoDBClient;
   tableName: string;
-  statusIndexName: string;
-  batchSize?: number;
-  pollIntervalMs?: number;
+  statusIndexName?: string;
   processingTimeoutMs?: number; // Time before a PROCESSING event is considered stuck
-  maxRetries?: number;
-  baseBackoffMs?: number;
-  onError: (error: unknown) => void;
 }
 
 export class DynamoDBOutbox implements IOutbox {
+  private readonly config: Required<DynamoDBOutboxConfig>
   private readonly docClient: DynamoDBDocumentClient;
-  private readonly tableName: string;
-  private readonly statusIndexName: string;
-  private readonly batchSize: number;
-  private readonly pollIntervalMs: number;
-  private readonly processingTimeoutMs: number;
-  private readonly maxRetries: number;
-  private readonly baseBackoffMs: number;
-  private readonly onError: (error: unknown) => void;
-
-  private isPolling = false;
-  private pollTimeout: NodeJS.Timeout | null = null;
-  private errorCount = 0;
-  private readonly maxErrorBackoffMs = 30000;
-
+  private readonly poller: PollingService;
+  
   constructor(config: DynamoDBOutboxConfig) {
+    this.config = {
+      batchSize: config.batchSize ?? 10,
+      pollIntervalMs: config.pollIntervalMs ?? 1000,
+      maxRetries: config.maxRetries ?? 5,
+      baseBackoffMs: config.baseBackoffMs ?? 1000,
+      processingTimeoutMs: config.processingTimeoutMs ?? 30000,
+      maxErrorBackoffMs: config.maxErrorBackoffMs ?? 30000,
+      onError: config.onError,
+      tableName: config.tableName,
+      statusIndexName: config.statusIndexName ?? "status-index",
+      client: config.client,
+    }
+
     this.docClient = DynamoDBDocumentClient.from(config.client, {
       marshallOptions: { removeUndefinedValues: true }
     });
-    this.tableName = config.tableName;
-    this.statusIndexName = config.statusIndexName;
-    this.batchSize = config.batchSize ?? 10;
-    this.pollIntervalMs = config.pollIntervalMs ?? 1000;
-    this.processingTimeoutMs = config.processingTimeoutMs ?? 30000;
-    this.maxRetries = config.maxRetries ?? 5;
-    this.baseBackoffMs = config.baseBackoffMs ?? 1000;
-    this.onError = config.onError;
+    
+    this.poller = new PollingService(
+      {
+        pollIntervalMs: this.config.pollIntervalMs,
+        baseBackoffMs: this.config.baseBackoffMs,
+        maxErrorBackoffMs: this.config.maxErrorBackoffMs,
+        onError: this.config.onError,
+        performMaintenance: () => this.recoverStuckEvents(),
+        processBatch: (handler) => this.processBatch(handler),
+      }
+    )
   }
 
   async publish(events: BusEvent[]): Promise<void> {
@@ -58,71 +58,46 @@ export class DynamoDBOutbox implements IOutbox {
     }
 
     for (const chunk of chunks) {
-      const putRequests = chunk.map(event => ({
-        PutRequest: {
-          Item: {
-            id: event.id,
-            type: event.type,
-            payload: event.payload,
-            occurredAt: event.occurredAt.toISOString(),
-            status: "PENDING",
-            retryCount: 0,
-            gsiSortKey: event.occurredAt.getTime()
+      const now = new Date();
+      const putRequests = chunk.map(event => {
+        const occurredAt = event.occurredAt ?? now;
+        return {
+          PutRequest: {
+            Item: {
+              id: event.id,
+              type: event.type,
+              payload: event.payload,
+              occurredAt: occurredAt.toISOString(),
+              status: "PENDING",
+              retryCount: 0,
+              nextAttempt: occurredAt.getTime()
+            }
           }
-        }
-      }));
+        };
+      });
 
       await this.docClient.send(new BatchWriteCommand({
         RequestItems: {
-          [this.tableName]: putRequests
+          [this.config.tableName]: putRequests
         }
       }));
     }
   }
 
   start(handler: (events: BusEvent[]) => Promise<void>): void {
-    if (this.isPolling) return;
-    this.isPolling = true;
-    void this.poll(handler);
+    this.poller.start(handler);
   }
 
   async stop(): Promise<void> {
-    this.isPolling = false;
-    if (this.pollTimeout) {
-      clearTimeout(this.pollTimeout);
-      this.pollTimeout = null;
-    }
-  }
-
-  private async poll(handler: (events: BusEvent[]) => Promise<void>) {
-    if (!this.isPolling) return;
-
-    try {
-      await this.recoverStuckEvents()
-      await this.processBatch(handler)
-      this.errorCount = 0
-    } catch (err) {
-      this.onError(err)
-      this.errorCount++
-    }
-
-    if (this.isPolling) {
-      const backoff = Math.min(
-        this.pollIntervalMs * Math.pow(2, this.errorCount),
-        this.maxErrorBackoffMs
-      )
-      this.pollTimeout = setTimeout(() => {
-        void this.poll(handler)
-      }, backoff)
-    }
+    await this.poller.stop();
   }
 
   private async recoverStuckEvents() {
     const now = Date.now()
 
     const result = await this.docClient.send(new DocQueryCommand({
-      TableName: this.tableName,
-      IndexName: this.statusIndexName,
+      TableName: this.config.tableName,
+      IndexName: this.config.statusIndexName,
       KeyConditionExpression: "#status = :status AND gsiSortKey <= :now",
       ExpressionAttributeNames: { "#status": "status" },
       ExpressionAttributeValues: {
@@ -135,7 +110,7 @@ export class DynamoDBOutbox implements IOutbox {
       for (const item of result.Items) {
         try {
           await this.docClient.send(new UpdateCommand({
-            TableName: this.tableName,
+            TableName: this.config.tableName,
             Key: { id: item.id },
             UpdateExpression: "SET #status = :pending, gsiSortKey = :now",
             ConditionExpression: "#status = :processing", 
@@ -147,7 +122,7 @@ export class DynamoDBOutbox implements IOutbox {
             }
           }))
         } catch (e: unknown) {
-          this.onError(e)
+          this.config.onError(e)
         }
       }
     }
@@ -157,8 +132,8 @@ export class DynamoDBOutbox implements IOutbox {
     const now = Date.now()
 
     const result = await this.docClient.send(new DocQueryCommand({
-      TableName: this.tableName,
-      IndexName: this.statusIndexName,
+      TableName: this.config.tableName,
+      IndexName: this.config.statusIndexName,
       KeyConditionExpression: "#status = :status AND gsiSortKey <= :now",
       ExpressionAttributeNames: {
         "#status": "status"
@@ -167,7 +142,7 @@ export class DynamoDBOutbox implements IOutbox {
         ":status": "PENDING",
         ":now": now
       },
-      Limit: this.batchSize
+      Limit: this.config.batchSize
     }))
 
     if (!result.Items || result.Items.length === 0) return
@@ -178,14 +153,14 @@ export class DynamoDBOutbox implements IOutbox {
     for (const item of result.Items) {
       try {
         await this.docClient.send(new UpdateCommand({
-          TableName: this.tableName,
+          TableName: this.config.tableName,
           Key: { id: item.id },
           UpdateExpression: "SET #status = :processing, gsiSortKey = :timeoutAt, startedOn = :now",
           ConditionExpression: "#status = :pending",
           ExpressionAttributeNames: { "#status": "status" },
           ExpressionAttributeValues: {
             ":processing": "PROCESSING",
-            ":timeoutAt": now + this.processingTimeoutMs,
+            ":timeoutAt": now + this.config.processingTimeoutMs,
             ":pending": "PENDING",
             ":now": now
           }
@@ -195,7 +170,7 @@ export class DynamoDBOutbox implements IOutbox {
           id: item.id,
           type: item.type,
           payload: item.payload,
-          occurredAt: new Date(item.occurredAt)
+          occurredAt: item.occurredAt ? (item.occurredAt instanceof Date ? item.occurredAt : new Date(item.occurredAt as string)) : new Date(),
         })
         successfulClaims.push(item)
       } catch (e: unknown) {
@@ -214,7 +189,7 @@ export class DynamoDBOutbox implements IOutbox {
 
       for (const event of eventsToProcess) {
         await this.docClient.send(new UpdateCommand({
-          TableName: this.tableName,
+          TableName: this.config.tableName,
           Key: { id: event.id },
           UpdateExpression: "SET #status = :completed, completedOn = :now REMOVE gsiSortKey",
           ExpressionAttributeNames: { "#status": "status" },
@@ -230,9 +205,9 @@ export class DynamoDBOutbox implements IOutbox {
       for (const item of successfulClaims) {
         const newRetryCount = (+(item.retryCount ?? 0)) + 1
 
-        if (newRetryCount >= this.maxRetries) {
+        if (newRetryCount >= this.config.maxRetries) {
           await this.docClient.send(new UpdateCommand({
-            TableName: this.tableName,
+            TableName: this.config.tableName,
             Key: { id: item.id },
             UpdateExpression: "SET #status = :failed, retryCount = :rc, lastError = :err REMOVE gsiSortKey",
             ExpressionAttributeNames: { "#status": "status" },
@@ -243,8 +218,9 @@ export class DynamoDBOutbox implements IOutbox {
             }
           }))
         } else {
+          const delay = this.poller.calculateBackoff(newRetryCount)
           await this.docClient.send(new UpdateCommand({
-            TableName: this.tableName,
+            TableName: this.config.tableName,
             Key: { id: item.id },
             UpdateExpression: "SET #status = :pending, retryCount = :rc, lastError = :err, gsiSortKey = :nextAttempt",
             ExpressionAttributeNames: { "#status": "status" },
@@ -252,7 +228,7 @@ export class DynamoDBOutbox implements IOutbox {
               ":pending": "PENDING",
               ":rc": newRetryCount,
               ":err": errorMsg,
-              ":nextAttempt": Date.now() + this.baseBackoffMs * 2 ** (newRetryCount - 1)
+              ":nextAttempt": Date.now() + delay
             }
           }))
         }

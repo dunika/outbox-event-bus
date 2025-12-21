@@ -1,5 +1,10 @@
 # Redis Outbox
 
+![npm version](https://img.shields.io/npm/v/@outbox-event-bus/redis-outbox?style=flat-square&color=2563eb)
+![license](https://img.shields.io/npm/l/@outbox-event-bus/redis-outbox?style=flat-square&color=2563eb)
+
+> **Lightning-Fast Event Storage with Redis**
+
 Redis adapter for [outbox-event-bus](../../README.md). Provides reliable event storage using Redis Sorted Sets for efficient time-based scheduling and Lua scripts for atomic operations.
 
 ```typescript
@@ -13,14 +18,19 @@ const outbox = new RedisOutbox({
 });
 ```
 
-This adapter uses Lua scripts to ensure atomic claim operations, making it safe for distributed environments.
+## When to Use
 
-- [Installation](#installation)
-- [Redis Keys](#redis-keys)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [Features](#features)
-- [Back to Main Documentation](../../README.md)
+**Choose Redis Outbox when:**
+- You need **sub-second latency** for event processing.
+- You're already using Redis in your infrastructure.
+- You want **horizontal scaling** with multiple workers.
+- You need **scheduled event delivery** with precise timing.
+- Your events are **ephemeral** (persistence is secondary to speed).
+
+**Consider alternatives when:**
+- You need **long-term event history** (use PostgreSQL/MongoDB instead).
+- You require **transactional consistency** with your relational database (use PostgreSQL adapters instead).
+- You want to store **very large payloads** (Redis memory is expensive).
 
 ## Installation
 
@@ -32,20 +42,9 @@ npm install @outbox-event-bus/redis-outbox ioredis
 
 The adapter uses the following Redis keys:
 
-### Sorted Sets
-
-- **`{prefix}:pending`** - Events waiting to be processed (score = scheduled time)
-- **`{prefix}:processing`** - Events currently being processed (score = timeout time)
-
-### Hashes
-
-- **`{prefix}:event:{id}`** - Event data stored as hash
-  - `id` - Event ID
-  - `type` - Event type
-  - `payload` - JSON-encoded payload
-  - `occurredAt` - ISO 8601 timestamp
-  - `status` - Event status
-  - `retryCount` - Number of retries
+- **`{prefix}:pending`**: Sorted Set of event IDs waiting to be processed (score = scheduled time).
+- **`{prefix}:processing`**: Sorted Set of event IDs currently being processed (score = timeout time).
+- **`{prefix}:event:{id}`**: Hash containing the full event data.
 
 ## Configuration
 
@@ -58,6 +57,9 @@ interface RedisOutboxConfig {
   batchSize?: number;               // Events per poll (default: 10)
   pollIntervalMs?: number;          // Polling interval (default: 1000ms)
   processingTimeoutMs?: number;     // Processing timeout (default: 30000ms)
+  maxErrorBackoffMs?: number;       // Max polling error backoff (default: 30000ms)
+  maxRetries?: number;              // Max retry attempts (default: 5)
+  baseBackoffMs?: number;           // Base retry backoff (default: 1000ms)
   onError: (error: unknown) => void; // Error handler
 }
 ```
@@ -78,16 +80,7 @@ const outbox = new RedisOutbox({
   onError: (error) => console.error('Outbox error:', error)
 });
 
-const bus = new OutboxEventBus(
-  outbox,
-  (bus, eventType, count) => console.warn(`Max listeners: ${eventType}`),
-  (error) => console.error('Bus error:', error)
-);
-
-bus.on('user.created', async (event) => {
-  console.log('User created:', event.payload);
-});
-
+const bus = new OutboxEventBus(outbox, console.warn, console.error);
 bus.start();
 ```
 
@@ -96,40 +89,24 @@ bus.start();
 ```typescript
 import { Cluster } from 'ioredis';
 
-const redis = new Cluster([
-  { host: 'redis-1', port: 6379 },
-  { host: 'redis-2', port: 6379 },
-  { host: 'redis-3', port: 6379 }
-]);
-
-const outbox = new RedisOutbox({
-  redis,
-  keyPrefix: 'myapp:outbox',
-  onError: console.error
-});
+const redis = new Cluster([{ host: 'localhost', port: 6379 }]);
+const outbox = new RedisOutbox({ redis, onError: console.error });
 ```
 
 ## Features
 
-### Lua Scripts for Atomicity
+- **Lua Scripts**: Atomic "poll and claim" logic ensures no two workers pick up the same event.
+- **Stuck Event Recovery**: Automatically moves events from `processing` back to `pending` if they exceed `processingTimeoutMs`.
+- **High Performance**: Leverages Redis Sorted Sets for $O(\log N)$ scheduling efficiency.
+- **Pipelining**: Uses Redis pipelines for batch operations to reduce network round-trips.
 
-Uses custom Lua scripts registered on the Redis client:
+## Troubleshooting
 
-**pollOutboxEvents** - Atomically moves events from pending to processing
-**recoverOutboxEvents** - Recovers stuck events back to pending
+### High Memory Usage
+- **Cause**: Completed events aren't being archived or deleted.
+- **Solution**: The adapter deletes event data after successful processing. If memory grows, check if events are failing and accumulating in the `FAILED` state.
+- **Solution**: Set a TTL on event keys if you want them to expire eventually.
 
-### Stuck Event Recovery
-
-Events stuck in processing beyond `processingTimeoutMs` are automatically recovered.
-
-### Exponential Backoff Retry
-
-Failed events retry with exponential backoff (max 5 retries by default).
-
-### Horizontal Scaling
-
-Multiple workers can safely poll the same Redis instance using atomic Lua scripts.
-
-## Back to Main Documentation
-
-[← Back to outbox-event-bus](../../README.md)
+### `NOSCRIPT` Errors
+- **Cause**: Redis crashed or script cache was cleared.
+- **Solution**: The adapter automatically re-registers Lua scripts on startup. Ensure your `ioridis` client is configured to handle reconnections.

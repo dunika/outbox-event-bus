@@ -1,5 +1,10 @@
 # SQLite Outbox
 
+![npm version](https://img.shields.io/npm/v/@outbox-event-bus/sqlite-outbox?style=flat-square&color=2563eb)
+![license](https://img.shields.io/npm/l/@outbox-event-bus/sqlite-outbox?style=flat-square&color=2563eb)
+
+> **Zero-Config Event Storage for Development**
+
 SQLite adapter for [outbox-event-bus](../../README.md). Provides reliable event storage using SQLite with WAL mode for better concurrency.
 
 ```typescript
@@ -11,14 +16,18 @@ const outbox = new SqliteOutbox({
 });
 ```
 
-Perfect for local development, testing, or single-instance deployments.
+## When to Use
 
-- [Installation](#installation)
-- [Database Schema](#database-schema)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [Features](#features)
-- [Back to Main Documentation](../../README.md)
+**Choose SQLite Outbox when:**
+- You're in **local development** or testing.
+- You have a **single-instance deployment** (no horizontal scaling).
+- You want **zero external dependencies**.
+- You're building a **desktop application** or CLI tool.
+
+**Consider alternatives when:**
+- You need **horizontal scaling** across multiple servers (use Redis/DynamoDB/PostgreSQL).
+- You require **high write throughput** (SQLite serializes writes).
+- You want **cloud-native deployment** (use managed database services).
 
 ## Installation
 
@@ -28,40 +37,13 @@ npm install @outbox-event-bus/sqlite-outbox
 
 ## Database Schema
 
-Tables are automatically created on initialization:
+Tables are automatically created on initialization.
 
-```sql
-CREATE TABLE outbox_events (
-  id TEXT PRIMARY KEY,
-  type TEXT NOT NULL,
-  payload TEXT NOT NULL,
-  occurred_at TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'created',
-  retry_count INTEGER NOT NULL DEFAULT 0,
-  last_error TEXT,
-  next_retry_at TEXT,
-  created_on TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
-  started_on TEXT,
-  completed_on TEXT,
-  keep_alive TEXT,
-  expire_in_seconds INTEGER NOT NULL DEFAULT 300
-);
+### `outbox_events`
+Stores active and pending events. Use `idx_outbox_events_status_retry` for fast polling.
 
-CREATE TABLE outbox_events_archive (
-  id TEXT PRIMARY KEY,
-  type TEXT NOT NULL,
-  payload TEXT NOT NULL,
-  occurred_at TEXT NOT NULL,
-  status TEXT NOT NULL,
-  retry_count INTEGER NOT NULL,
-  last_error TEXT,
-  created_on TEXT NOT NULL,
-  started_on TEXT,
-  completed_on TEXT NOT NULL
-);
-
-CREATE INDEX idx_outbox_events_status_retry ON outbox_events (status, next_retry_at);
-```
+### `outbox_events_archive`
+Stores successfully processed events for audit purposes.
 
 ## Configuration
 
@@ -69,12 +51,13 @@ CREATE INDEX idx_outbox_events_status_retry ON outbox_events (status, next_retry
 
 ```typescript
 interface SqliteOutboxConfig {
-  dbPath: string;                   // Path to SQLite database file
+  dbPath: string;                   // Path to SQLite database file (or ':memory:')
   getExecutor?: () => Database.Database | undefined;
   maxRetries?: number;              // Max retry attempts (default: 5)
   baseBackoffMs?: number;           // Base retry backoff (default: 1000ms)
   pollIntervalMs?: number;          // Polling interval (default: 1000ms)
   batchSize?: number;               // Events per poll (default: 50)
+  maxErrorBackoffMs?: number;       // Max polling error backoff (default: 30000ms)
   onError: (error: unknown) => void; // Error handler
 }
 ```
@@ -89,28 +72,14 @@ import { OutboxEventBus } from 'outbox-event-bus';
 
 const outbox = new SqliteOutbox({
   dbPath: './outbox.db',
-  onError: (error) => console.error('Outbox error:', error)
+  onError: console.error
 });
 
-const bus = new OutboxEventBus(
-  outbox,
-  (bus, eventType, count) => console.warn(`Max listeners: ${eventType}`),
-  (error) => console.error('Bus error:', error)
-);
-
-bus.on('user.created', async (event) => {
-  console.log('User created:', event.payload);
-});
-
+const bus = new OutboxEventBus(outbox, console.warn, console.error);
 bus.start();
-
-// Clean shutdown
-process.on('SIGTERM', async () => {
-  await bus.stop(); // Closes database connection
-});
 ```
 
-### In-Memory Database
+### In-Memory (for tests)
 
 ```typescript
 const outbox = new SqliteOutbox({
@@ -121,22 +90,18 @@ const outbox = new SqliteOutbox({
 
 ## Features
 
-### WAL Mode
+- **WAL Mode**: Enables Write-Ahead Logging for improved read/write concurrency.
+- **Zero-Config**: No need to manage a separate database server.
+- **Transactional**: All batch claims and completions happen within a single SQLite transaction.
+- **Auto-Archiving**: Automatically moves completed events to an archive table.
 
-Automatically enables Write-Ahead Logging for better concurrency.
+## Troubleshooting
 
-### Automatic Archiving
+### `SQLITE_BUSY: database is locked`
+- **Cause**: High write contention or multiple processes accessing the same file.
+- **Solution**: Ensure you are using WAL mode (enabled by default).
+- **Solution**: Reduce the `pollIntervalMs` or `batchSize` to minimize lock duration.
 
-Completed events are moved to `outbox_events_archive` table.
-
-### Transaction Support
-
-All batch operations use SQLite transactions for atomicity.
-
-### Stuck Event Recovery
-
-Events with stale `keep_alive` timestamps are automatically reclaimed.
-
-## Back to Main Documentation
-
-[← Back to outbox-event-bus](../../README.md)
+### Data Loss on Crash
+- **Cause**: SQLite persistence settings or disk cache.
+- **Solution**: SQLite is highly durable, but ensure your `dbPath` is on a stable filesystem. For critical data, consider a client-server database.

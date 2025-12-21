@@ -14,7 +14,6 @@ describe("RedisOutbox", () => {
       redis,
       pollIntervalMs: 50,
       processingTimeoutMs: 100,
-      onError,
     })
   })
 
@@ -40,22 +39,17 @@ describe("RedisOutbox", () => {
     expect(pending[0]).toBe("1")
 
     // Check if the key exists at all
-    const exists = await redis.exists("outbox:events:1")
+    const exists = await redis.exists("outbox:event:1")
     expect(exists).toBe(1)
     
-    // Try to get all keys to see what's there
-    const keys = await redis.keys("outbox:*")
-    console.log("Keys:", keys)
-    
     // Check event data exists using individual gets
-    const eventId = await redis.hget("outbox:events:1", "id")
-    console.log("Event ID:", eventId)
+    const eventId = await redis.hget("outbox:event:1", "id")
     
     if (eventId) {
-      const eventType = await redis.hget("outbox:events:1", "type")
-      const eventStatus = await redis.hget("outbox:events:1", "status")
-      const eventRetryCount = await redis.hget("outbox:events:1", "retryCount")
-      const eventPayload = await redis.hget("outbox:events:1", "payload")
+      const eventType = await redis.hget("outbox:event:1", "type")
+      const eventStatus = await redis.hget("outbox:event:1", "status")
+      const eventRetryCount = await redis.hget("outbox:event:1", "retryCount")
+      const eventPayload = await redis.hget("outbox:event:1", "payload")
       
       expect(eventId).toBe("1")
       expect(eventType).toBe("test")
@@ -76,7 +70,7 @@ describe("RedisOutbox", () => {
     await outbox.publish([event])
 
     const handler = vi.fn().mockResolvedValue(undefined)
-    await outbox.start(handler)
+    outbox.start(handler, onError)
 
     // Wait for polling
     await new Promise((resolve) => setTimeout(resolve, 200))
@@ -93,7 +87,7 @@ describe("RedisOutbox", () => {
     expect(processing).toHaveLength(0)
 
     // Event data should be deleted (as per our implementation)
-    const eventData = await redis.exists("outbox:events:1")
+    const eventData = await redis.exists("outbox:event:1")
     expect(eventData).toBe(0)
   })
 
@@ -112,7 +106,7 @@ describe("RedisOutbox", () => {
       .mockRejectedValueOnce(new Error("Fail"))
       .mockResolvedValue(undefined)
 
-    await outbox.start(handler)
+    outbox.start(handler, onError)
 
     // Wait for first attempt (fail)
     await new Promise((resolve) => setTimeout(resolve, 300))
@@ -123,18 +117,18 @@ describe("RedisOutbox", () => {
     expect(pending).toHaveLength(1)
     
     // Verify retry count was incremented
-    const retryCount = await redis.hget("outbox:events:1", "retryCount")
+    const retryCount = await redis.hget("outbox:event:1", "retryCount")
     expect(parseInt(retryCount || "0")).toBeGreaterThanOrEqual(1)
     
     // Verify last error was stored
-    const lastError = await redis.hget("outbox:events:1", "lastError")
+    const lastError = await redis.hget("outbox:event:1", "lastError")
     expect(lastError).toBe("Fail")
   })
 
   it("should recover stuck events", async () => {
     // Manually putting an event in processing state
     const now = Date.now()
-    const eventKey = "outbox:events:stuck"
+    const eventKey = "outbox:event:stuck"
     
     // Set event data using hmset for ioredis-mock compatibility
     await redis.hmset(eventKey,
@@ -152,7 +146,7 @@ describe("RedisOutbox", () => {
     const handler = vi.fn().mockResolvedValue(undefined)
     
     // Start outbox (configured with 100ms processing timeout)
-    await outbox.start(handler)
+    outbox.start(handler, onError)
 
     // Wait for recovery and processing (need more time for recovery + poll cycle)
     await new Promise((resolve) => setTimeout(resolve, 400))

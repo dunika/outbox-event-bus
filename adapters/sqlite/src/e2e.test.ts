@@ -1,9 +1,11 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest"
-import { SqliteOutbox } from "./index"
+import { SqliteOutbox } from "./sqlite-outbox"
 import Database from "better-sqlite3"
-import { unlinkSync, existsSync } from "fs"
+import { randomUUID } from "node:crypto"
+import { unlinkSync, existsSync } from "node:fs"
+import { join } from "node:path"
 
-const DB_PATH = "./test-outbox.db"
+const DB_PATH = join(process.cwd(), `test-outbox-${randomUUID()}.db`)
 
 describe("SqliteOutbox E2E", () => {
   let db: Database.Database

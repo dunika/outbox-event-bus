@@ -2,6 +2,12 @@
   "name": "outbox-event-bus",
   "version": "0.0.1",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dunika/outbox-event-bus.git",
+    "directory": "core"
+  },
+  "homepage": "https://github.com/dunika/outbox-event-bus/tree/main/core#readme",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",

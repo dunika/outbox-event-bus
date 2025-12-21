@@ -27,7 +27,6 @@ describe("DynamoDBOutbox Unit Tests", () => {
             client,
             tableName: "test-table",
             statusIndexName: "status-index",
-            onError: (err) => console.error(err)
         });
     });
 
@@ -52,7 +51,7 @@ describe("DynamoDBOutbox Unit Tests", () => {
             .mockResolvedValueOnce({ Items: mockItems }) // fetch PENDING
             .mockResolvedValueOnce({}); // claim update
             
-        await outbox.start(async () => {});
+        outbox.start(async () => {}, (err) => console.error(err));
         
         // Wait for one poll cycle
         await new Promise(res => setTimeout(res, 200));
@@ -73,7 +72,7 @@ describe("DynamoDBOutbox Unit Tests", () => {
 
         outbox.start(async () => {
             throw new Error("Failed");
-        });
+        }, (err) => console.error(err));
 
         await new Promise(res => setTimeout(res, 200));
         await outbox.stop();

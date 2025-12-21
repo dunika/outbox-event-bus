@@ -39,7 +39,7 @@ describe("PostgresDrizzleOutbox", () => {
     // Transaction mock
     ;(mockDb.transaction as any).mockImplementation(async (cb: any) => cb(mockDb))
 
-    outbox = new PostgresDrizzleOutbox({ db: mockDb, pollIntervalMs: 50, onError: vi.fn() })
+    outbox = new PostgresDrizzleOutbox({ db: mockDb, pollIntervalMs: 50 })
   })
 
   afterEach(async () => {
@@ -81,7 +81,7 @@ describe("PostgresDrizzleOutbox", () => {
     const handler = vi.fn().mockResolvedValue(undefined)
 
     // Start polling
-    await outbox.start(handler)
+    outbox.start(handler, vi.fn())
     
     // Wait for a bit (slightly more than poll interval)
     await new Promise(resolve => setTimeout(resolve, 60))
@@ -113,7 +113,7 @@ describe("PostgresDrizzleOutbox", () => {
      // Handler fails
      const handler = vi.fn().mockRejectedValue(new Error("processing failed"))
  
-     await outbox.start(handler)
+     outbox.start(handler, vi.fn())
      await new Promise(resolve => setTimeout(resolve, 60))
  
      expect(handler).toHaveBeenCalled()
@@ -145,7 +145,7 @@ describe("PostgresDrizzleOutbox", () => {
 
     const handler = vi.fn().mockResolvedValue(undefined)
 
-    await outbox.start(handler)
+    outbox.start(handler, vi.fn())
     await new Promise(resolve => setTimeout(resolve, 60))
 
     expect(handler).toHaveBeenCalledWith(expect.arrayContaining([

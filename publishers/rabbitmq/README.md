@@ -1,33 +1,41 @@
 # RabbitMQ Publisher
 
-RabbitMQ publisher for [outbox-event-bus](../../README.md). Forwards events from the outbox to RabbitMQ exchanges.
+![npm version](https://img.shields.io/npm/v/@outbox-event-bus/rabbitmq-publisher?style=flat-square&color=2563eb)
+![license](https://img.shields.io/npm/l/@outbox-event-bus/rabbitmq-publisher?style=flat-square&color=2563eb)
+
+> **Enterprise-Grade Message Routing**
+
+RabbitMQ (AMQP) publisher for [outbox-event-bus](../../README.md). Forwards events to RabbitMQ exchanges with intelligent routing and configurable retries.
 
 ```typescript
-import amqp from 'amqplib';
 import { RabbitMQPublisher } from '@outbox-event-bus/rabbitmq-publisher';
 
-const connection = await amqp.connect('amqp://localhost');
-const channel = await connection.createChannel();
-
 const publisher = new RabbitMQPublisher(bus, {
-  channel,
-  exchange: 'events',
-  routingKey: '' // optional
+  channel: amqpChannel,
+  exchange: 'events-exchange',
+  routingKey: 'my-app.events' // Optional
 });
 
-publisher.subscribe(['user.created', 'order.placed']);
+publisher.subscribe(['user.created']);
 ```
 
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [Back to Main Documentation](../../README.md)
+## When to Use
+
+**Choose RabbitMQ Publisher when:**
+- You need **complex routing** (fanout, topic, direct).
+- You require **message prioritization**.
+- You want to use **standard AMQP** protocols.
+- You need to integrate with heterogeneous systems that support RabbitMQ.
+
+**Consider alternatives when:**
+- You want a **fully managed serverless service** (use AWS SNS/EventBridge).
+- You need **distributed log streaming** (use Kafka).
+- You want the **simplest possible setup** (use Redis Streams).
 
 ## Installation
 
 ```bash
 npm install @outbox-event-bus/rabbitmq-publisher amqplib
-npm install -D @types/amqplib
 ```
 
 ## Configuration
@@ -36,10 +44,11 @@ npm install -D @types/amqplib
 
 ```typescript
 interface RabbitMQPublisherConfig {
-  channel: Channel;          // amqplib channel instance
-  exchange: string;          // Exchange name
-  routingKey?: string;       // Routing key (optional, defaults to event type)
-  onError?: ErrorHandler;    // Error handler (optional)
+  channel: Channel;                 // amqplib Channel instance
+  exchange: string;                 // Target exchange name
+  routingKey?: string;              // Optional static routing key
+  onError?: ErrorHandler;           // Error callback
+  retryOptions?: RetryOptions;      // Custom retry logic
 }
 ```
 
@@ -48,31 +57,50 @@ interface RabbitMQPublisherConfig {
 ### Basic Setup
 
 ```typescript
-import amqp from 'amqplib';
 import { RabbitMQPublisher } from '@outbox-event-bus/rabbitmq-publisher';
 
-const connection = await amqp.connect('amqp://localhost');
-const channel = await connection.createChannel();
-
-// Declare exchange
-await channel.assertExchange('events', 'topic', { durable: true });
-
 const publisher = new RabbitMQPublisher(bus, {
-  channel,
-  exchange: 'events',
-  onError: (error) => console.error('RabbitMQ error:', error)
+  channel: myChannel,
+  exchange: 'app-events',
+  onError: (err) => console.error('RabbitMQ Publish Error:', err)
 });
 
-publisher.subscribe(['user.created', 'order.placed']);
+publisher.subscribe(['*']);
 ```
 
-### Message Format
+### Dynamic Routing
+If `routingKey` is not provided, the **event type** is used as the routing key automatically.
 
-Messages are published with:
-- **Content-Type**: `application/json`
-- **Headers**: `eventType` and `eventId`
-- **Routing Key**: Configured routing key or event type
+## Message Format
 
-## Back to Main Documentation
+Messages are published as JSON buffers:
+- **Body**: `JSON.stringify(event)`
+- **Content Type**: `application/json`
+- **Headers**:
+    - `eventType`: The event type string.
+    - `eventId`: The unique event UUID.
 
-[← Back to outbox-event-bus](../../README.md)
+## Error Handling
+
+### Built-in Retries
+Unlike AWS publishers, the RabbitMQ publisher implements **exponential backoff retries** internally to handle channel buffer saturation or temporary connection drops.
+
+```typescript
+const publisher = new RabbitMQPublisher(bus, {
+  // ...
+  retryOptions: {
+    maxAttempts: 5,
+    initialDelayMs: 500
+  }
+});
+```
+
+## Troubleshooting
+
+### `channel buffer full`
+- **Cause**: Publishing faster than RabbitMQ can accept (backpressure).
+- **Solution**: Check your RabbitMQ server load and memory. The publisher will retry, but persistent failure indicates an infrastructure bottleneck.
+
+### Unrouteable Messages
+- **Cause**: Misconfigured exchange or routing keys.
+- **Solution**: Ensure the exchange exists and queues are bound with appropriate keys matching the event type.

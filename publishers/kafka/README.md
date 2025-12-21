@@ -1,6 +1,11 @@
 # Kafka Publisher
 
-Apache Kafka publisher for [outbox-event-bus](../../README.md). Forwards events from the outbox to Kafka topics.
+![npm version](https://img.shields.io/npm/v/@outbox-event-bus/kafka-publisher?style=flat-square&color=2563eb)
+![license](https://img.shields.io/npm/l/@outbox-event-bus/kafka-publisher?style=flat-square&color=2563eb)
+
+> **High-Throughput Distributed Event Streaming**
+
+Apache Kafka publisher for [outbox-event-bus](../../README.md). Forwards events from the outbox to Kafka topics with guaranteed at-least-once delivery and configurable partitioning.
 
 ```typescript
 import { Kafka } from 'kafkajs';
@@ -12,16 +17,24 @@ await producer.connect();
 
 const publisher = new KafkaPublisher(bus, {
   producer,
-  topic: 'events'
+  topic: 'application-events'
 });
 
 publisher.subscribe(['user.created', 'order.placed']);
 ```
 
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [Back to Main Documentation](../../README.md)
+## When to Use
+
+**Choose Kafka Publisher when:**
+- You need **extreme scalability** and high throughput.
+- You require **parallel processing** via partitions.
+- You want **long-term event persistence** and replayability.
+- You are building a **unified event log** for your entire organization.
+
+**Consider alternatives when:**
+- You want a **fully managed serverless service** (use AWS SNS/EventBridge).
+- You have **simple queuing needs** (use SQS or RabbitMQ).
+- You want to avoid the **operational complexity** of managing a Kafka cluster.
 
 ## Installation
 
@@ -36,8 +49,9 @@ npm install @outbox-event-bus/kafka-publisher kafkajs
 ```typescript
 interface KafkaPublisherConfig {
   producer: Producer;        // KafkaJS producer instance
-  topic: string;             // Kafka topic name
-  onError?: ErrorHandler;    // Error handler (optional)
+  topic: string;             // Target Kafka topic
+  onError?: ErrorHandler;    // Error callback
+  retryOptions?: RetryOptions; // Application-level retry logic
 }
 ```
 
@@ -49,30 +63,49 @@ interface KafkaPublisherConfig {
 import { Kafka } from 'kafkajs';
 import { KafkaPublisher } from '@outbox-event-bus/kafka-publisher';
 
-const kafka = new Kafka({
-  clientId: 'my-app',
-  brokers: ['kafka:9092']
-});
-
+const kafka = new Kafka({ brokers: ['kafka:9092'] });
 const producer = kafka.producer();
 await producer.connect();
 
 const publisher = new KafkaPublisher(bus, {
   producer,
-  topic: 'application-events',
-  onError: (error) => console.error('Kafka error:', error)
+  topic: 'events',
+  onError: (err) => console.error('Kafka Publish Error:', err)
 });
 
-publisher.subscribe(['user.created', 'order.placed']);
+publisher.subscribe(['*']);
 ```
 
-### Message Format
+## Message Format
 
-Messages are published with:
-- **key**: Event ID
-- **value**: Full event object as JSON
-- **headers**: `eventType` header with the event type
+Events are published to Kafka as follow:
+- **Key**: `event.id` (Ensures events for the same entity stay in the same partition if the ID is consistent).
+- **Value**: `JSON.stringify(event)`
+- **Headers**:
+    - `eventType`: The event type string.
 
-## Back to Main Documentation
+## Error Handling
 
-[← Back to outbox-event-bus](../../README.md)
+### Application-Level Retries
+The publisher implements **internal retries with exponential backoff** to handle transient Kafka failures.
+
+```typescript
+const publisher = new KafkaPublisher(bus, {
+  // ...
+  retryOptions: {
+    maxAttempts: 5,
+    initialDelayMs: 1000
+  }
+});
+```
+
+## Troubleshooting
+
+### `KafkaJSProtocolError: Message was too large`
+- **Cause**: The event payload exceeds the broker's `message.max.bytes`.
+- **Solution**: Enable producer-side compression: `kafkajs.producer({ compression: CompressionTypes.GZIP })`.
+- **Solution**: Store large payloads in S3 and pass the reference ID in the event.
+
+### Ordering Issues
+- **Cause**: Events are being sent to different partitions.
+- **Solution**: The publisher uses `event.id` as the message key by default. If you need global ordering across event types for a specific entity, ensure they share the same ID or customize the partitioner.

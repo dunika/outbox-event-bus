@@ -17,7 +17,7 @@ describe("PostgresPrisma Outbox Transactions with AsyncLocalStorage", () => {
     
     // Run db push to setup schema
     try {
-      execSync("npx prisma db push --skip-generate", { stdio: "inherit" })
+      execSync("npx prisma db push --accept-data-loss", { stdio: "inherit", env: { ...process.env, DATABASE_URL } })
     } catch (e) {
       console.error("Failed to push db schema", e)
       throw e
