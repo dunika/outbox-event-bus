@@ -15,10 +15,7 @@ export class SQSPublisher<TTransaction = unknown> implements IPublisher {
   private readonly queueUrl: string
   private readonly publisher: EventPublisher<TTransaction>
 
-  constructor(
-    bus: IOutboxEventBus<TTransaction>,
-    config: SQSPublisherConfig
-  ) {
+  constructor(bus: IOutboxEventBus<TTransaction>, config: SQSPublisherConfig) {
     this.sqsClient = config.sqsClient
     this.queueUrl = config.queueUrl
     this.publisher = new EventPublisher(bus, {
@@ -55,4 +52,3 @@ export class SQSPublisher<TTransaction = unknown> implements IPublisher {
     })
   }
 }
-

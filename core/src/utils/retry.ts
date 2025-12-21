@@ -1,6 +1,5 @@
 import type { RetryOptions } from "./types"
 
-
 export async function withRetry<T>(
   operation: () => Promise<T>,
   options: Required<RetryOptions>

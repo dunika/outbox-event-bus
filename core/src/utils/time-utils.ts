@@ -34,7 +34,7 @@ export function createTimedPromise<T>(timeoutMs: number, onTimeoutError: () => E
     start: () => {
       if (started) return promise
       started = true
-      
+
       if (completed) return promise
 
       timer = setTimeout(() => {

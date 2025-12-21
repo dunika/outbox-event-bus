@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import RedisMock from "ioredis-mock"
-import { RedisIoRedisOutbox } from "./index"
 import type { BusEvent as OutboxEvent } from "outbox-event-bus"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { RedisIoRedisOutbox } from "./index"
 
 describe("RedisIoRedisOutbox", () => {
   let redis: any
@@ -41,16 +41,16 @@ describe("RedisIoRedisOutbox", () => {
     // Check if the key exists at all
     const exists = await redis.exists("outbox:event:1")
     expect(exists).toBe(1)
-    
+
     // Check event data exists using individual gets
     const eventId = await redis.hget("outbox:event:1", "id")
-    
+
     if (eventId) {
       const eventType = await redis.hget("outbox:event:1", "type")
       const eventStatus = await redis.hget("outbox:event:1", "status")
       const eventRetryCount = await redis.hget("outbox:event:1", "retryCount")
       const eventPayload = await redis.hget("outbox:event:1", "payload")
-      
+
       expect(eventId).toBe("1")
       expect(eventType).toBe("test")
       expect(eventStatus).toBe("created")
@@ -100,7 +100,8 @@ describe("RedisIoRedisOutbox", () => {
     await outbox.publish([event])
 
     // Handler fails once then succeeds
-    const handler = vi.fn(async (_event: unknown) => {})
+    const handler = vi
+      .fn(async (_event: unknown) => {})
       .mockRejectedValueOnce(new Error("Fail"))
       .mockResolvedValue(undefined)
 
@@ -113,11 +114,11 @@ describe("RedisIoRedisOutbox", () => {
     // Should be scheduled for retry (back in pending with future score)
     const pending = await redis.zrange("outbox:pending", 0, -1)
     expect(pending).toHaveLength(1)
-    
+
     // Verify retry count was incremented
     const retryCount = await redis.hget("outbox:event:1", "retryCount")
-    expect(parseInt(retryCount || "0")).toBeGreaterThanOrEqual(1)
-    
+    expect(parseInt(retryCount || "0", 10)).toBeGreaterThanOrEqual(1)
+
     // Verify last error was stored
     const lastError = await redis.hget("outbox:event:1", "lastError")
     expect(lastError).toBe("Fail")
@@ -127,22 +128,29 @@ describe("RedisIoRedisOutbox", () => {
     // Manually putting an event in processing state
     const now = Date.now()
     const eventKey = "outbox:event:stuck"
-    
+
     // Set event data using hmset for ioredis-mock compatibility
-    await redis.hmset(eventKey,
-      "id", "stuck",
-      "type", "stuck",
-      "payload", JSON.stringify({}),
-      "occurredAt", new Date().toISOString(),
-      "retryCount", "0",
-      "status", "active"
+    await redis.hmset(
+      eventKey,
+      "id",
+      "stuck",
+      "type",
+      "stuck",
+      "payload",
+      JSON.stringify({}),
+      "occurredAt",
+      new Date().toISOString(),
+      "retryCount",
+      "0",
+      "status",
+      "active"
     )
-    
+
     // Add to processing with old score (stuck event - older than processing timeout)
     await redis.zadd("outbox:processing", now - 200, "stuck")
 
     const handler = vi.fn().mockResolvedValue(undefined)
-    
+
     // Start outbox (configured with 100ms processing timeout)
     outbox.start(handler, onError)
 

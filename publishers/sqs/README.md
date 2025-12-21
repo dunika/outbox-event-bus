@@ -88,9 +88,13 @@ The publisher supports FIFO queues. It uses the `event.id` as the **Deduplicatio
 ## Message Format
 
 Messages are published to SQS with:
-- **Body**: `JSON.stringify(event)`
-- **MessageAttributes**:
-    - `EventType`: Set to the event type string.
+
+| SQS Field | Value | Description |
+|-----------|-------|-------------|
+| **Body** | `JSON.stringify(event)` | The full event object. |
+| **MessageAttributes** | `EventType` | Set to the event type string. |
+| **MessageGroupId** | `event.type` | (FIFO only) Ensures ordering within type. |
+| **DeduplicationId** | `event.id` | (FIFO only) Prevents duplicates. |
 
 ## Error Handling
 
@@ -117,3 +121,7 @@ const publisher = new SQSPublisher(bus, {
 
 ### Permissions
 - **Cause**: Ensure the IAM role has `sqs:SendMessage` on the specific queue resource.
+
+## License
+
+MIT © [Dunika](https://github.com/dunika)

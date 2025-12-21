@@ -78,8 +78,6 @@ await db.transaction(async (transaction) => {
 ## Contents
 
 - [Concepts](#concepts)
-- [Error Handling](#error-handling)
-- [Tutorials](#tutorials)
 - [How-To Guides](#how-to-guides)
 - [API Reference](./docs/API_REFERENCE.md)
 - [Adapters & Publishers](#adapters--publishers)
@@ -154,31 +152,7 @@ WHERE status = 'active'
 
 > **Note:** Non-SQL adapters (DynamoDB, Redis, Mongo) implement equivalent recovery mechanisms using their native features (TTL, Sorted Sets, etc).
 
-## Error Handling
-
-The library provides typed errors to help you handle specific failure scenarios programmatically. All errors extend the base `OutboxError` class.
-
-- **Configuration Errors**: `DuplicateListenerError`, `UnsupportedOperationError`
-- **Validation Errors**: `BatchSizeLimitError`
-- **Operational Errors**: `TimeoutError`, `BackpressureError`, `MaxRetriesExceededError`
-
-### Example
-
-```typescript
-import { OutboxEventBus, TimeoutError } from 'outbox-event-bus';
-
-const bus = new OutboxEventBus(outbox, (err, event) => {
-  if (err instanceof MaxRetriesExceededError) {
-    console.warn(`Event ${event?.id} timed out, will retry...`);
-  } else {
-    console.error('Unexpected error:', err);
-  }
-});
-```
-
-For a complete list and usage examples, see the [API Reference](./docs/API_REFERENCE.md).
-
-## Tutorials
+## How-To Guides
 
 ### Working with Transactions (Prisma + Postgres Example)
 
@@ -258,8 +232,6 @@ const outbox = process.env.NODE_ENV === 'production'
 const bus = new OutboxEventBus(outbox);
 ```
 
-## How-To Guides
-
 ### Testing Event Handlers
 
 **Problem:** How do I test event-driven code without a real database?
@@ -291,6 +263,30 @@ describe('User Creation', () => {
   });
 });
 ```
+
+### Error Handling
+
+The library provides typed errors to help you handle specific failure scenarios programmatically. All errors extend the base `OutboxError` class.
+
+- **Configuration Errors**: `DuplicateListenerError`, `UnsupportedOperationError`
+- **Validation Errors**: `BatchSizeLimitError`
+- **Operational Errors**: `TimeoutError`, `BackpressureError`, `MaxRetriesExceededError`
+
+#### Example
+
+```typescript
+import { OutboxEventBus, TimeoutError } from 'outbox-event-bus';
+
+const bus = new OutboxEventBus(outbox, (err, event) => {
+  if (err instanceof MaxRetriesExceededError) {
+    console.warn(`Event ${event?.id} timed out, will retry...`);
+  } else {
+    console.error('Unexpected error:', err);
+  }
+});
+```
+
+For a complete list and usage examples, see the [API Reference](./docs/API_REFERENCE.md).
 
 ### Monitoring & Debugging
 
@@ -389,20 +385,20 @@ Mix and match any storage adapter with any publisher.
 
 These store your events. Choose one that matches your primary database.
 
-| Adapter | Best For | Transaction Support | Status | Package |
-|:---|:---|:---:|:---:|:---|
-| **[Postgres (Prisma)](./adapters/postgres-prisma/README.md)** | Prisma Users | Full | Stable | `@outbox-event-bus/postgres-prisma-outbox` |
-| **[Postgres (Drizzle)](./adapters/postgres-drizzle/README.md)** | SQL Purists | Full | Stable | `@outbox-event-bus/postgres-drizzle-outbox` |
-| **[MongoDB](./adapters/mongo-mongodb/README.md)** | Document Stores | Limited | Stable | `@outbox-event-bus/mongo-mongodb-outbox` |
-| **[DynamoDB](./adapters/dynamodb-aws-sdk/README.md)** | Serverless AWS | Limited | Stable | `@outbox-event-bus/dynamodb-aws-sdk-outbox` |
-| **[Redis](./adapters/redis-ioredis/README.md)** | High Speed | None | Beta | `@outbox-event-bus/redis-ioredis-outbox` |
-| **[SQLite](./adapters/sqlite-better-sqlite3/README.md)** | Local/Edge | Full | Stable | `@outbox-event-bus/sqlite-better-sqlite3-outbox` |
+| Database | Adapters | Transaction Support | Concurrency |
+|:---|:---|:---:|:---|
+| **Postgres** | [Prisma](./adapters/postgres-prisma/README.md), [Drizzle](./adapters/postgres-drizzle/README.md) | Full (ACID) | `SKIP LOCKED` |
+| **MongoDB** | [Native Driver](./adapters/mongo-mongodb/README.md) | Full (Replica Set) | Optimistic Locking |
+| **DynamoDB** | [AWS SDK](./adapters/dynamodb-aws-sdk/README.md) | Full (TransactWrite) | Optimistic Locking |
+| **Redis** | [ioredis](./adapters/redis-ioredis/README.md) | Atomic (Multi/Exec) | Distributed Lock |
+| **SQLite** | [better-sqlite3](./adapters/sqlite-better-sqlite3/README.md) | Full (ACID) | Serialized |
 
 **Legend:**
 
 - **Full**: ACID transactions with atomicity guarantees
 - **Limited**: Single-document transactions or optimistic locking
 - **None**: No transaction support (events saved separately)
+- **SKIP LOCKED**: High-performance non-blocking reads for multiple workers
 
 ### Publishers
 

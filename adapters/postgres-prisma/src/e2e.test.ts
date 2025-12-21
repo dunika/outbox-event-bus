@@ -1,8 +1,8 @@
-import { describe, expect, it, beforeAll, afterAll, vi } from "vitest"
-import { PrismaClient, OutboxStatus } from "@prisma/client"
-import { PostgresPrismaOutbox } from "./index"
-import { execSync } from "child_process"
+import { execSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
+import { OutboxStatus, PrismaClient } from "@prisma/client"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { PostgresPrismaOutbox } from "./index"
 
 const DATABASE_URL = "postgresql://test_user:test_password@127.0.0.1:5434/outbox_test"
 
@@ -12,19 +12,22 @@ describe("PostgresPrismaOutbox E2E", () => {
 
   beforeAll(async () => {
     process.env.DATABASE_URL = DATABASE_URL
-    
+
     // Run db push to setup schema
     try {
       // Need to retry a few times as DB might be starting up even with --wait
       let retries = 5
       while (retries > 0) {
         try {
-            execSync(`npx prisma db push --accept-data-loss --url "${DATABASE_URL}"`, { stdio: "inherit", env: process.env })
-            break
+          execSync(`npx prisma db push --accept-data-loss --url "${DATABASE_URL}"`, {
+            stdio: "inherit",
+            env: process.env,
+          })
+          break
         } catch (e) {
-            retries--
-            if (retries === 0) throw e
-            await new Promise(r => setTimeout(r, 1000))
+          retries--
+          if (retries === 0) throw e
+          await new Promise((r) => setTimeout(r, 1000))
         }
       }
     } catch (e) {
@@ -32,22 +35,22 @@ describe("PostgresPrismaOutbox E2E", () => {
       throw e
     }
 
-    // @ts-ignore
+    // @ts-expect-error
     const { Pool } = await import("pg")
-    // @ts-ignore
+    // @ts-expect-error
     const { PrismaPg } = await import("@prisma/adapter-pg")
-    
+
     const pool = new Pool({ connectionString: DATABASE_URL })
     const adapter = new PrismaPg(pool)
-    
-    // @ts-ignore - Prisma 7 config workaround
+
+    // @ts-expect-error - Prisma 7 config workaround
     prisma = new PrismaClient({ adapter })
     await prisma.$connect()
   })
 
   afterAll(async () => {
     if (prisma) {
-        await prisma.$disconnect()
+      await prisma.$disconnect()
     }
   })
 
@@ -77,9 +80,12 @@ describe("PostgresPrismaOutbox E2E", () => {
 
     // 2. Start processing
     const processedEvents: any[] = []
-    await outbox.start(async (event: any) => {
-      processedEvents.push(event)
-    }, (err: unknown) => console.error("Outbox Error:", err))
+    await outbox.start(
+      async (event: any) => {
+        processedEvents.push(event)
+      },
+      (err: unknown) => console.error("Outbox Error:", err)
+    )
 
     // Wait for poll
     await new Promise((resolve) => setTimeout(resolve, 2000))
@@ -117,7 +123,7 @@ describe("PostgresPrismaOutbox E2E", () => {
 
     let attempts = 0
     const onError = vi.fn()
-    
+
     await outbox.start(async () => {
       attempts++
       throw new Error("Processing failed")
@@ -158,14 +164,14 @@ describe("PostgresPrismaOutbox E2E", () => {
         occurredAt: event.occurredAt,
         status: OutboxStatus.failed,
         retryCount: 5,
-        lastError: "Manual failure"
-      }
+        lastError: "Manual failure",
+      },
     })
 
     // 2. Get failed events
     const failed = await outbox.getFailedEvents()
     const targetEvent = failed.find((e) => e.id === eventId)
-    
+
     expect(targetEvent).toBeDefined()
     expect(targetEvent!.id).toBe(eventId)
     expect(targetEvent!.error).toBe("Manual failure")
@@ -181,11 +187,14 @@ describe("PostgresPrismaOutbox E2E", () => {
 
     // 5. Verify it gets processed
     const processed: any[] = []
-    outbox.start(async (e) => {
-      processed.push(e)
-    }, (err) => console.error(err))
+    outbox.start(
+      async (e) => {
+        processed.push(e)
+      },
+      (err) => console.error(err)
+    )
 
-    await new Promise(r => setTimeout(r, 1000))
+    await new Promise((r) => setTimeout(r, 1000))
     await outbox.stop()
 
     expect(processed).toHaveLength(1)
@@ -199,7 +208,7 @@ describe("PostgresPrismaOutbox E2E", () => {
     })
 
     const eventId = randomUUID()
-    
+
     // Manually insert a "stuck" event (status active, timed out)
     // Default expireInSeconds is 300, so we set keepAlive to >300s ago
     const now = new Date()
@@ -212,19 +221,22 @@ describe("PostgresPrismaOutbox E2E", () => {
         status: OutboxStatus.active,
         retryCount: 0,
         keepAlive: new Date(now.getTime() - 350000),
-        expireInSeconds: 300
-      }
+        expireInSeconds: 300,
+      },
     })
 
     const processedEvents: any[] = []
-    outbox.start(async (event) => {
-      processedEvents.push(event)
-    }, (err) => console.error("Outbox Error:", err))
+    outbox.start(
+      async (event) => {
+        processedEvents.push(event)
+      },
+      (err) => console.error("Outbox Error:", err)
+    )
 
     // Wait for recovery poll
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
-    expect(processedEvents.some(e => e.id === eventId)).toBe(true)
+    expect(processedEvents.some((e) => e.id === eventId)).toBe(true)
 
     await outbox.stop()
   })
@@ -240,8 +252,8 @@ describe("PostgresPrismaOutbox E2E", () => {
     }))
 
     outbox = new PostgresPrismaOutbox({
-        prisma,
-        pollIntervalMs: 100, // This instance is just for publishing
+      prisma,
+      pollIntervalMs: 100, // This instance is just for publishing
     })
     await outbox.publish(events)
     await outbox.stop() // Stop this instance immediately
@@ -261,7 +273,7 @@ describe("PostgresPrismaOutbox E2E", () => {
     for (let i = 0; i < workerCount; i++) {
       const worker = new PostgresPrismaOutbox({
         prisma,
-        pollIntervalMs: 100 + (Math.random() * 50), // Jitter
+        pollIntervalMs: 100 + Math.random() * 50, // Jitter
         batchSize: 5, // Small batch size to encourage contention
       })
       workers.push(worker)
@@ -271,19 +283,19 @@ describe("PostgresPrismaOutbox E2E", () => {
     // 3. Wait for processing
     const maxWaitTime = 10000
     const startTime = Date.now()
-    
-    while (processedEvents.length < eventCount && (Date.now() - startTime) < maxWaitTime) {
-        await new Promise((resolve) => setTimeout(resolve, 200))
+
+    while (processedEvents.length < eventCount && Date.now() - startTime < maxWaitTime) {
+      await new Promise((resolve) => setTimeout(resolve, 200))
     }
 
     // 4. Verify results
-    await Promise.all(workers.map(w => w.stop()))
+    await Promise.all(workers.map((w) => w.stop()))
 
     // Check count
     expect(processedEvents).toHaveLength(eventCount)
 
     // Check duplicates
-    const ids = processedEvents.map(e => e.id)
+    const ids = processedEvents.map((e) => e.id)
     const uniqueIds = new Set(ids)
     expect(uniqueIds.size).toBe(eventCount)
   })

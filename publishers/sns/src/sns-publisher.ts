@@ -15,10 +15,7 @@ export class SNSPublisher<TTransaction = unknown> implements IPublisher {
   private readonly topicArn: string
   private readonly publisher: EventPublisher<TTransaction>
 
-  constructor(
-    bus: IOutboxEventBus<TTransaction>,
-    config: SNSPublisherConfig
-  ) {
+  constructor(bus: IOutboxEventBus<TTransaction>, config: SNSPublisherConfig) {
     this.snsClient = config.snsClient
     this.topicArn = config.topicArn
     this.publisher = new EventPublisher(bus, {
@@ -55,4 +52,3 @@ export class SNSPublisher<TTransaction = unknown> implements IPublisher {
     })
   }
 }
-

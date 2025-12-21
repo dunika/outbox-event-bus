@@ -88,11 +88,12 @@ If `routingKey` is not provided, the **event type** is used as the routing key a
 ## Message Format
 
 Messages are published as JSON buffers:
-- **Body**: `JSON.stringify(event)`
-- **Content Type**: `application/json`
-- **Headers**:
-    - `eventType`: The event type string.
-    - `eventId`: The unique event UUID.
+
+| AMQP Field | Value | Description |
+|------------|-------|-------------|
+| **Body** | `JSON.stringify(event)` | The full event object. |
+| **Routing Key** | `config.routingKey` or `event.type` | Used for routing to queues. |
+| **Headers** | `eventType`, `eventId` | Metadata headers. |
 
 ## Error Handling
 
@@ -118,3 +119,7 @@ const publisher = new RabbitMQPublisher(bus, {
 ### Unrouteable Messages
 - **Cause**: Misconfigured exchange or routing keys.
 - **Solution**: Ensure the exchange exists and queues are bound with appropriate keys matching the event type.
+
+## License
+
+MIT © [Dunika](https://github.com/dunika)

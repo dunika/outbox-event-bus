@@ -1,11 +1,8 @@
-import type { BusEventInput, BusEvent, AnyListener, FailedBusEvent, ErrorHandler } from "./types"
+import type { AnyListener, BusEvent, BusEventInput, ErrorHandler, FailedBusEvent } from "./types"
 
 export interface IOutbox<TTransaction> {
   publish: (events: BusEvent[], transaction?: TTransaction) => Promise<void>
-  start: (
-    handler: (event: BusEvent) => Promise<void>,
-    onError: ErrorHandler
-  ) => void
+  start: (handler: (event: BusEvent) => Promise<void>, onError: ErrorHandler) => void
   stop: () => Promise<void>
   getFailedEvents: () => Promise<FailedBusEvent[]>
   retryEvents: (eventIds: string[]) => Promise<void>

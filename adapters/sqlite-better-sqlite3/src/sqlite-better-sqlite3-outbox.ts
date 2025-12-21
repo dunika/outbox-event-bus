@@ -1,8 +1,16 @@
-import { type BusEvent, type IOutbox, type OutboxConfig, PollingService, formatErrorMessage, type FailedBusEvent, MaxRetriesExceededError, type ErrorHandler } from "outbox-event-bus"
 import Database from "better-sqlite3"
+import {
+  type BusEvent,
+  type ErrorHandler,
+  type FailedBusEvent,
+  formatErrorMessage,
+  type IOutbox,
+  MaxRetriesExceededError,
+  type OutboxConfig,
+  PollingService,
+} from "outbox-event-bus"
 
-const DEFAULT_EXPIRE_IN_SECONDS = 300;
-
+const DEFAULT_EXPIRE_IN_SECONDS = 300
 
 const getOutboxSchema = (tableName: string, archiveTableName: string) => `
   CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -35,7 +43,7 @@ const getOutboxSchema = (tableName: string, archiveTableName: string) => `
   );
 
   CREATE INDEX IF NOT EXISTS idx_${tableName}_status_retry ON ${tableName} (status, next_retry_at);
-`;
+`
 
 export interface SqliteBetterSqlite3OutboxConfig extends OutboxConfig {
   dbPath?: string
@@ -88,7 +96,7 @@ export class SqliteBetterSqlite3Outbox implements IOutbox<Database.Database> {
       tableName: config.tableName ?? "outbox_events",
       archiveTableName: config.archiveTableName ?? "outbox_events_archive",
     } as Required<SqliteBetterSqlite3OutboxConfig>
-    
+
     this.init()
 
     this.poller = new PollingService({
@@ -103,10 +111,7 @@ export class SqliteBetterSqlite3Outbox implements IOutbox<Database.Database> {
     this.db.exec(getOutboxSchema(this.config.tableName, this.config.archiveTableName))
   }
 
-  async publish(
-    events: BusEvent[],
-    transaction?: Database.Database,
-  ): Promise<void> {
+  async publish(events: BusEvent[], transaction?: Database.Database): Promise<void> {
     if (events.length === 0) return
 
     const executor = transaction ?? this.config.getTransaction?.() ?? this.db
@@ -129,12 +134,14 @@ export class SqliteBetterSqlite3Outbox implements IOutbox<Database.Database> {
   }
 
   async getFailedEvents(): Promise<FailedBusEvent[]> {
-    const rows = this.db.prepare(`
+    const rows = this.db
+      .prepare(`
       SELECT * FROM ${this.config.tableName}
       WHERE status = 'failed'
       ORDER BY occurred_at DESC
       LIMIT 100
-    `).all() as OutboxRow[]
+    `)
+      .all() as OutboxRow[]
 
     return rows.map((e) => {
       const event: FailedBusEvent = {
@@ -153,21 +160,20 @@ export class SqliteBetterSqlite3Outbox implements IOutbox<Database.Database> {
   async retryEvents(eventIds: string[]): Promise<void> {
     if (eventIds.length === 0) return
 
-    const placeholders = eventIds.map(() => '?').join(',')
-    this.db.prepare(`
+    const placeholders = eventIds.map(() => "?").join(",")
+    this.db
+      .prepare(`
       UPDATE ${this.config.tableName}
       SET status = 'created',
           retry_count = 0,
           next_retry_at = NULL,
           last_error = NULL
       WHERE id IN (${placeholders})
-    `).run(...eventIds)
+    `)
+      .run(...eventIds)
   }
 
-  start(
-    handler: (event: BusEvent) => Promise<void>,
-    onError: ErrorHandler
-  ): void {
+  start(handler: (event: BusEvent) => Promise<void>, onError: ErrorHandler): void {
     this.poller.start(handler, onError)
   }
 
@@ -184,18 +190,20 @@ export class SqliteBetterSqlite3Outbox implements IOutbox<Database.Database> {
       // 1. New events (status = 'created')
       // 2. Failed events that can be retried (retry_count < max AND next_retry_at has passed)
       // 3. Stuck events (status = 'active' but keepAlive + expire_in_seconds < now)
-      const rows = this.db.prepare(`
+      const rows = this.db
+        .prepare(`
         SELECT * FROM ${this.config.tableName}
         WHERE status = 'created'
         OR (status = 'failed' AND retry_count < ? AND next_retry_at <= ?)
         OR (status = 'active' AND datetime(keep_alive, '+' || expire_in_seconds || ' seconds') < datetime(?))
         LIMIT ?
-      `).all(this.config.maxRetries, now, now, this.config.batchSize) as OutboxRow[]
+      `)
+        .all(this.config.maxRetries, now, now, this.config.batchSize) as OutboxRow[]
 
       if (rows.length === 0) return []
 
-      const ids = rows.map(r => r.id)
-      
+      const ids = rows.map((r) => r.id)
+
       const update = this.db.prepare(`
         UPDATE ${this.config.tableName}
         SET status = 'active',
@@ -242,19 +250,21 @@ export class SqliteBetterSqlite3Outbox implements IOutbox<Database.Database> {
         const retryCount = lockedEvent.retry_count + 1
         const delay = this.poller.calculateBackoff(retryCount)
 
-        this.db.prepare(`
+        this.db
+          .prepare(`
           UPDATE ${this.config.tableName}
           SET status = 'failed',
               retry_count = ?,
               last_error = ?,
               next_retry_at = ?
           WHERE id = ?
-        `).run(
-          retryCount,
-          formatErrorMessage(error),
-          new Date(msNow + delay).toISOString(),
-          lockedEvent.id
-        )
+        `)
+          .run(
+            retryCount,
+            formatErrorMessage(error),
+            new Date(msNow + delay).toISOString(),
+            lockedEvent.id
+          )
       }
     }
 

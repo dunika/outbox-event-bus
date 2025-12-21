@@ -1,7 +1,7 @@
-import type { IOutbox } from "../../types/interfaces"
-import { PollingService } from "../../services/polling-service"
-import type { BusEvent, FailedBusEvent, ErrorHandler } from "../../types/types"
 import { MaxRetriesExceededError } from "../../errors/errors"
+import { PollingService } from "../../services/polling-service"
+import type { IOutbox } from "../../types/interfaces"
+import type { BusEvent, ErrorHandler, FailedBusEvent } from "../../types/types"
 
 const IN_MEMORY_POLL_INTERVAL_MS = 10
 const IN_MEMORY_BASE_BACKOFF_MS = 10
@@ -35,10 +35,7 @@ export class InMemoryOutbox implements IOutbox<unknown> {
     this.events.push(...events)
   }
 
-  start(
-    handler: (event: BusEvent) => Promise<void>,
-    onError: ErrorHandler
-  ): void {
+  start(handler: (event: BusEvent) => Promise<void>, onError: ErrorHandler): void {
     this.handler = handler
     this.onError = onError
     this.poller.start(handler, onError)
@@ -54,17 +51,17 @@ export class InMemoryOutbox implements IOutbox<unknown> {
   }
 
   async getFailedEvents(): Promise<FailedBusEvent[]> {
-    return this.deadLetterQueue.map(e => ({
+    return this.deadLetterQueue.map((e) => ({
       ...e,
       retryCount: this.retryCounts.get(e.id) ?? this.maxRetries ?? 0,
-      error: 'Max retries exceeded' // capture actual error if possible
+      error: "Max retries exceeded", // capture actual error if possible
     }))
   }
 
   async retryEvents(eventIds: string[]): Promise<void> {
-    const eventsToRetry = this.deadLetterQueue.filter(e => eventIds.includes(e.id))
-    this.deadLetterQueue = this.deadLetterQueue.filter(e => !eventIds.includes(e.id))
-    
+    const eventsToRetry = this.deadLetterQueue.filter((e) => eventIds.includes(e.id))
+    this.deadLetterQueue = this.deadLetterQueue.filter((e) => !eventIds.includes(e.id))
+
     for (const event of eventsToRetry) {
       this.retryCounts.set(event.id, 0)
       this.events.push(event)
@@ -78,7 +75,7 @@ export class InMemoryOutbox implements IOutbox<unknown> {
     this.events = []
 
     const failedEvents: BusEvent[] = []
-    
+
     for (const event of batch) {
       try {
         await handler(event)
@@ -102,7 +99,7 @@ export class InMemoryOutbox implements IOutbox<unknown> {
             this.onError?.(error, event)
           }
         } else {
-           this.onError?.(error, event)
+          this.onError?.(error, event)
         }
 
         if (shouldRetry) {
@@ -110,7 +107,7 @@ export class InMemoryOutbox implements IOutbox<unknown> {
         }
       }
     }
-    
+
     // Put failed events back for retry
     if (failedEvents.length > 0) {
       this.events.unshift(...failedEvents)

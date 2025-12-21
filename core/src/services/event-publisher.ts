@@ -1,7 +1,7 @@
-import type { BusEvent, PublisherConfig, RetryOptions } from "../types/types"
 import type { IOutboxEventBus } from "../types/interfaces"
-import { withRetry } from "../utils/retry"
+import type { BusEvent, PublisherConfig, RetryOptions } from "../types/types"
 import { Batcher } from "../utils/batcher"
+import { withRetry } from "../utils/retry"
 
 export class EventPublisher<TTransaction> {
   private readonly retryOptions: Required<RetryOptions>
@@ -17,10 +17,7 @@ export class EventPublisher<TTransaction> {
     }
   }
 
-  subscribe(
-    eventTypes: string[],
-    handler: (events: BusEvent[]) => Promise<void>
-  ): void {
+  subscribe(eventTypes: string[], handler: (events: BusEvent[]) => Promise<void>): void {
     const batcher = new Batcher<BusEvent>({
       batchSize: this.config?.batchConfig?.batchSize ?? 100,
       batchTimeoutMs: this.config?.batchConfig?.batchTimeoutMs ?? 100,
@@ -36,4 +33,3 @@ export class EventPublisher<TTransaction> {
     })
   }
 }
-

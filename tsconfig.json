@@ -4,9 +4,5 @@
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo"
   },
   "files": [],
-  "include": [
-    "vitest.workspace.ts",
-    "vitest.config.ts",
-    "eslint.config.js"
-  ]
+  "include": ["vitest.workspace.ts", "vitest.config.ts", "eslint.config.js"]
 }

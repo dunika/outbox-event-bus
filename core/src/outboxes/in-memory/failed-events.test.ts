@@ -1,17 +1,16 @@
-
 import { describe, expect, it, vi } from "vitest"
-import { InMemoryOutbox } from "./in-memory-outbox"
 import type { BusEvent } from "../../types/types"
+import { InMemoryOutbox } from "./in-memory-outbox"
 
 describe("InMemoryOutbox Failed Events", () => {
   it("should capture failed events in dead letter queue", async () => {
     const outbox = new InMemoryOutbox({ maxRetries: 2 })
-    
+
     const event: BusEvent = {
       id: "1",
       type: "test",
       payload: {},
-      occurredAt: new Date()
+      occurredAt: new Date(),
     }
 
     await outbox.publish([event])
@@ -27,9 +26,9 @@ describe("InMemoryOutbox Failed Events", () => {
     // start() calls poll() -> processBatch using requestAnimationFrame or setTimeout/immediate.
     // InMemoryOutbox uses `setTimeout(..., 0)` in `poll`.
 
-    await new Promise(r => setTimeout(r, 50))
+    await new Promise((r) => setTimeout(r, 50))
     // Should be retrying.
-    
+
     // InMemoryOutbox retries immediately in next loop in `processBatch` if it fails?
     // No.
     // In `processBatch`:
@@ -41,7 +40,7 @@ describe("InMemoryOutbox Failed Events", () => {
     // 2nd fail -> retry 2.
     // 3rd fail -> max retries exceeded -> DLQ.
 
-    await new Promise(r => setTimeout(r, 200))
+    await new Promise((r) => setTimeout(r, 200))
 
     const failed = await outbox.getFailedEvents()
     expect(failed).toHaveLength(1)
@@ -51,17 +50,17 @@ describe("InMemoryOutbox Failed Events", () => {
   it("should allow retrying failed events", async () => {
     const outbox = new InMemoryOutbox({ maxRetries: 1 })
     const event: BusEvent = { id: "retry-1", type: "t", payload: {}, occurredAt: new Date() }
-    
+
     await outbox.publish([event])
-    
+
     // Fail it until DLQ
     let shouldFail = true
     const handler = vi.fn().mockImplementation(async () => {
-        if (shouldFail) throw new Error("Fail")
+      if (shouldFail) throw new Error("Fail")
     })
-    
+
     outbox.start(handler, () => {})
-    await new Promise(r => setTimeout(r, 100))
+    await new Promise((r) => setTimeout(r, 100))
 
     const failed = await outbox.getFailedEvents()
     expect(failed).toHaveLength(1)
@@ -70,8 +69,8 @@ describe("InMemoryOutbox Failed Events", () => {
     shouldFail = false
     await outbox.retryEvents([event.id])
 
-    await new Promise(r => setTimeout(r, 50))
-    
+    await new Promise((r) => setTimeout(r, 50))
+
     // Should be processed
     expect(handler).toHaveBeenCalledTimes(3) // 1 initial fail, 2nd fail (retry 1), 3rd success (manual retry) -> valid?
     // Logic:

@@ -1,9 +1,8 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { MaintenanceError, OperationalError } from "../errors/errors"
+import { PollingService } from "./polling-service"
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { PollingService } from './polling-service'
-import { MaintenanceError, OperationalError } from '../errors/errors'
-
-describe('PollingService', () => {
+describe("PollingService", () => {
   let onError: any
   let processBatch: any
 
@@ -12,21 +11,21 @@ describe('PollingService', () => {
     processBatch = vi.fn().mockResolvedValue(undefined)
   })
 
-  it('should wrap maintenance errors in MaintenanceError', async () => {
-    const maintenanceError = new Error('Database locked')
+  it("should wrap maintenance errors in MaintenanceError", async () => {
+    const maintenanceError = new Error("Database locked")
     const performMaintenance = vi.fn().mockRejectedValue(maintenanceError)
 
     const service = new PollingService({
       pollIntervalMs: 10,
       baseBackoffMs: 10,
       processBatch,
-      performMaintenance
+      performMaintenance,
     })
 
     service.start(async () => {}, onError)
 
     // Wait for first poll
-    await new Promise(resolve => setTimeout(resolve, 50))
+    await new Promise((resolve) => setTimeout(resolve, 50))
     await service.stop()
 
     expect(onError).toHaveBeenCalledWith(expect.any(MaintenanceError))
@@ -34,42 +33,42 @@ describe('PollingService', () => {
     expect(error.data.originalError).toBe(maintenanceError)
   })
 
-  it('should wrap batch processing errors in OperationalError', async () => {
-    const batchError = new Error('Select failed')
+  it("should wrap batch processing errors in OperationalError", async () => {
+    const batchError = new Error("Select failed")
     processBatch.mockRejectedValue(batchError)
 
     const service = new PollingService({
       pollIntervalMs: 10,
       baseBackoffMs: 10,
-      processBatch
+      processBatch,
     })
 
     service.start(async () => {}, onError)
 
     // Wait for first poll
-    await new Promise(resolve => setTimeout(resolve, 50))
+    await new Promise((resolve) => setTimeout(resolve, 50))
     await service.stop()
 
     expect(onError).toHaveBeenCalledWith(expect.any(OperationalError))
     const error = onError.mock.calls[0][0]
-    expect(error.message).toContain('Polling cycle failed')
+    expect(error.message).toContain("Polling cycle failed")
     expect(error.data.originalError).toBe(batchError)
   })
 
-  it('should not wrap already categorized OutboxErrors', async () => {
-    const categorizedError = new OperationalError('Specific fail')
+  it("should not wrap already categorized OutboxErrors", async () => {
+    const categorizedError = new OperationalError("Specific fail")
     processBatch.mockRejectedValue(categorizedError)
 
     const service = new PollingService({
       pollIntervalMs: 10,
       baseBackoffMs: 10,
-      processBatch
+      processBatch,
     })
 
     service.start(async () => {}, onError)
 
     // Wait for first poll
-    await new Promise(resolve => setTimeout(resolve, 50))
+    await new Promise((resolve) => setTimeout(resolve, 50))
     await service.stop()
 
     expect(onError).toHaveBeenCalledWith(categorizedError)

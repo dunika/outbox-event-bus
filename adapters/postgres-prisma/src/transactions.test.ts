@@ -1,10 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks"
-import { PrismaClient, OutboxStatus } from "@prisma/client"
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest"
-import { OutboxEventBus } from "../../../core/src/outbox-event-bus"
-import { PostgresPrismaOutbox, withPrismaTransaction, getPrismaTransaction } from "./index"
-import { execSync } from "child_process"
+import { execSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
+import { OutboxStatus, PrismaClient } from "@prisma/client"
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { OutboxEventBus } from "../../../core/src/outbox-event-bus"
+import { PostgresPrismaOutbox } from "./index"
 
 const DATABASE_URL = "postgresql://test_user:test_password@localhost:5432/outbox_test"
 
@@ -14,10 +14,13 @@ describe("PostgresPrisma Outbox Transactions with AsyncLocalStorage", () => {
 
   beforeAll(async () => {
     process.env.DATABASE_URL = DATABASE_URL
-    
+
     // Run db push to setup schema
     try {
-      execSync("npx prisma db push --accept-data-loss", { stdio: "inherit", env: { ...process.env, DATABASE_URL } })
+      execSync("npx prisma db push --accept-data-loss", {
+        stdio: "inherit",
+        env: { ...process.env, DATABASE_URL },
+      })
     } catch (e) {
       console.error("Failed to push db schema", e)
       throw e
@@ -35,8 +38,8 @@ describe("PostgresPrisma Outbox Transactions with AsyncLocalStorage", () => {
 
   beforeEach(async () => {
     await prisma.outboxEvent.deleteMany({})
-    // We don't have a 'users' table in the default prisma schema for this project 
-    // unless it was added. Let's check the schema or just use the outboxEvent itself 
+    // We don't have a 'users' table in the default prisma schema for this project
+    // unless it was added. Let's check the schema or just use the outboxEvent itself
     // as the "business data" for the sake of testing transactionality if no other table available.
     // Actually, let's see if we can use another model if it exists.
   })
@@ -47,15 +50,19 @@ describe("PostgresPrisma Outbox Transactions with AsyncLocalStorage", () => {
       getExecutor: () => als.getStore(),
     })
 
-    const eventBus = new OutboxEventBus(outbox, () => {}, () => {})
+    const eventBus = new OutboxEventBus(
+      outbox,
+      () => {},
+      () => {}
+    )
 
     const eventId = randomUUID()
-    
+
     // Using $transaction
     await prisma.$transaction(async (transaction) => {
       await als.run(transaction as any, async () => {
         // In a real app, you'd do: await transaction.user.create(...)
-        
+
         // For this test, we'll just emit an event
         await eventBus.emit({
           id: eventId,
@@ -78,7 +85,11 @@ describe("PostgresPrisma Outbox Transactions with AsyncLocalStorage", () => {
       getExecutor: () => als.getStore(),
     })
 
-    const eventBus = new OutboxEventBus(outbox, () => {}, () => {})
+    const eventBus = new OutboxEventBus(
+      outbox,
+      () => {},
+      () => {}
+    )
 
     const eventId = randomUUID()
 
@@ -95,7 +106,7 @@ describe("PostgresPrisma Outbox Transactions with AsyncLocalStorage", () => {
           throw new Error("Forced rollback")
         })
       })
-    } catch (err) {
+    } catch (_err) {
       // Expected
     }
 

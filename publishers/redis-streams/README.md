@@ -85,13 +85,13 @@ publisher.subscribe(['*']);
 
 Events are added to the stream using `XADD` with the following field mapping:
 
-| Redis Field | Value |
-|-------------|-------|
-| **eventId** | `event.id` |
-| **eventType** | `event.type` |
-| **payload** | `JSON.stringify(event.payload)` |
-| **occurredAt** | `event.occurredAt.toISOString()` |
-| **metadata** | `JSON.stringify(event.metadata)` |
+| Redis Field | Value | Description |
+|-------------|-------|-------------|
+| **eventId** | `event.id` | The unique event UUID. |
+| **eventType** | `event.type` | The event type string. |
+| **payload** | `JSON.stringify(event.payload)` | The full event payload. |
+| **occurredAt** | `event.occurredAt.toISOString()` | ISO timestamp of the event. |
+| **metadata** | `JSON.stringify(event.metadata)` | Optional metadata. |
 
 ## Error Handling
 
@@ -123,3 +123,7 @@ The publisher will propagate any terminal Redis errors to the `OutboxEventBus` e
 ### Data persistence
 - **Cause**: Redis is in-memory.
 - **Solution**: Enable AOF (Append Only File) persistence in Redis to ensure stream data survives a restart.
+
+## License
+
+MIT © [Dunika](https://github.com/dunika)

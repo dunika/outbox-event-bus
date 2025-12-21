@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { IOutbox } from "../types/interfaces"
-import { OutboxEventBus } from "./outbox-event-bus"
-import type { BusEvent } from "../types/types"
 import { DuplicateListenerError, TimeoutError, UnsupportedOperationError } from "../errors/errors"
+import type { IOutbox } from "../types/interfaces"
+import type { BusEvent } from "../types/types"
+import { OutboxEventBus } from "./outbox-event-bus"
 
 describe("OutboxEventBus", () => {
   let eventBus: OutboxEventBus<unknown>
@@ -58,7 +58,7 @@ describe("OutboxEventBus", () => {
     } as unknown as BusEvent
 
     await eventBus.emit(eventWithoutTimestamp)
-    
+
     const publishedEvents = (outbox.publish as any).mock.calls[0][0]
     expect(publishedEvents).toHaveLength(1)
     expect(publishedEvents[0].occurredAt).toBeInstanceOf(Date)
@@ -91,7 +91,7 @@ describe("OutboxEventBus", () => {
     }
 
     await eventBus.emit(eventWithTimestamp)
-    
+
     const publishedEvents = (outbox.publish as any).mock.calls[0][0]
     expect(publishedEvents).toHaveLength(1)
     expect(publishedEvents[0].occurredAt).toBe(customDate)

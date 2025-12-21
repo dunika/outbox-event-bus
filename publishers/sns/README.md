@@ -85,9 +85,11 @@ publisher.subscribe(['order.*']);
 ## Message Format
 
 Messages are published to SNS with:
-- **Message**: `JSON.stringify(event)`
-- **MessageAttributes**:
-    - `EventType`: Set to the event type (string) for convenient server-side filtering.
+
+| SNS Field | Value | Description |
+|-----------|-------|-------------|
+| **Message** | `JSON.stringify(event)` | The full event object. |
+| **MessageAttributes** | `EventType` | Set to the event type (string) for filtering. |
 
 ## Error Handling
 
@@ -106,8 +108,6 @@ const publisher = new SNSPublisher(bus, {
 });
 ```
 
-
-
 ## Troubleshooting
 
 ### Subscribers not receiving events
@@ -117,3 +117,7 @@ const publisher = new SNSPublisher(bus, {
 ### Throttling
 - **Cause**: Exceeding account limits.
 - **Solution**: Check your SNS `Publish` quotas in the AWS Service Quotas console.
+
+## License
+
+MIT © [Dunika](https://github.com/dunika)

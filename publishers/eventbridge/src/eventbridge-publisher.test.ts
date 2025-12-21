@@ -1,15 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
-import { EventBridgePublisher } from "./eventbridge-publisher"
 import { PutEventsCommand } from "@aws-sdk/client-eventbridge"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { EventBridgePublisher } from "./eventbridge-publisher"
 
 describe("EventBridgePublisher", () => {
   const mockBus = {
-    subscribe: vi.fn()
+    subscribe: vi.fn(),
   }
   const mockEventBridgeClient = {
-    send: vi.fn()
+    send: vi.fn(),
   }
-  const onError = vi.fn()
+  const _onError = vi.fn()
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -18,7 +18,7 @@ describe("EventBridgePublisher", () => {
   it("should subscribe to specified event types", () => {
     const publisher = new EventBridgePublisher(mockBus as any, {
       eventBridgeClient: mockEventBridgeClient as any,
-      source: "my.service"
+      source: "my.service",
     })
 
     publisher.subscribe(["order.created", "order.updated"])
@@ -33,7 +33,7 @@ describe("EventBridgePublisher", () => {
     const publisher = new EventBridgePublisher(mockBus as any, {
       eventBridgeClient: mockEventBridgeClient as any,
       source: "my.service",
-      eventBusName: "custom-bus"
+      eventBusName: "custom-bus",
     })
 
     publisher.subscribe(["test.event"])
@@ -45,7 +45,7 @@ describe("EventBridgePublisher", () => {
       id: "evt_1",
       type: "test.event",
       payload: { data: "test" },
-      occurredAt: new Date()
+      occurredAt: new Date(),
     }
 
     mockEventBridgeClient.send.mockResolvedValueOnce({})
@@ -59,7 +59,7 @@ describe("EventBridgePublisher", () => {
     expect(command).toBeInstanceOf(PutEventsCommand)
     expect(command.input.Entries).toBeDefined()
     expect(command.input.Entries?.length).toBeGreaterThan(0)
-    
+
     const entry = command.input.Entries![0]
     expect(entry).toBeDefined()
     expect(entry.Source).toBe("my.service")
@@ -72,7 +72,7 @@ describe("EventBridgePublisher", () => {
   it("should throw error when publication fails", async () => {
     const publisher = new EventBridgePublisher(mockBus as any, {
       eventBridgeClient: mockEventBridgeClient as any,
-      source: "my.service"
+      source: "my.service",
     })
 
     publisher.subscribe(["test.event"])
@@ -88,7 +88,7 @@ describe("EventBridgePublisher", () => {
       id: "evt_1",
       type: "test.event",
       payload: { data: "test" },
-      occurredAt: new Date()
+      occurredAt: new Date(),
     }
 
     // Should throw error after all retries

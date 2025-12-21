@@ -1,36 +1,43 @@
-import { 
-  DynamoDBClient, 
-  ConditionalCheckFailedException
-} from "@aws-sdk/client-dynamodb";
-import { 
-  DynamoDBDocumentClient, 
-  UpdateCommand, 
+import { ConditionalCheckFailedException, type DynamoDBClient } from "@aws-sdk/client-dynamodb"
+import {
   QueryCommand as DocQueryCommand,
-  TransactWriteCommand
-} from "@aws-sdk/lib-dynamodb";
-import { type BusEvent, type IOutbox, type OutboxConfig, type ResolvedOutboxConfig, PollingService, formatErrorMessage, type FailedBusEvent, MaxRetriesExceededError, BatchSizeLimitError, type ErrorHandler } from "outbox-event-bus";
+  DynamoDBDocumentClient,
+  TransactWriteCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb"
+import {
+  BatchSizeLimitError,
+  type BusEvent,
+  type ErrorHandler,
+  type FailedBusEvent,
+  formatErrorMessage,
+  type IOutbox,
+  MaxRetriesExceededError,
+  type OutboxConfig,
+  PollingService,
+} from "outbox-event-bus"
 
 // DynamoDB has a hard limit of 100 items per transaction
-const DYNAMODB_TRANSACTION_LIMIT = 100;
+const DYNAMODB_TRANSACTION_LIMIT = 100
 
 export type DynamoDBAwsSdkTransactionCollector = {
-  push: (item: any) => void;
-  items?: any[];
-};
+  push: (item: any) => void
+  items?: any[]
+}
 
 export interface DynamoDBAwsSdkOutboxConfig extends OutboxConfig {
-  client: DynamoDBClient;
-  tableName: string;
-  statusIndexName?: string;
-  processingTimeoutMs?: number; // Time before a PROCESSING event is considered stuck
-  getCollector?: (() => DynamoDBAwsSdkTransactionCollector | undefined) | undefined;
+  client: DynamoDBClient
+  tableName: string
+  statusIndexName?: string
+  processingTimeoutMs?: number // Time before a PROCESSING event is considered stuck
+  getCollector?: (() => DynamoDBAwsSdkTransactionCollector | undefined) | undefined
 }
 
 export class DynamoDBAwsSdkOutbox implements IOutbox<DynamoDBAwsSdkTransactionCollector> {
   private readonly config: Required<DynamoDBAwsSdkOutboxConfig>
-  private readonly docClient: DynamoDBDocumentClient;
-  private readonly poller: PollingService;
-  
+  private readonly docClient: DynamoDBDocumentClient
+  private readonly poller: PollingService
+
   constructor(config: DynamoDBAwsSdkOutboxConfig) {
     this.config = {
       batchSize: config.batchSize ?? 50,
@@ -46,30 +53,31 @@ export class DynamoDBAwsSdkOutbox implements IOutbox<DynamoDBAwsSdkTransactionCo
     }
 
     this.docClient = DynamoDBDocumentClient.from(config.client, {
-      marshallOptions: { removeUndefinedValues: true }
-    });
-    
-    this.poller = new PollingService(
-      {
-        pollIntervalMs: this.config.pollIntervalMs,
-        baseBackoffMs: this.config.baseBackoffMs,
-        maxErrorBackoffMs: this.config.maxErrorBackoffMs,
-        performMaintenance: () => this.recoverStuckEvents(),
-        processBatch: (handler) => this.processBatch(handler),
-      }
-    )
+      marshallOptions: { removeUndefinedValues: true },
+    })
+
+    this.poller = new PollingService({
+      pollIntervalMs: this.config.pollIntervalMs,
+      baseBackoffMs: this.config.baseBackoffMs,
+      maxErrorBackoffMs: this.config.maxErrorBackoffMs,
+      performMaintenance: () => this.recoverStuckEvents(),
+      processBatch: (handler) => this.processBatch(handler),
+    })
   }
 
-  async publish(events: BusEvent[], transaction?: DynamoDBAwsSdkTransactionCollector): Promise<void> {
-    if (events.length === 0) return;
-    
+  async publish(
+    events: BusEvent[],
+    transaction?: DynamoDBAwsSdkTransactionCollector
+  ): Promise<void> {
+    if (events.length === 0) return
+
     if (events.length > DYNAMODB_TRANSACTION_LIMIT) {
-      throw new BatchSizeLimitError(DYNAMODB_TRANSACTION_LIMIT, events.length);
+      throw new BatchSizeLimitError(DYNAMODB_TRANSACTION_LIMIT, events.length)
     }
 
-    const collector = transaction ?? this.config.getCollector?.();
+    const collector = transaction ?? this.config.getCollector?.()
 
-    const items = events.map(event => {
+    const items = events.map((event) => {
       return {
         Put: {
           TableName: this.config.tableName,
@@ -80,41 +88,45 @@ export class DynamoDBAwsSdkOutbox implements IOutbox<DynamoDBAwsSdkTransactionCo
             occurredAt: event.occurredAt.toISOString(),
             status: "PENDING",
             retryCount: 0,
-            gsiSortKey: event.occurredAt.getTime()
-          }
-        }
-      };
-    });
+            gsiSortKey: event.occurredAt.getTime(),
+          },
+        },
+      }
+    })
 
     if (collector) {
-      const itemsInCollector = collector.items?.length ?? 0;
-      
+      const itemsInCollector = collector.items?.length ?? 0
+
       if (itemsInCollector + items.length > DYNAMODB_TRANSACTION_LIMIT) {
-        throw new BatchSizeLimitError(DYNAMODB_TRANSACTION_LIMIT, itemsInCollector + items.length);
+        throw new BatchSizeLimitError(DYNAMODB_TRANSACTION_LIMIT, itemsInCollector + items.length)
       }
 
       for (const item of items) {
-        collector.push(item);
+        collector.push(item)
       }
     } else {
-      await this.docClient.send(new TransactWriteCommand({
-        TransactItems: items
-      }));
+      await this.docClient.send(
+        new TransactWriteCommand({
+          TransactItems: items,
+        })
+      )
     }
   }
 
   async getFailedEvents(): Promise<FailedBusEvent[]> {
-    const result = await this.docClient.send(new DocQueryCommand({
-      TableName: this.config.tableName,
-      IndexName: this.config.statusIndexName,
-      KeyConditionExpression: "#status = :status",
-      ExpressionAttributeNames: { "#status": "status" },
-      ExpressionAttributeValues: { ":status": "FAILED" },
-      Limit: 100,
-      ScanIndexForward: false // Newest first
-    }));
+    const result = await this.docClient.send(
+      new DocQueryCommand({
+        TableName: this.config.tableName,
+        IndexName: this.config.statusIndexName,
+        KeyConditionExpression: "#status = :status",
+        ExpressionAttributeNames: { "#status": "status" },
+        ExpressionAttributeValues: { ":status": "FAILED" },
+        Limit: 100,
+        ScanIndexForward: false, // Newest first
+      })
+    )
 
-    if (!result.Items) return [];
+    if (!result.Items) return []
 
     return result.Items.map((item) => {
       const event: FailedBusEvent = {
@@ -123,15 +135,15 @@ export class DynamoDBAwsSdkOutbox implements IOutbox<DynamoDBAwsSdkTransactionCo
         payload: item.payload,
         occurredAt: this.parseOccurredAt(item.occurredAt),
         retryCount: item.retryCount || 0,
-      };
-      if (item.lastError) event.error = item.lastError;
-      if (item.startedOn) event.lastAttemptAt = new Date(item.startedOn);
-      return event;
-    });
+      }
+      if (item.lastError) event.error = item.lastError
+      if (item.startedOn) event.lastAttemptAt = new Date(item.startedOn)
+      return event
+    })
   }
 
   async retryEvents(eventIds: string[]): Promise<void> {
-    if (eventIds.length === 0) return;
+    if (eventIds.length === 0) return
 
     await Promise.all(
       eventIds.map((id) =>
@@ -150,75 +162,80 @@ export class DynamoDBAwsSdkOutbox implements IOutbox<DynamoDBAwsSdkTransactionCo
           })
         )
       )
-    );
+    )
   }
 
-  start(
-    handler: (event: BusEvent) => Promise<void>,
-    onError: ErrorHandler
-  ): void {
-    this.poller.start(handler, onError);
+  start(handler: (event: BusEvent) => Promise<void>, onError: ErrorHandler): void {
+    this.poller.start(handler, onError)
   }
 
   async stop(): Promise<void> {
-    await this.poller.stop();
+    await this.poller.stop()
   }
 
-  private async updateEventAfterFailure(itemId: string, retryCount: number, now: number): Promise<void> {
+  private async updateEventAfterFailure(
+    itemId: string,
+    retryCount: number,
+    now: number
+  ): Promise<void> {
     if (retryCount >= this.config.maxRetries) {
-      await this.docClient.send(new UpdateCommand({
-        TableName: this.config.tableName,
-        Key: { id: itemId },
-        UpdateExpression: "SET #status = :failed, nextRetryAt = :now REMOVE gsiSortKey",
-        ExpressionAttributeNames: { "#status": "status" },
-        ExpressionAttributeValues: {
-          ":failed": "FAILED",
-          ":now": now
-        }
-      }));
+      await this.docClient.send(
+        new UpdateCommand({
+          TableName: this.config.tableName,
+          Key: { id: itemId },
+          UpdateExpression: "SET #status = :failed, nextRetryAt = :now REMOVE gsiSortKey",
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: {
+            ":failed": "FAILED",
+            ":now": now,
+          },
+        })
+      )
     } else {
-      await this.docClient.send(new UpdateCommand({
-        TableName: this.config.tableName,
-        Key: { id: itemId },
-        UpdateExpression: "SET #status = :pending, gsiSortKey = :now",
-        ExpressionAttributeNames: { "#status": "status" },
-        ExpressionAttributeValues: {
-          ":pending": "PENDING",
-          ":now": now
-        }
-      }));
+      await this.docClient.send(
+        new UpdateCommand({
+          TableName: this.config.tableName,
+          Key: { id: itemId },
+          UpdateExpression: "SET #status = :pending, gsiSortKey = :now",
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: {
+            ":pending": "PENDING",
+            ":now": now,
+          },
+        })
+      )
     }
   }
 
   private parseOccurredAt(occurredAt: unknown): Date {
     if (occurredAt instanceof Date) {
-      return occurredAt;
+      return occurredAt
     }
-    if (typeof occurredAt === 'string') {
-      return new Date(occurredAt);
+    if (typeof occurredAt === "string") {
+      return new Date(occurredAt)
     }
-    return new Date();
+    return new Date()
   }
 
   private async recoverStuckEvents() {
     const now = Date.now()
 
-    const result = await this.docClient.send(new DocQueryCommand({
-      TableName: this.config.tableName,
-      IndexName: this.config.statusIndexName,
-      KeyConditionExpression: "#status = :status AND gsiSortKey <= :now",
-      ExpressionAttributeNames: { "#status": "status" },
-      ExpressionAttributeValues: {
-        ":status": "PROCESSING",
-        ":now": now
-      }
-    }))
+    const result = await this.docClient.send(
+      new DocQueryCommand({
+        TableName: this.config.tableName,
+        IndexName: this.config.statusIndexName,
+        KeyConditionExpression: "#status = :status AND gsiSortKey <= :now",
+        ExpressionAttributeNames: { "#status": "status" },
+        ExpressionAttributeValues: {
+          ":status": "PROCESSING",
+          ":now": now,
+        },
+      })
+    )
 
     if (result.Items && result.Items.length > 0) {
       await Promise.all(
-        result.Items.map((item) =>
-          this.updateEventAfterFailure(item.id, item.retryCount || 0, now)
-        )
+        result.Items.map((item) => this.updateEventAfterFailure(item.id, item.retryCount || 0, now))
       )
     }
   }
@@ -226,19 +243,21 @@ export class DynamoDBAwsSdkOutbox implements IOutbox<DynamoDBAwsSdkTransactionCo
   private async processBatch(handler: (event: BusEvent) => Promise<void>) {
     const now = Date.now()
 
-    const result = await this.docClient.send(new DocQueryCommand({
-      TableName: this.config.tableName,
-      IndexName: this.config.statusIndexName,
-      KeyConditionExpression: "#status = :status AND gsiSortKey <= :now",
-      ExpressionAttributeNames: {
-        "#status": "status"
-      },
-      ExpressionAttributeValues: {
-        ":status": "PENDING",
-        ":now": now
-      },
-      Limit: this.config.batchSize
-    }))
+    const result = await this.docClient.send(
+      new DocQueryCommand({
+        TableName: this.config.tableName,
+        IndexName: this.config.statusIndexName,
+        KeyConditionExpression: "#status = :status AND gsiSortKey <= :now",
+        ExpressionAttributeNames: {
+          "#status": "status",
+        },
+        ExpressionAttributeValues: {
+          ":status": "PENDING",
+          ":now": now,
+        },
+        Limit: this.config.batchSize,
+      })
+    )
 
     if (!result.Items || result.Items.length === 0) return
 
@@ -252,33 +271,37 @@ export class DynamoDBAwsSdkOutbox implements IOutbox<DynamoDBAwsSdkTransactionCo
 
       // Try to lock the event
       try {
-        await this.docClient.send(new UpdateCommand({
-          TableName: this.config.tableName,
-          Key: { id: item.id },
-          UpdateExpression: "SET #status = :processing, gsiSortKey = :timeoutAt, startedOn = :now",
-          ConditionExpression: "#status = :pending",
-          ExpressionAttributeNames: { "#status": "status" },
-          ExpressionAttributeValues: {
-            ":processing": "PROCESSING",
-            ":timeoutAt": now + this.config.processingTimeoutMs,
-            ":pending": "PENDING",
-            ":now": now
-          }
-        }))
+        await this.docClient.send(
+          new UpdateCommand({
+            TableName: this.config.tableName,
+            Key: { id: item.id },
+            UpdateExpression:
+              "SET #status = :processing, gsiSortKey = :timeoutAt, startedOn = :now",
+            ConditionExpression: "#status = :pending",
+            ExpressionAttributeNames: { "#status": "status" },
+            ExpressionAttributeValues: {
+              ":processing": "PROCESSING",
+              ":timeoutAt": now + this.config.processingTimeoutMs,
+              ":pending": "PENDING",
+              ":now": now,
+            },
+          })
+        )
 
         await handler(event)
 
-        await this.docClient.send(new UpdateCommand({
-          TableName: this.config.tableName,
-          Key: { id: event.id },
-          UpdateExpression: "SET #status = :completed, completedOn = :now REMOVE gsiSortKey",
-          ExpressionAttributeNames: { "#status": "status" },
-          ExpressionAttributeValues: {
-            ":completed": "COMPLETED",
-            ":now": Date.now()
-          }
-        }))
-
+        await this.docClient.send(
+          new UpdateCommand({
+            TableName: this.config.tableName,
+            Key: { id: event.id },
+            UpdateExpression: "SET #status = :completed, completedOn = :now REMOVE gsiSortKey",
+            ExpressionAttributeNames: { "#status": "status" },
+            ExpressionAttributeValues: {
+              ":completed": "COMPLETED",
+              ":now": Date.now(),
+            },
+          })
+        )
       } catch (error) {
         if (error instanceof ConditionalCheckFailedException) {
           continue
@@ -286,39 +309,48 @@ export class DynamoDBAwsSdkOutbox implements IOutbox<DynamoDBAwsSdkTransactionCo
 
         const newRetryCount = (item.retryCount || 0) + 1
         if (newRetryCount >= this.config.maxRetries) {
-          this.poller.onError?.(new MaxRetriesExceededError(error, newRetryCount), { ...event, retryCount: newRetryCount })
+          this.poller.onError?.(new MaxRetriesExceededError(error, newRetryCount), {
+            ...event,
+            retryCount: newRetryCount,
+          })
         } else {
           this.poller.onError?.(error, { ...event, retryCount: newRetryCount })
         }
-        
+
         const errorMsg = formatErrorMessage(error)
         const delay = this.poller.calculateBackoff(newRetryCount)
 
         if (newRetryCount >= this.config.maxRetries) {
-          await this.docClient.send(new UpdateCommand({
-            TableName: this.config.tableName,
-            Key: { id: item.id },
-            UpdateExpression: "SET #status = :failed, retryCount = :rc, lastError = :err REMOVE gsiSortKey",
-            ExpressionAttributeNames: { "#status": "status" },
-            ExpressionAttributeValues: {
-              ":failed": "FAILED",
-              ":rc": newRetryCount,
-              ":err": errorMsg
-            }
-          }))
+          await this.docClient.send(
+            new UpdateCommand({
+              TableName: this.config.tableName,
+              Key: { id: item.id },
+              UpdateExpression:
+                "SET #status = :failed, retryCount = :rc, lastError = :err REMOVE gsiSortKey",
+              ExpressionAttributeNames: { "#status": "status" },
+              ExpressionAttributeValues: {
+                ":failed": "FAILED",
+                ":rc": newRetryCount,
+                ":err": errorMsg,
+              },
+            })
+          )
         } else {
-          await this.docClient.send(new UpdateCommand({
-            TableName: this.config.tableName,
-            Key: { id: item.id },
-            UpdateExpression: "SET #status = :pending, retryCount = :rc, lastError = :err, gsiSortKey = :nextAttempt",
-            ExpressionAttributeNames: { "#status": "status" },
-            ExpressionAttributeValues: {
-              ":pending": "PENDING",
-              ":rc": newRetryCount,
-              ":err": errorMsg,
-              ":nextAttempt": Date.now() + delay
-            }
-          }))
+          await this.docClient.send(
+            new UpdateCommand({
+              TableName: this.config.tableName,
+              Key: { id: item.id },
+              UpdateExpression:
+                "SET #status = :pending, retryCount = :rc, lastError = :err, gsiSortKey = :nextAttempt",
+              ExpressionAttributeNames: { "#status": "status" },
+              ExpressionAttributeValues: {
+                ":pending": "PENDING",
+                ":rc": newRetryCount,
+                ":err": errorMsg,
+                ":nextAttempt": Date.now() + delay,
+              },
+            })
+          )
         }
       }
     }

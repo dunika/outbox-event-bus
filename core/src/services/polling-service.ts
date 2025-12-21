@@ -1,5 +1,5 @@
+import { MaintenanceError, OperationalError, OutboxError } from "../errors/errors"
 import type { PollingServiceConfig } from "../types/interfaces"
-import { MaintenanceError, OutboxError, OperationalError } from "../errors/errors"
 import type { BusEvent, ErrorHandler } from "../types/types"
 
 export class PollingService {
@@ -11,16 +11,11 @@ export class PollingService {
 
   public onError?: ErrorHandler
 
-  constructor(
-    private readonly config: PollingServiceConfig,
-  ) {
+  constructor(private readonly config: PollingServiceConfig) {
     this.maxErrorBackoffMs = config.maxErrorBackoffMs ?? 30000
   }
 
-  start(
-    handler: (event: BusEvent) => Promise<void>,
-    onError: ErrorHandler
-  ): void {
+  start(handler: (event: BusEvent) => Promise<void>, onError: ErrorHandler): void {
     this.onError = onError
     if (this.isPolling) return
     this.isPolling = true
@@ -39,7 +34,7 @@ export class PollingService {
   }
 
   calculateBackoff(retryCount: number): number {
-    const backoff = this.config.baseBackoffMs * Math.pow(2, retryCount - 1)
+    const backoff = this.config.baseBackoffMs * 2 ** (retryCount - 1)
     const jitter = (Math.random() * 0.2 - 0.1) * backoff // ±10% jitter
     return Math.floor(backoff + jitter)
   }
@@ -55,10 +50,11 @@ export class PollingService {
       await pollExecution
       this.errorCount = 0
     } catch (error) {
-      const errorToReport = error instanceof OutboxError 
-        ? error 
-        : new OperationalError("Polling cycle failed", { originalError: error })
-      
+      const errorToReport =
+        error instanceof OutboxError
+          ? error
+          : new OperationalError("Polling cycle failed", { originalError: error })
+
       this.onError?.(errorToReport)
       this.errorCount++
     } finally {
@@ -66,10 +62,7 @@ export class PollingService {
       if (this.isPolling) {
         const delay =
           this.errorCount > 0
-            ? Math.min(
-                this.calculateBackoff(this.errorCount + 1),
-                this.maxErrorBackoffMs
-              )
+            ? Math.min(this.calculateBackoff(this.errorCount + 1), this.maxErrorBackoffMs)
             : this.config.pollIntervalMs
 
         this.pollTimer = setTimeout(() => {

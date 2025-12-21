@@ -1,8 +1,12 @@
+import { existsSync, unlinkSync } from "node:fs"
 import Database from "better-sqlite3"
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest"
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { OutboxEventBus } from "../../../core/src/outbox-event-bus"
-import { SqliteBetterSqlite3Outbox, withBetterSqlite3Transaction, getBetterSqlite3Transaction } from "./index"
-import { unlinkSync, existsSync } from "fs"
+import {
+  getBetterSqlite3Transaction,
+  SqliteBetterSqlite3Outbox,
+  withBetterSqlite3Transaction,
+} from "./index"
 
 const DB_PATH = "./test-transactions.db"
 
@@ -35,7 +39,11 @@ describe("SqliteBetterSqlite3Outbox Transactions with AsyncLocalStorage", () => 
       getTransaction: getBetterSqlite3Transaction(),
     })
 
-    const eventBus = new OutboxEventBus(outbox, () => {}, () => {})
+    const eventBus = new OutboxEventBus(
+      outbox,
+      () => {},
+      () => {}
+    )
 
     // Create a dummy business table
     db.exec("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT)")
@@ -71,7 +79,11 @@ describe("SqliteBetterSqlite3Outbox Transactions with AsyncLocalStorage", () => 
       getTransaction: getBetterSqlite3Transaction(),
     })
 
-    const eventBus = new OutboxEventBus(outbox, () => {}, () => {})
+    const eventBus = new OutboxEventBus(
+      outbox,
+      () => {},
+      () => {}
+    )
 
     const eventId = "event-rollback"
     const userId = "user-rollback"
@@ -89,7 +101,7 @@ describe("SqliteBetterSqlite3Outbox Transactions with AsyncLocalStorage", () => 
 
         throw new Error("Forced rollback")
       })
-    } catch (err) {
+    } catch (_err) {
       // Expected
     }
 
@@ -106,7 +118,11 @@ describe("SqliteBetterSqlite3Outbox Transactions with AsyncLocalStorage", () => 
       dbPath: DB_PATH,
     })
 
-    const eventBus = new OutboxEventBus(outbox, () => {}, () => {})
+    const eventBus = new OutboxEventBus(
+      outbox,
+      () => {},
+      () => {}
+    )
 
     const eventId = "event-explicit"
     const userId = "user-explicit"
@@ -114,12 +130,15 @@ describe("SqliteBetterSqlite3Outbox Transactions with AsyncLocalStorage", () => 
     const transaction = db.transaction(() => {
       db.prepare("INSERT INTO users (id, name) VALUES (?, ?)").run(userId, "Charlie")
 
-      eventBus.emit({
-        id: eventId,
-        type: "USER_CREATED",
-        payload: { userId },
-        occurredAt: new Date(),
-      }, db) // Pass db explicitly
+      eventBus.emit(
+        {
+          id: eventId,
+          type: "USER_CREATED",
+          payload: { userId },
+          occurredAt: new Date(),
+        },
+        db
+      ) // Pass db explicitly
     })
 
     transaction()
@@ -137,7 +156,11 @@ describe("SqliteBetterSqlite3Outbox Transactions with AsyncLocalStorage", () => 
       dbPath: DB_PATH,
     })
 
-    const eventBus = new OutboxEventBus(outbox, () => {}, () => {})
+    const eventBus = new OutboxEventBus(
+      outbox,
+      () => {},
+      () => {}
+    )
 
     const eventId = "event-explicit-rollback"
     const userId = "user-explicit-rollback"
@@ -145,19 +168,22 @@ describe("SqliteBetterSqlite3Outbox Transactions with AsyncLocalStorage", () => 
     const transaction = db.transaction(() => {
       db.prepare("INSERT INTO users (id, name) VALUES (?, ?)").run(userId, "Dave")
 
-      eventBus.emit({
-        id: eventId,
-        type: "USER_CREATED",
-        payload: { userId },
-        occurredAt: new Date(),
-      }, db)
+      eventBus.emit(
+        {
+          id: eventId,
+          type: "USER_CREATED",
+          payload: { userId },
+          occurredAt: new Date(),
+        },
+        db
+      )
 
       throw new Error("Forced rollback")
     })
 
     try {
       transaction()
-    } catch (err) {
+    } catch (_err) {
       // Expected
     }
 

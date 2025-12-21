@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { OutboxEventBus } from "../../bus/outbox-event-bus"
+import { DuplicateListenerError } from "../../errors/errors"
 import type { BusEvent } from "../../types/types"
 import { InMemoryOutbox } from "./in-memory-outbox"
-import { DuplicateListenerError } from "../../errors/errors"
 
 function createTestEvent(): BusEvent<
   "usersService.create",
@@ -22,10 +22,9 @@ function createTestEvent(): BusEvent<
 
 function createEventBus() {
   const outbox = new InMemoryOutbox()
-  return new OutboxEventBus(
-    outbox,
-    (error) => { console.error("Test EventBus Error:", error) }
-  )
+  return new OutboxEventBus(outbox, (error) => {
+    console.error("Test EventBus Error:", error)
+  })
 }
 
 describe("OutboxEventBus with InMemoryOutbox", () => {
@@ -59,7 +58,7 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
       const handler2 = vi.fn().mockResolvedValue(undefined)
 
       eventBus.on("usersService.create", handler1)
-      
+
       expect(() => {
         eventBus.on("usersService.create", handler2)
       }).toThrow(DuplicateListenerError)
@@ -331,7 +330,7 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
       bus.start()
 
       bus.removeAllListeners("usersService.create")
-      
+
       expect(() => {
         bus.on("usersService.create", async () => {})
       }).not.toThrow()

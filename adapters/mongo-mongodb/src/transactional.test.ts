@@ -1,6 +1,5 @@
-import { describe, it, expect, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { MongoMongodbOutbox } from "./mongo-mongodb-outbox"
-import { ObjectId } from "mongodb"
 
 describe("MongoMongodbOutbox Transactional Support", () => {
   it("should pass session to insertMany when getSession provides one", async () => {
@@ -30,7 +29,7 @@ describe("MongoMongodbOutbox Transactional Support", () => {
   })
 
   it("should NOT pass session to insertMany when getSession returns undefined", async () => {
-     const mockCollection = {
+    const mockCollection = {
       insertMany: vi.fn().mockResolvedValue({}),
     }
     const mockDb = {

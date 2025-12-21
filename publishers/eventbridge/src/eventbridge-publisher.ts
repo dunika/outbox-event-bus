@@ -17,10 +17,7 @@ export class EventBridgePublisher<TTransaction = unknown> implements IPublisher 
   private readonly source: string
   private readonly publisher: EventPublisher<TTransaction>
 
-  constructor(
-    bus: IOutboxEventBus<TTransaction>,
-    config: EventBridgePublisherConfig
-  ) {
+  constructor(bus: IOutboxEventBus<TTransaction>, config: EventBridgePublisherConfig) {
     this.eventBridgeClient = config.eventBridgeClient
     this.eventBusName = config.eventBusName
     this.source = config.source
@@ -54,4 +51,3 @@ export class EventBridgePublisher<TTransaction = unknown> implements IPublisher 
     })
   }
 }
-

@@ -1,6 +1,6 @@
 import type { Channel } from "amqplib"
 import type { BusEvent, IOutboxEventBus, IPublisher, PublisherConfig } from "outbox-event-bus"
-import { EventPublisher, BackpressureError } from "outbox-event-bus"
+import { BackpressureError, EventPublisher } from "outbox-event-bus"
 
 export interface RabbitMQPublisherConfig extends PublisherConfig {
   channel: Channel
@@ -14,10 +14,7 @@ export class RabbitMQPublisher<TTransaction = unknown> implements IPublisher {
   private readonly routingKey: string
   private readonly publisher: EventPublisher<TTransaction>
 
-  constructor(
-    bus: IOutboxEventBus<TTransaction>,
-    config: RabbitMQPublisherConfig
-  ) {
+  constructor(bus: IOutboxEventBus<TTransaction>, config: RabbitMQPublisherConfig) {
     this.channel = config.channel
     this.exchange = config.exchange
     this.routingKey = config.routingKey ?? ""
@@ -48,4 +45,3 @@ export class RabbitMQPublisher<TTransaction = unknown> implements IPublisher {
     })
   }
 }
-

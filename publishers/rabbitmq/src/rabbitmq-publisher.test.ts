@@ -1,10 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
-import { RabbitMQPublisher } from "./rabbitmq-publisher"
 import { BackpressureError } from "outbox-event-bus"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { RabbitMQPublisher } from "./rabbitmq-publisher"
 
 describe("RabbitMQPublisher", () => {
   let mockChannel: any
-  let mockConnection: any
+  let _mockConnection: any
   let mockBus: any
 
   beforeEach(() => {
@@ -12,7 +12,7 @@ describe("RabbitMQPublisher", () => {
       assertExchange: vi.fn().mockResolvedValue({}),
       publish: vi.fn().mockReturnValue(true),
     }
-    mockConnection = {
+    _mockConnection = {
       createChannel: vi.fn().mockResolvedValue(mockChannel),
     }
     mockBus = {

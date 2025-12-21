@@ -1,98 +1,117 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBAwsSdkOutbox } from "./index";
-import { BatchSizeLimitError } from "outbox-event-bus";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb"
+import { BatchSizeLimitError } from "outbox-event-bus"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { DynamoDBAwsSdkOutbox } from "./index"
 
-const mockSend = vi.fn();
+const mockSend = vi.fn()
 
 vi.mock("@aws-sdk/lib-dynamodb", async () => {
-    const actual = await vi.importActual("@aws-sdk/lib-dynamodb") as any;
-    return {
-        ...actual,
-        DynamoDBDocumentClient: {
-            from: vi.fn(() => ({
-                send: mockSend
-            }))
-        }
-    };
-});
+  const actual = (await vi.importActual("@aws-sdk/lib-dynamodb")) as any
+  return {
+    ...actual,
+    DynamoDBDocumentClient: {
+      from: vi.fn(() => ({
+        send: mockSend,
+      })),
+    },
+  }
+})
 
 describe("DynamoDBAwsSdkOutbox Unit Tests", () => {
-    let outbox: DynamoDBAwsSdkOutbox;
-    let client: DynamoDBClient;
+  let outbox: DynamoDBAwsSdkOutbox
+  let client: DynamoDBClient
 
-    beforeEach(() => {
-        vi.clearAllMocks();
-        client = new DynamoDBClient({});
-        outbox = new DynamoDBAwsSdkOutbox({
-            client,
-            tableName: "test-table",
-            statusIndexName: "status-index",
-        });
-    });
+  beforeEach(() => {
+    vi.clearAllMocks()
+    client = new DynamoDBClient({})
+    outbox = new DynamoDBAwsSdkOutbox({
+      client,
+      tableName: "test-table",
+      statusIndexName: "status-index",
+    })
+  })
 
-    it("should publish events", async () => {
-        const events = [
-            { id: "e1", type: "t1", payload: { a: 1 }, occurredAt: new Date() },
-            { id: "e2", type: "t2", payload: { b: 2 }, occurredAt: new Date() }
-        ];
+  it("should publish events", async () => {
+    const events = [
+      { id: "e1", type: "t1", payload: { a: 1 }, occurredAt: new Date() },
+      { id: "e2", type: "t2", payload: { b: 2 }, occurredAt: new Date() },
+    ]
 
-        await outbox.publish(events);
+    await outbox.publish(events)
 
-        expect(mockSend).toHaveBeenCalledWith(expect.any(Object));
-    });
+    expect(mockSend).toHaveBeenCalledWith(expect.any(Object))
+  })
 
-    it("should process a batch of events", async () => {
-        const mockItems = [
-            { id: "e1", type: "t1", payload: { a: 1 }, occurredAt: new Date().toISOString(), status: "PENDING" }
-        ];
+  it("should process a batch of events", async () => {
+    const mockItems = [
+      {
+        id: "e1",
+        type: "t1",
+        payload: { a: 1 },
+        occurredAt: new Date().toISOString(),
+        status: "PENDING",
+      },
+    ]
 
-        mockSend
-            .mockResolvedValueOnce({ Items: [] }) // recoverStuckEvents
-            .mockResolvedValueOnce({ Items: mockItems }) // fetch PENDING
-            .mockResolvedValueOnce({}); // claim update
-            
-        outbox.start(async () => {}, (err) => console.error(err));
-        
-        // Wait for one poll cycle
-        await new Promise(res => setTimeout(res, 200));
-        
-        expect(mockSend).toHaveBeenCalled();
-        await outbox.stop();
-    });
+    mockSend
+      .mockResolvedValueOnce({ Items: [] }) // recoverStuckEvents
+      .mockResolvedValueOnce({ Items: mockItems }) // fetch PENDING
+      .mockResolvedValueOnce({}) // claim update
 
-    it("should handle processing failure", async () => {
-        const mockItems = [
-            { id: "e1", type: "t1", payload: { a: 1 }, occurredAt: new Date().toISOString(), status: "PENDING", retryCount: 0 }
-        ];
+    outbox.start(
+      async () => {},
+      (err) => console.error(err)
+    )
 
-        mockSend
-            .mockResolvedValueOnce({ Items: [] }) // recoverStuckEvents
-            .mockResolvedValueOnce({ Items: mockItems }) // fetch PENDING
-            .mockResolvedValueOnce({}); // claim update
+    // Wait for one poll cycle
+    await new Promise((res) => setTimeout(res, 200))
 
-        outbox.start(async () => {
-            throw new Error("Failed");
-        }, (err) => console.error(err));
+    expect(mockSend).toHaveBeenCalled()
+    await outbox.stop()
+  })
 
-        await new Promise(res => setTimeout(res, 200));
-        await outbox.stop();
+  it("should handle processing failure", async () => {
+    const mockItems = [
+      {
+        id: "e1",
+        type: "t1",
+        payload: { a: 1 },
+        occurredAt: new Date().toISOString(),
+        status: "PENDING",
+        retryCount: 0,
+      },
+    ]
 
-        // Should have called update for retry
-        const retryUpdate = mockSend.mock.calls.find(call => 
-            call[0].input?.UpdateExpression?.includes("retryCount")
-        );
-        expect(retryUpdate).toBeDefined();
-    });
+    mockSend
+      .mockResolvedValueOnce({ Items: [] }) // recoverStuckEvents
+      .mockResolvedValueOnce({ Items: mockItems }) // fetch PENDING
+      .mockResolvedValueOnce({}) // claim update
 
-    it("should throw BatchSizeLimitError when publishing more than 100 events", async () => {
-        const events = Array.from({ length: 101 }, (_, i) => ({
-            id: `e${i}`,
-            type: "t",
-            payload: {},
-            occurredAt: new Date()
-        }));
+    outbox.start(
+      async () => {
+        throw new Error("Failed")
+      },
+      (err) => console.error(err)
+    )
 
-        await expect(outbox.publish(events)).rejects.toThrow(BatchSizeLimitError);
-    });
-});
+    await new Promise((res) => setTimeout(res, 200))
+    await outbox.stop()
+
+    // Should have called update for retry
+    const retryUpdate = mockSend.mock.calls.find((call) =>
+      call[0].input?.UpdateExpression?.includes("retryCount")
+    )
+    expect(retryUpdate).toBeDefined()
+  })
+
+  it("should throw BatchSizeLimitError when publishing more than 100 events", async () => {
+    const events = Array.from({ length: 101 }, (_, i) => ({
+      id: `e${i}`,
+      type: "t",
+      payload: {},
+      occurredAt: new Date(),
+    }))
+
+    await expect(outbox.publish(events)).rejects.toThrow(BatchSizeLimitError)
+  })
+})

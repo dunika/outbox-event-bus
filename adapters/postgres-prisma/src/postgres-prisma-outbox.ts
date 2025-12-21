@@ -1,5 +1,14 @@
-import { PrismaClient, OutboxStatus, type OutboxEvent } from "@prisma/client"
-import { type BusEvent, type IOutbox, type OutboxConfig, PollingService, formatErrorMessage, type FailedBusEvent, MaxRetriesExceededError, type ErrorHandler } from "outbox-event-bus"
+import { type OutboxEvent, OutboxStatus, type PrismaClient } from "@prisma/client"
+import {
+  type BusEvent,
+  type ErrorHandler,
+  type FailedBusEvent,
+  formatErrorMessage,
+  type IOutbox,
+  MaxRetriesExceededError,
+  type OutboxConfig,
+  PollingService,
+} from "outbox-event-bus"
 
 export interface PostgresPrismaOutboxConfig extends OutboxConfig {
   prisma: PrismaClient
@@ -27,9 +36,9 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
       getTransaction: config.getTransaction,
       models: {
         outbox: config.models?.outbox ?? "outboxEvent",
-        archive: config.models?.archive ?? "outboxEventArchive"
+        archive: config.models?.archive ?? "outboxEventArchive",
       },
-      tableName: config.tableName ?? "outbox_events"
+      tableName: config.tableName ?? "outbox_events",
     }
 
     this.poller = new PollingService({
@@ -40,10 +49,7 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
     })
   }
 
-  async publish(
-    events: BusEvent[],
-    transaction?: PrismaClient,
-  ): Promise<void> {
+  async publish(events: BusEvent[], transaction?: PrismaClient): Promise<void> {
     const executor = transaction ?? this.config.getTransaction?.() ?? this.config.prisma
 
     await (executor as any)[this.config.models!.outbox!].createMany({
@@ -53,15 +59,15 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
         payload: e.payload as any,
         occurredAt: e.occurredAt,
         status: OutboxStatus.created,
-      }))
+      })),
     })
   }
 
   async getFailedEvents(): Promise<FailedBusEvent[]> {
     const events = await (this.config.prisma as any)[this.config.models!.outbox!].findMany({
       where: { status: OutboxStatus.failed },
-      orderBy: { occurredAt: 'desc' },
-      take: 100
+      orderBy: { occurredAt: "desc" },
+      take: 100,
     })
 
     return events.map((e: any) => {
@@ -85,15 +91,12 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
         status: OutboxStatus.created,
         retryCount: 0,
         nextRetryAt: null,
-        lastError: null
-      }
+        lastError: null,
+      },
     })
   }
 
-  start(
-    handler: (event: BusEvent) => Promise<void>,
-    onError: ErrorHandler
-  ): void {
+  start(handler: (event: BusEvent) => Promise<void>, onError: ErrorHandler): void {
     this.poller.start(handler, onError)
   }
 
@@ -112,14 +115,18 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
       // 1. New (status = created)
       // 2. Failed but can be retried
       // 3. Active but stuck/timed out
-      const events = await transaction.$queryRawUnsafe<OutboxEvent[]>(`
+      const events = await transaction.$queryRawUnsafe<OutboxEvent[]>(
+        `
         SELECT * FROM "${this.config.tableName}"
         WHERE "status" = 'created'::outbox_status
            OR ("status" = 'failed'::outbox_status AND "retry_count" < ${this.config.maxRetries} AND "next_retry_at" < $1)
            OR ("status" = 'active'::outbox_status AND "keep_alive" < $2::timestamp - make_interval(secs => "expire_in_seconds"))
         LIMIT ${this.config.batchSize}
         FOR UPDATE SKIP LOCKED
-      `, now, now)
+      `,
+        now,
+        now
+      )
 
       if (events.length === 0) return []
 
@@ -150,7 +157,7 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
     for (let i = 0; i < lockedEvents.length; i++) {
       const event = lockedEvents[i]!
       const busEvent = busEvents[i]!
-      
+
       try {
         await handler(busEvent)
         await this.config.prisma.$transaction(async (tx) => {
@@ -172,11 +179,14 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
       } catch (e: unknown) {
         const retryCount = event.retryCount + 1
         if (retryCount >= this.config.maxRetries) {
-          this.poller.onError?.(new MaxRetriesExceededError(e, retryCount), { ...busEvent, retryCount })
+          this.poller.onError?.(new MaxRetriesExceededError(e, retryCount), {
+            ...busEvent,
+            retryCount,
+          })
         } else {
           this.poller.onError?.(e, { ...busEvent, retryCount })
         }
-        
+
         // Mark this specific event as failed
         const delay = this.poller.calculateBackoff(retryCount)
         await (this.config.prisma as any)[this.config.models!.outbox!].update({
@@ -191,5 +201,4 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
       }
     }
   }
-
 }

@@ -1,9 +1,9 @@
-import { describe, expect, it, beforeAll, afterAll, vi } from "vitest"
-import { SqliteBetterSqlite3Outbox } from "./sqlite-better-sqlite3-outbox"
-import Database from "better-sqlite3"
 import { randomUUID } from "node:crypto"
-import { unlinkSync, existsSync } from "node:fs"
+import { existsSync, unlinkSync } from "node:fs"
 import { join } from "node:path"
+import Database from "better-sqlite3"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { SqliteBetterSqlite3Outbox } from "./sqlite-better-sqlite3-outbox"
 
 const DB_PATH = join(process.cwd(), `test-outbox-${randomUUID()}.db`)
 
@@ -67,7 +67,9 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
     const eventAfter = db.prepare("SELECT * FROM outbox_events WHERE id = ?").get(eventId)
     expect(eventAfter).toBeUndefined()
 
-    const archiveResult = db.prepare("SELECT * FROM outbox_events_archive WHERE id = ?").get(eventId) as any
+    const archiveResult = db
+      .prepare("SELECT * FROM outbox_events_archive WHERE id = ?")
+      .get(eventId) as any
     expect(archiveResult).toBeDefined()
     expect(archiveResult.status).toBe("completed")
 
@@ -93,7 +95,7 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
     await outbox.publish([event])
 
     let attempts = 0
-    const handler = async (event: any) => {
+    const handler = async (_event: any) => {
       attempts++
       throw new Error("Processing failed")
     }
@@ -131,13 +133,13 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
         INSERT INTO outbox_events (id, type, payload, occurred_at, status, retry_count, last_error)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(
-        eventId,
-        event.type,
-        JSON.stringify(event.payload),
-        event.occurredAt.toISOString(),
-        "failed",
-        5,
-        "Manual failure"
+      eventId,
+      event.type,
+      JSON.stringify(event.payload),
+      event.occurredAt.toISOString(),
+      "failed",
+      5,
+      "Manual failure"
     )
 
     const inserted = db.prepare("SELECT * FROM outbox_events WHERE id = ?").get(eventId)
@@ -146,7 +148,7 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
     // 2. Get failed events
     const failed = await outbox.getFailedEvents()
     const targetEvent = failed.find((e) => e.id === eventId)
-    
+
     expect(targetEvent).toBeDefined()
     expect(targetEvent!.id).toBe(eventId)
     expect(targetEvent!.error).toBe("Manual failure")
@@ -164,11 +166,14 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
 
     // 5. Verify it gets processed
     const processed: any[] = []
-    outbox.start(async (e) => {
-      processed.push(e)
-    }, (err) => console.error(err))
+    outbox.start(
+      async (e) => {
+        processed.push(e)
+      },
+      (err) => console.error(err)
+    )
 
-    await new Promise(r => setTimeout(r, 1000))
+    await new Promise((r) => setTimeout(r, 1000))
     await outbox.stop()
 
     const processedEvent = processed.find((e) => e.id === eventId)
@@ -184,16 +189,16 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
 
     const eventId = "event-stuck"
     const now = new Date()
-    
+
     // Manually insert a "stuck" event (status active, timed out)
     // Default expire_in_seconds is 300
     db.prepare(`
       INSERT INTO outbox_events (id, type, payload, occurred_at, status, retry_count, keep_alive, expire_in_seconds)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      eventId, 
-      "stuck.event", 
-      JSON.stringify({ stuck: true }), 
+      eventId,
+      "stuck.event",
+      JSON.stringify({ stuck: true }),
       new Date(now.getTime() - 400000).toISOString(),
       "active",
       0,
@@ -211,7 +216,7 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
     // Wait for recovery poll
     await new Promise((resolve) => setTimeout(resolve, 1500))
 
-    expect(processedEvents.some(e => e.id === eventId)).toBe(true)
+    expect(processedEvents.some((e) => e.id === eventId)).toBe(true)
 
     await outbox.stop()
   })
@@ -227,8 +232,8 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
     }))
 
     const outboxPublisher = new SqliteBetterSqlite3Outbox({
-        dbPath: DB_PATH,
-        pollIntervalMs: 100, // This instance is just for publishing
+      dbPath: DB_PATH,
+      pollIntervalMs: 100, // This instance is just for publishing
     })
     await outboxPublisher.publish(events)
     await outboxPublisher.stop()
@@ -245,34 +250,34 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
     }
 
     for (let i = 0; i < workerCount; i++) {
-        // Sqlite handle multiple connections via better-sqlite3 (it's sync but supports WAL/concurrency to some extent)
-        // Here we test safe locking if implemented or transaction safety.
-        // Even with 1 connection, if the logic isn't atomic, we might get duplicates if polling overlaps.
-        const worker = new SqliteBetterSqlite3Outbox({
-            dbPath: DB_PATH, // Same DB file
-            pollIntervalMs: 100 + (Math.random() * 50),
-            batchSize: 5,
-        })
-        workers.push(worker)
-        worker.start(handler, (err) => console.error(`Worker ${i} Error:`, err))
+      // Sqlite handle multiple connections via better-sqlite3 (it's sync but supports WAL/concurrency to some extent)
+      // Here we test safe locking if implemented or transaction safety.
+      // Even with 1 connection, if the logic isn't atomic, we might get duplicates if polling overlaps.
+      const worker = new SqliteBetterSqlite3Outbox({
+        dbPath: DB_PATH, // Same DB file
+        pollIntervalMs: 100 + Math.random() * 50,
+        batchSize: 5,
+      })
+      workers.push(worker)
+      worker.start(handler, (err) => console.error(`Worker ${i} Error:`, err))
     }
 
     // 3. Wait for processing
     const maxWaitTime = 10000
     const startTime = Date.now()
-    
-    while (processedEvents.length < eventCount && (Date.now() - startTime) < maxWaitTime) {
-        await new Promise((resolve) => setTimeout(resolve, 200))
+
+    while (processedEvents.length < eventCount && Date.now() - startTime < maxWaitTime) {
+      await new Promise((resolve) => setTimeout(resolve, 200))
     }
 
     // 4. Verify results
-    await Promise.all(workers.map(w => w.stop()))
+    await Promise.all(workers.map((w) => w.stop()))
 
     // Check count
     expect(processedEvents).toHaveLength(eventCount)
 
     // Check duplicates
-    const ids = processedEvents.map(e => e.id)
+    const ids = processedEvents.map((e) => e.id)
     const uniqueIds = new Set(ids)
     expect(uniqueIds.size).toBe(eventCount)
   })

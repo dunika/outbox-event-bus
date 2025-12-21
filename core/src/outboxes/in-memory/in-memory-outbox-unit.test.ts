@@ -1,6 +1,6 @@
-import { describe, expect, it, vi, afterEach } from "vitest"
-import { InMemoryOutbox } from "./in-memory-outbox"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { MaxRetriesExceededError } from "../../errors/errors"
+import { InMemoryOutbox } from "./in-memory-outbox"
 
 describe("InMemoryOutbox Unit", () => {
   let outbox: InMemoryOutbox | undefined
@@ -27,7 +27,7 @@ describe("InMemoryOutbox Unit", () => {
     }
 
     await outbox.publish([event])
-    await new Promise(resolve => setTimeout(resolve, 200))
+    await new Promise((resolve) => setTimeout(resolve, 200))
 
     expect(handler).toHaveBeenCalledWith(event)
     expect(onError).not.toHaveBeenCalled()
@@ -49,7 +49,7 @@ describe("InMemoryOutbox Unit", () => {
     expect(handler).not.toHaveBeenCalled()
 
     outbox.start(handler, onError)
-    await new Promise(resolve => setTimeout(resolve, 50))
+    await new Promise((resolve) => setTimeout(resolve, 50))
     expect(handler).toHaveBeenCalledWith(event)
   })
 
@@ -70,7 +70,7 @@ describe("InMemoryOutbox Unit", () => {
 
     await outbox.publish([event])
     // Wait for async processing to complete
-    await new Promise(resolve => setTimeout(resolve, 200))
+    await new Promise((resolve) => setTimeout(resolve, 200))
 
     expect(handler).toHaveBeenCalled()
     expect(onError).toHaveBeenCalledWith(error, event)
@@ -114,15 +114,15 @@ describe("InMemoryOutbox Unit", () => {
 
     // Wait enough time for retries to happen
     // Initial + 2 retries with backoff
-    await new Promise(resolve => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 500))
 
     // Should be called 3 times: 1 initial + 2 retries
     expect(handler).toHaveBeenCalledTimes(3)
-    
+
     // Should call onError 3 times: 2 times for the original error (retries)
     // AND 1 time for the "Max retries exceeded" error on the final attempt
     expect(onError).toHaveBeenCalledTimes(3)
-    
+
     // Check that we got the max retries error
     expect(onError).toHaveBeenLastCalledWith(
       expect.any(MaxRetriesExceededError),

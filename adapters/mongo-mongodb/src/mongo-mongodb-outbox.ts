@@ -1,5 +1,14 @@
-import { ObjectId, type Collection, type MongoClient, type ClientSession } from "mongodb"
-import { type BusEvent, type IOutbox, type OutboxConfig, type ResolvedOutboxConfig, PollingService, formatErrorMessage, type FailedBusEvent, MaxRetriesExceededError, type ErrorHandler } from "outbox-event-bus"
+import { type ClientSession, type Collection, type MongoClient, ObjectId } from "mongodb"
+import {
+  type BusEvent,
+  type ErrorHandler,
+  type FailedBusEvent,
+  formatErrorMessage,
+  type IOutbox,
+  MaxRetriesExceededError,
+  type OutboxConfig,
+  PollingService,
+} from "outbox-event-bus"
 
 const DEFAULT_EXPIRE_IN_SECONDS = 60
 
@@ -30,7 +39,6 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
   private readonly config: Required<MongoMongodbOutboxConfig>
   private readonly collection: Collection<OutboxDocument>
   private readonly poller: PollingService
-  private handler: ((event: BusEvent) => Promise<void>) | null = null
   private onError?: ErrorHandler
 
   constructor(config: MongoMongodbOutboxConfig) {
@@ -46,7 +54,7 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
       dbName: config.dbName,
       getSession: config.getSession,
     }
-    
+
     this.collection = config.client
       .db(config.dbName)
       .collection<OutboxDocument>(this.config.collectionName)
@@ -77,8 +85,8 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
 
     const session = transaction ?? this.config.getSession?.()
 
-    await this.collection.insertMany(documents, { 
-      ...(session ? { session } : {})
+    await this.collection.insertMany(documents, {
+      ...(session ? { session } : {}),
     })
   }
 
@@ -119,10 +127,7 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
     )
   }
 
-  start(
-    handler: (event: BusEvent) => Promise<void>,
-    onError: ErrorHandler
-  ): void {
+  start(handler: (event: BusEvent) => Promise<void>, onError: ErrorHandler): void {
     this.poller.start(handler, onError)
   }
 
@@ -130,21 +135,13 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
     await this.poller.stop()
   }
 
-  private async markEventCompleted(eventId: string): Promise<void> {
-    await this.collection.updateOne(
-      { eventId },
-      {
-        $set: {
-          status: "completed",
-          completedOn: new Date()
-        }
-      }
-    )
-  }
-
-  private async markEventFailed(eventId: string, retryCount: number, error: unknown): Promise<void> {
+  private async markEventFailed(
+    eventId: string,
+    retryCount: number,
+    error: unknown
+  ): Promise<void> {
     const delay = this.poller.calculateBackoff(retryCount)
-    
+
     await this.collection.updateOne(
       { eventId },
       {
@@ -152,8 +149,8 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
           status: "failed",
           retryCount,
           lastError: formatErrorMessage(error),
-          nextRetryAt: new Date(Date.now() + delay)
-        }
+          nextRetryAt: new Date(Date.now() + delay),
+        },
       }
     )
   }
@@ -220,7 +217,10 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
       } catch (e: unknown) {
         const retryCount = lockedEvent.retryCount + 1
         if (retryCount >= this.config.maxRetries) {
-          this.poller.onError?.(new MaxRetriesExceededError(e, retryCount), { ...busEvent, retryCount })
+          this.poller.onError?.(new MaxRetriesExceededError(e, retryCount), {
+            ...busEvent,
+            retryCount,
+          })
         } else {
           this.poller.onError?.(e, { ...busEvent, retryCount })
         }

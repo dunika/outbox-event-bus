@@ -1,11 +1,10 @@
 # DynamoDB AWS SDK Outbox Adapter
 
-<div align="left">
-  <img src="https://img.shields.io/npm/v/@outbox-event-bus/dynamodb-aws-sdk-outbox?style=for-the-badge&color=2563eb" alt="npm version" />
-  <img src="https://img.shields.io/npm/l/@outbox-event-bus/dynamodb-aws-sdk-outbox?style=for-the-badge&color=2563eb" alt="license" />
-</div>
+![npm version](https://img.shields.io/npm/v/@outbox-event-bus/dynamodb-aws-sdk-outbox?style=flat-square&color=2563eb)
+![npm downloads](https://img.shields.io/npm/dm/@outbox-event-bus/dynamodb-aws-sdk-outbox?style=flat-square&color=2563eb)
+![license](https://img.shields.io/npm/l/@outbox-event-bus/dynamodb-aws-sdk-outbox?style=flat-square&color=2563eb)
 
-**Reliable, Serverless-First Event Storage for DynamoDB.**
+> **Reliable, Serverless-First Event Storage for DynamoDB**
 
 The DynamoDB adapter for `outbox-event-bus` provides a high-performance, resilient outbox implementation designed specifically for AWS environments. It leverages DynamoDB's native scalability, TTL features, and Global Secondary Indices (GSIs) to ensure zero event loss even under intense load.
 
@@ -77,6 +76,14 @@ bus.start();
 
 ---
 
+## Concurrency & Locking
+
+This adapter uses **Optimistic Locking** via Conditional Writes to ensure safe concurrent processing.
+
+-   **Atomic Claims**: The adapter uses `ConditionExpression` (e.g., `attribute_not_exists(locked_by)`) to claim events.
+-   **Multiple Workers**: You can safely run multiple instances (e.g., Lambda functions).
+-   **No Duplicates**: DynamoDB guarantees that only one worker can successfully claim a specific event.
+
 ## 🛠️ How-to Guides
 
 ### Transactional Writes (AsyncLocalStorage)
@@ -130,6 +137,21 @@ await client.send(new TransactWriteCommand({ TransactItems: items }));
 
 ### `DynamoDBAwsSdkOutboxConfig`
 
+```typescript
+interface DynamoDBAwsSdkOutboxConfig {
+  client: DynamoDBClient;              // AWS SDK v3 Client instance
+  tableName: string;                   // DynamoDB table name
+  statusIndexName?: string;            // GSI name (default: 'status-gsiSortKey-index')
+  batchSize?: number;                  // Events per poll (default: 50)
+  pollIntervalMs?: number;             // Polling interval (default: 1000ms)
+  processingTimeoutMs?: number;        // Processing timeout (default: 30000ms)
+  maxRetries?: number;                 // Max retry attempts (default: 5)
+  baseBackoffMs?: number;              // Base backoff delay (default: 1000ms)
+  maxErrorBackoffMs?: number;          // Max polling error backoff (default: 30000ms)
+  getCollector?: () => any[] | undefined; // Transaction collector getter
+}
+```
+
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `client` | `DynamoDBClient` | **Required** | AWS SDK v3 Client instance. |
@@ -140,6 +162,128 @@ await client.send(new TransactWriteCommand({ TransactItems: items }));
 | `processingTimeoutMs`| `number` | `30000` | After this time, a 'PROCESSING' event is considered stuck. |
 | `maxRetries` | `number` | `5` | Maximum attempts for a failed event. |
 | `baseBackoffMs` | `number` | `1000` | Base delay for exponential backoff. |
+
+---
+
+## API Reference
+
+### `DynamoDBAwsSdkOutbox`
+
+```typescript
+class DynamoDBAwsSdkOutbox implements IOutbox<any[]>
+```
+
+#### Constructor
+
+```typescript
+constructor(config: DynamoDBAwsSdkOutboxConfig)
+```
+
+Creates a new DynamoDB outbox adapter using AWS SDK v3.
+
+**Parameters:**
+- `config`: Configuration object (see [Configuration Reference](#configuration-reference))
+
+**Example:**
+```typescript
+const outbox = new DynamoDBAwsSdkOutbox({
+  client: new DynamoDBClient({ region: 'us-east-1' }),
+  tableName: 'my-events-table',
+  statusIndexName: 'status-index',
+  batchSize: 100
+});
+```
+
+---
+
+#### Methods
+
+##### `publish(events: BusEvent[], transaction?: any[]): Promise<void>`
+
+Publishes events to the outbox. If a `transaction` collector array is provided, events are added to it for atomic writes. Otherwise, events are written immediately.
+
+**Parameters:**
+- `events`: Array of events to publish
+- `transaction`: Optional collector array for TransactWriteCommand
+
+**Example:**
+```typescript
+// Direct publish
+await outbox.publish([
+  { id: '1', type: 'user.created', payload: user, occurredAt: new Date() }
+]);
+
+// With transaction collector
+const items: any[] = [];
+await outbox.publish([event], items);
+await client.send(new TransactWriteCommand({ TransactItems: items }));
+```
+
+---
+
+##### `getFailedEvents(): Promise<FailedBusEvent[]>`
+
+Retrieves up to 100 failed events, ordered by occurrence time (newest first).
+
+**Returns:** Array of `FailedBusEvent` objects with error details and retry count.
+
+**Example:**
+```typescript
+const failed = await outbox.getFailedEvents();
+for (const event of failed) {
+  console.log(`Event ${event.id} failed ${event.retryCount} times`);
+  console.log(`Last error: ${event.error}`);
+}
+```
+
+---
+
+##### `retryEvents(eventIds: string[]): Promise<void>`
+
+Resets failed events to `PENDING` status for retry. Clears retry count, error message, and next retry timestamp.
+
+**Parameters:**
+- `eventIds`: Array of event IDs to retry
+
+**Example:**
+```typescript
+const failed = await outbox.getFailedEvents();
+await outbox.retryEvents(failed.map(e => e.id));
+```
+
+---
+
+##### `start(handler: (event: BusEvent) => Promise<void>, onError: ErrorHandler): void`
+
+Starts the polling service to process events.
+
+**Parameters:**
+- `handler`: Async function to process each event
+- `onError`: Error handler called when event processing fails
+
+**Example:**
+```typescript
+outbox.start(
+  async (event) => {
+    console.log('Processing:', event);
+    // Your event handling logic
+  },
+  (err, event) => {
+    console.error('Failed to process event:', err, event);
+  }
+);
+```
+
+---
+
+##### `stop(): Promise<void>`
+
+Stops the polling service gracefully and waits for in-flight events to complete.
+
+**Example:**
+```typescript
+await outbox.stop();
+```
 
 ---
 
@@ -167,16 +311,153 @@ Your application's IAM role needs the following permissions:
 
 ---
 
-## ❓ Troubleshooting
+## Troubleshooting
 
-> [!TIP]
-> **Events are not moving?** Check if your `statusIndexName` matches the actual GSI name in AWS. The poller relies entirely on this index.
+### Events Not Moving
 
-> [!IMPORTANT]
-> **ConditionalCheckFailedException?** This is expected! It means another worker tried to claim the same event at the exact same millisecond. The adapter handles this gracefully.
+**Symptom**: Events are stuck in `PENDING` status and never get processed.
 
-- **Slow Polling**: Increase `batchSize` or check if your RCU (Read Capacity Units) on the GSI is too low.
-- **Duplicate Events**: Ensure your publisher (SQS/Kafka) is idempotent or that your handlers handle duplicates. The outbox guarantees "at-least-once" delivery.
+**Causes**:
+1. `statusIndexName` doesn't match the actual GSI name in DynamoDB
+2. GSI not created or still being built
+3. Polling service not started
+
+**Solution**:
+```typescript
+// 1. Verify GSI name matches
+const outbox = new DynamoDBAwsSdkOutbox({
+  client,
+  tableName: 'my-events',
+  statusIndexName: 'status-gsiSortKey-index' // Must match actual GSI name
+});
+
+// 2. Check GSI status in AWS Console or CLI
+// aws dynamodb describe-table --table-name my-events
+
+// 3. Ensure bus is started
+bus.start();
+```
+
+---
+
+### ConditionalCheckFailedException
+
+**Symptom**: Seeing `ConditionalCheckFailedException` errors in logs.
+
+**Cause**: Multiple workers trying to claim the same event simultaneously (expected behavior).
+
+**Solution**: This is **normal and expected**! The adapter uses optimistic locking to prevent duplicate processing. The error means another worker successfully claimed the event first. No action needed—the adapter handles this gracefully.
+
+---
+
+### Slow Polling / High Latency
+
+**Symptom**: Events take a long time to process after being emitted.
+
+**Causes**:
+1. Low Read Capacity Units (RCU) on the GSI
+2. Small `batchSize` setting
+3. Long `pollIntervalMs`
+
+**Solution**:
+```typescript
+// 1. Increase batch size for higher throughput
+const outbox = new DynamoDBAwsSdkOutbox({
+  client,
+  tableName: 'events',
+  batchSize: 100, // Process more events per poll (default: 50)
+  pollIntervalMs: 500 // Poll more frequently (default: 1000ms)
+});
+
+// 2. Check and increase RCU on your GSI in AWS Console
+// Recommended: Use On-Demand billing mode for auto-scaling
+```
+
+---
+
+### Duplicate Event Processing
+
+**Symptom**: Event handlers are being called multiple times for the same event.
+
+**Cause**: The outbox guarantees "at-least-once" delivery. Duplicates can occur due to:
+- Worker crashes during processing
+- Network timeouts
+- Publisher retries
+
+**Solution**: Make your event handlers **idempotent**:
+```typescript
+bus.on('order.created', async (event) => {
+  // Use event ID for deduplication
+  const existing = await db.getOrder(event.payload.orderId);
+  if (existing) {
+    console.log('Order already processed, skipping');
+    return;
+  }
+  
+  await db.createOrder(event.payload);
+});
+```
+
+---
+
+### ProvisionedThroughputExceededException
+
+**Symptom**: `ProvisionedThroughputExceededException` errors during high load.
+
+**Cause**: Write or read capacity exceeded on table or GSI.
+
+**Solution**:
+```typescript
+// Option 1: Switch to On-Demand billing mode (recommended)
+// aws dynamodb update-table --table-name events --billing-mode PAY_PER_REQUEST
+
+// Option 2: Increase provisioned capacity
+// aws dynamodb update-table --table-name events \
+//   --provisioned-throughput ReadCapacityUnits=100,WriteCapacityUnits=100
+
+// Option 3: Reduce polling frequency temporarily
+const outbox = new DynamoDBAwsSdkOutbox({
+  client,
+  tableName: 'events',
+  pollIntervalMs: 2000, // Reduce polling frequency
+  batchSize: 25 // Reduce batch size
+});
+```
+
+---
+
+### Events Stuck in PROCESSING
+
+**Symptom**: Events remain in `PROCESSING` status indefinitely.
+
+**Cause**: Worker crashed or Lambda timed out during processing.
+
+**Solution**: The adapter automatically recovers stuck events based on `processingTimeoutMs`. To force immediate recovery:
+
+```typescript
+// Stuck events are automatically reclaimed after processingTimeoutMs
+const outbox = new DynamoDBAwsSdkOutbox({
+  client,
+  tableName: 'events',
+  processingTimeoutMs: 30000 // Adjust based on handler complexity (default: 30s)
+});
+
+// Manual recovery: Query and reset stuck events
+const response = await client.send(new QueryCommand({
+  TableName: 'events',
+  IndexName: 'status-gsiSortKey-index',
+  KeyConditionExpression: '#status = :processing',
+  FilterExpression: '#gsiSortKey < :cutoff',
+  ExpressionAttributeNames: {
+    '#status': 'status',
+    '#gsiSortKey': 'gsiSortKey'
+  },
+  ExpressionAttributeValues: {
+    ':processing': { S: 'PROCESSING' },
+    ':cutoff': { N: String(Date.now() - 60000) } // 1 minute ago
+  }
+}));
+```
 
 ---
 

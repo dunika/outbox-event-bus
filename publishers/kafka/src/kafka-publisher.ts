@@ -12,10 +12,7 @@ export class KafkaPublisher<TTransaction = unknown> implements IPublisher {
   private readonly topic: string
   private readonly publisher: EventPublisher<TTransaction>
 
-  constructor(
-    bus: IOutboxEventBus<TTransaction>,
-    config: KafkaPublisherConfig
-  ) {
+  constructor(bus: IOutboxEventBus<TTransaction>, config: KafkaPublisherConfig) {
     this.producer = config.producer
     this.topic = config.topic
     this.publisher = new EventPublisher(bus, config)
@@ -36,5 +33,3 @@ export class KafkaPublisher<TTransaction = unknown> implements IPublisher {
     })
   }
 }
-
-

@@ -1,16 +1,16 @@
-import { describe, it, expect, vi } from "vitest"
+import { TransactWriteCommand } from "@aws-sdk/lib-dynamodb"
+import { describe, expect, it, vi } from "vitest"
 import { DynamoDBAwsSdkOutbox } from "./dynamodb-aws-sdk-outbox"
-import { TransactWriteCommand, DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb"
 
 vi.mock("@aws-sdk/lib-dynamodb", async (importOriginal) => {
-  const actual: any = await importOriginal();
+  const actual: any = await importOriginal()
   return {
     ...actual,
     DynamoDBDocumentClient: {
       from: vi.fn().mockImplementation((client) => client),
     },
-  };
-});
+  }
+})
 
 describe("DynamoDBAwsSdkOutbox Transactional Support", () => {
   it("should push items to collector and NOT send command when getExecutor provides one", async () => {
@@ -74,7 +74,7 @@ describe("DynamoDBAwsSdkOutbox Transactional Support", () => {
     const mockClient = {
       send: vi.fn(),
     }
-    const collector = Array.from({ length: 90 }, () => ({}));
+    const collector = Array.from({ length: 90 }, () => ({}))
     const outbox = new DynamoDBAwsSdkOutbox({
       client: mockClient as any,
       tableName: "test-table",

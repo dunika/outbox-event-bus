@@ -1,6 +1,15 @@
 import { and, eq, inArray, lt, or, sql } from "drizzle-orm"
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js"
-import { type BusEvent, type IOutbox, type OutboxConfig, type ResolvedOutboxConfig, PollingService, formatErrorMessage, type FailedBusEvent, MaxRetriesExceededError, type ErrorHandler } from "outbox-event-bus"
+import {
+  type BusEvent,
+  type ErrorHandler,
+  type FailedBusEvent,
+  formatErrorMessage,
+  type IOutbox,
+  MaxRetriesExceededError,
+  type OutboxConfig,
+  PollingService,
+} from "outbox-event-bus"
 import { outboxEvents, outboxEventsArchive } from "./schema"
 
 export interface PostgresDrizzleOutboxConfig extends OutboxConfig {
@@ -28,23 +37,21 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
       getTransaction: config.getTransaction,
       tables: config.tables ?? {
         outboxEvents,
-        outboxEventsArchive
-      }
+        outboxEventsArchive,
+      },
     }
 
-    this.poller = new PollingService(
-      {
-        pollIntervalMs: this.config.pollIntervalMs,
-        baseBackoffMs: this.config.baseBackoffMs,
-        maxErrorBackoffMs: this.config.maxErrorBackoffMs,
-        processBatch: (handler) => this.processBatch(handler),
-      }
-    )
+    this.poller = new PollingService({
+      pollIntervalMs: this.config.pollIntervalMs,
+      baseBackoffMs: this.config.baseBackoffMs,
+      maxErrorBackoffMs: this.config.maxErrorBackoffMs,
+      processBatch: (handler) => this.processBatch(handler),
+    })
   }
 
   async publish(
     events: BusEvent[],
-    transaction?: PostgresJsDatabase<Record<string, unknown>>,
+    transaction?: PostgresJsDatabase<Record<string, unknown>>
   ): Promise<void> {
     const executor = transaction ?? this.config.getTransaction?.() ?? this.config.db
 
@@ -93,10 +100,7 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
       .where(inArray(this.config.tables.outboxEvents.id, eventIds))
   }
 
-  start(
-    handler: (event: BusEvent) => Promise<void>,
-    onError: ErrorHandler
-  ): void {
+  start(handler: (event: BusEvent) => Promise<void>, onError: ErrorHandler): void {
     this.poller.start(handler, onError)
   }
 
@@ -166,11 +170,16 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
             startedOn: now,
             completedOn: new Date(),
           })
-          await transaction.delete(this.config.tables.outboxEvents).where(eq(this.config.tables.outboxEvents.id, event.id))
+          await transaction
+            .delete(this.config.tables.outboxEvents)
+            .where(eq(this.config.tables.outboxEvents.id, event.id))
         } catch (e: unknown) {
           const retryCount = event.retryCount + 1
           if (retryCount >= this.config.maxRetries) {
-            this.poller.onError?.(new MaxRetriesExceededError(e, retryCount), { ...event, retryCount })
+            this.poller.onError?.(new MaxRetriesExceededError(e, retryCount), {
+              ...event,
+              retryCount,
+            })
           } else {
             this.poller.onError?.(e, { ...event, retryCount })
           }

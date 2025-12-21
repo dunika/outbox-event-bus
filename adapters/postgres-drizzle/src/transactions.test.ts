@@ -1,13 +1,13 @@
 import { AsyncLocalStorage } from "node:async_hooks"
+import { eq } from "drizzle-orm"
+import { pgTable, text, timestamp } from "drizzle-orm/pg-core"
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js"
 import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
-import { describe, it, expect, beforeAll, afterAll } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { OutboxEventBus } from "../../../core/src/outbox-event-bus"
 import { PostgresDrizzleOutbox } from "./index"
-import { pgTable, text, timestamp } from "drizzle-orm/pg-core"
 import { outboxEvents } from "./schema"
-import { eq } from "drizzle-orm"
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js"
 
 // Define a dummy business table for the test
 const users = pgTable("users", {
@@ -21,15 +21,15 @@ type Db = PostgresJsDatabase<Record<string, never>>
 describe("PostgresDrizzle Outbox Transactions with AsyncLocalStorage", () => {
   const sql = postgres("postgres://test_user:test_password@localhost:5432/outbox_test")
   const db = drizzle(sql)
-  
+
   const als = new AsyncLocalStorage<Db>()
 
   // A helper that acts as a sqlExecutor, grabbing the transaction from ALS if it exists
-  const sqlExecutorProxy = new Proxy(db, {
+  const _sqlExecutorProxy = new Proxy(db, {
     get(target, prop, receiver) {
       const transaction = als.getStore()
       return Reflect.get(transaction ?? target, prop, receiver)
-    }
+    },
   }) as unknown as Db
 
   const outbox = new PostgresDrizzleOutbox({

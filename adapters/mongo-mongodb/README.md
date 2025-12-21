@@ -1,6 +1,7 @@
 # MongoDB Adapter
 
 ![npm version](https://img.shields.io/npm/v/@outbox-event-bus/mongo-mongodb-outbox?style=flat-square&color=2563eb)
+![npm downloads](https://img.shields.io/npm/dm/@outbox-event-bus/mongo-mongodb-outbox?style=flat-square&color=2563eb)
 ![license](https://img.shields.io/npm/l/@outbox-event-bus/mongo-mongodb-outbox?style=flat-square&color=2563eb)
 
 > **Transactional Event Persistence for MongoDB**  
@@ -81,6 +82,14 @@ The MongoDB adapter:
 5. **Retries** failed events with exponential backoff
 
 ---
+
+## Concurrency & Locking
+
+This adapter uses **Optimistic Locking** via `findOneAndUpdate` to ensure safe concurrent processing.
+
+-   **Atomic Claims**: The adapter atomically finds a 'created' event and updates its status to 'active' in a single operation.
+-   **Multiple Workers**: You can safely run multiple instances of your application.
+-   **No Duplicates**: MongoDB guarantees that only one worker can successfully claim a specific event.
 
 ## Usage
 
@@ -195,6 +204,21 @@ new MongoMongodbOutbox(config: MongoMongodbOutboxConfig)
 ```
 
 #### `MongoMongodbOutboxConfig`
+
+```typescript
+interface MongoMongodbOutboxConfig {
+  client: MongoClient;                           // MongoDB client instance
+  dbName: string;                                // Database name
+  collectionName?: string;                       // Collection name (default: 'outbox_events')
+  maxRetries?: number;                           // Max retry attempts (default: 5)
+  baseBackoffMs?: number;                        // Base backoff (default: 1000ms)
+  pollIntervalMs?: number;                       // Polling interval (default: 1000ms)
+  maxErrorBackoffMs?: number;                    // Max polling error backoff (default: 30000ms)
+  processingTimeoutMs?: number;                  // Processing timeout (default: 30000ms)
+  batchSize?: number;                            // Events per poll (default: 50)
+  getSession?: () => ClientSession | undefined;  // Session getter for ALS
+}
+```
 
 | Property | Type | Required | Default | Description |
 |----------|------|----------|---------|-------------|

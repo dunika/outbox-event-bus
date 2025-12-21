@@ -1,4 +1,4 @@
-type PartialBy<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
+type PartialBy<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>
 
 export type BusEvent<T extends string = string, P = unknown> = {
   id: string
@@ -15,11 +15,13 @@ export type FailedBusEvent<T extends string = string, P = unknown> = BusEvent<T,
 }
 
 /**
- * Event structure when emitting (initial state). 
+ * Event structure when emitting (initial state).
  * Optional `id` and `occurredAt` are auto-generated if not provided.
  */
-export type BusEventInput<T extends string = string, P = unknown> = 
-  PartialBy<BusEvent<T, P>, 'id' | 'occurredAt'>;
+export type BusEventInput<T extends string = string, P = unknown> = PartialBy<
+  BusEvent<T, P>,
+  "id" | "occurredAt"
+>
 
 export type EventHandler<T extends string = string, P = unknown> = (
   event: BusEvent<T, P>
@@ -44,4 +46,3 @@ export interface PublisherConfig {
   retryConfig?: RetryOptions
   batchConfig?: BatchOptions
 }
-

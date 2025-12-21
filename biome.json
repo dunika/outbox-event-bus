@@ -41,8 +41,9 @@
     }
   },
   "files": {
-    "includes": ["src/**", "package.json", "biome.json"]
+    "includes": ["**"]
   },
+  "ignore": ["**/dist/**", "**/node_modules/**", "**/coverage/**", "**/.turbo/**", "**/.next/**"],
   "overrides": [
     {
       "includes": ["**/*.test.ts", "**/*.spec.ts"],

@@ -92,11 +92,13 @@ publisher.subscribe(['*']);
 
 ## Message Format
 
-Events are published to Kafka as follow:
-- **Key**: `event.id` (Ensures events for the same entity stay in the same partition if the ID is consistent).
-- **Value**: `JSON.stringify(event)`
-- **Headers**:
-    - `eventType`: The event type string.
+Events are published to Kafka as follows:
+
+| Kafka Field | Value | Description |
+|-------------|-------|-------------|
+| **Key** | `event.id` | Ensures events for the same entity stay in the same partition. |
+| **Value** | `JSON.stringify(event)` | The full event object. |
+| **Headers** | `eventType` | The event type string. |
 
 ## Error Handling
 
@@ -123,3 +125,7 @@ const publisher = new KafkaPublisher(bus, {
 ### Ordering Issues
 - **Cause**: Events are being sent to different partitions.
 - **Solution**: The publisher uses `event.id` as the message key by default. If you need global ordering across event types for a specific entity, ensure they share the same ID or customize the partitioner.
+
+## License
+
+MIT © [Dunika](https://github.com/dunika)

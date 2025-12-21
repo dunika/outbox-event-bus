@@ -130,3 +130,7 @@ Permanent failures (permissions, invalid parameters) will bubble up to the `Outb
 ### Throttling
 - **Cause**: AWS Quotas. EventBridge has default limits for `PutEvents`.
 - **Solution**: Request a quota increase or implement local batching if necessary.
+
+## License
+
+MIT © [Dunika](https://github.com/dunika)

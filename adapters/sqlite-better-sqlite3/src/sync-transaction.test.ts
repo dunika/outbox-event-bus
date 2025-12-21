@@ -1,8 +1,8 @@
+import { existsSync, unlinkSync } from "node:fs"
 import Database from "better-sqlite3"
-import { describe, it, expect, beforeAll, afterAll } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { OutboxEventBus } from "../../../core/src/outbox-event-bus"
 import { SqliteBetterSqlite3Outbox } from "./index"
-import { unlinkSync, existsSync } from "fs"
 
 const DB_PATH = "./test-sync-transactions.db"
 
@@ -41,14 +41,14 @@ describe("SqliteBetterSqlite3Outbox Synchronous Transactions", () => {
     // 2. Run synchronous transaction
     const createUser = db.transaction(() => {
       db.prepare("INSERT INTO users (id, name) VALUES (?, ?)").run(userId, "Alice")
-      
+
       // Emit event synchronously (using void to ignore Promise)
       // Since we provided getTransaction: () => db, this uses the SAME connection
       // and thus participates in the transaction via SAVEPOINT
       void bus.emit({
         id: eventId,
         type: "user.created",
-        payload: { id: userId, name: "Alice" }
+        payload: { id: userId, name: "Alice" },
       })
     })
 
@@ -75,11 +75,11 @@ describe("SqliteBetterSqlite3Outbox Synchronous Transactions", () => {
     // 2. Run synchronous transaction that fails
     const createUser = db.transaction(() => {
       db.prepare("INSERT INTO users (id, name) VALUES (?, ?)").run(userId, "Bob")
-      
+
       void bus.emit({
         id: eventId,
         type: "user.created",
-        payload: { id: userId, name: "Bob" }
+        payload: { id: userId, name: "Bob" },
       })
 
       throw new Error("Rollback!")
@@ -94,25 +94,25 @@ describe("SqliteBetterSqlite3Outbox Synchronous Transactions", () => {
     const event = db.prepare("SELECT * FROM outbox_events WHERE id = ?").get(eventId)
     expect(event).toBeUndefined()
   })
-  
+
   it("should throw TypeError if async function is used (preventing await usage)", async () => {
     const outbox = new SqliteBetterSqlite3Outbox({
       dbPath: DB_PATH,
       getTransaction: () => db,
     })
-    const bus = new OutboxEventBus(outbox, (err) => console.error(err))
-    
+    const _bus = new OutboxEventBus(outbox, (err) => console.error(err))
+
     const userId = "user-async"
-    
-    // @ts-ignore - Testing runtime behavior
+
+    // @ts-expect-error - Testing runtime behavior
     const tx = db.transaction(async () => {
-       db.prepare("INSERT INTO users (id, name) VALUES (?, ?)").run(userId, "Async")
-       await new Promise(resolve => setTimeout(resolve, 10))
+      db.prepare("INSERT INTO users (id, name) VALUES (?, ?)").run(userId, "Async")
+      await new Promise((resolve) => setTimeout(resolve, 10))
     })
-    
+
     // It throws TypeError: Transaction function cannot return a promise
     expect(() => tx()).toThrow("Transaction function cannot return a promise")
-    
+
     // Verify rollback happened
     const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId)
     expect(user).toBeUndefined()

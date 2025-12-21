@@ -26,7 +26,9 @@ export class Batcher<T> {
       if (this.queue.length >= this.config.batchSize) {
         void this.flush()
       } else {
-        this.timer ??= setTimeout(() => { void this.flush() }, this.config.batchTimeoutMs)
+        this.timer ??= setTimeout(() => {
+          void this.flush()
+        }, this.config.batchTimeoutMs)
       }
     })
   }

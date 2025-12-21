@@ -1,8 +1,14 @@
-import type { IOutbox, IOutboxEventBus } from "../types/interfaces"
-import type { BusEvent, BusEventInput, EventHandler, AnyListener, ErrorHandler, FailedBusEvent } from "../types/types"
-import { createTimedPromise } from "../utils/time-utils"
 import { DuplicateListenerError, TimeoutError, UnsupportedOperationError } from "../errors/errors"
-
+import type { IOutbox, IOutboxEventBus } from "../types/interfaces"
+import type {
+  AnyListener,
+  BusEvent,
+  BusEventInput,
+  ErrorHandler,
+  EventHandler,
+  FailedBusEvent,
+} from "../types/types"
+import { createTimedPromise } from "../utils/time-utils"
 
 const DEFAULT_WAIT_TIMEOUT_MS = 5000
 
@@ -18,11 +24,17 @@ export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransactio
     private readonly onError: ErrorHandler
   ) {}
 
-  async emit<T extends string, P>(event: BusEventInput<T, P>, transaction?: TTransaction): Promise<void> {
+  async emit<T extends string, P>(
+    event: BusEventInput<T, P>,
+    transaction?: TTransaction
+  ): Promise<void> {
     await this.emitMany([event], transaction)
   }
 
-  async emitMany<T extends string, P>(events: BusEventInput<T, P>[], transaction?: TTransaction): Promise<void> {
+  async emitMany<T extends string, P>(
+    events: BusEventInput<T, P>[],
+    transaction?: TTransaction
+  ): Promise<void> {
     if (events.length === 0) return
 
     const now = new Date()
@@ -38,7 +50,7 @@ export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransactio
     if (this.handlers.has(eventType)) {
       throw new DuplicateListenerError(eventType)
     }
-    
+
     this.handlers.set(eventType, handler as EventHandler<string, unknown>)
     return this
   }
@@ -59,21 +71,17 @@ export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransactio
   }
 
   off<T extends string, P = unknown>(eventType: T, handler: EventHandler<T, P>): this {
-    const currentHandler = this.handlers.get(eventType) as WrappedEventHandler<string, unknown> | undefined
-    if (
-      currentHandler === handler ||
-      currentHandler?._original === handler
-    ) {
+    const currentHandler = this.handlers.get(eventType) as
+      | WrappedEventHandler<string, unknown>
+      | undefined
+    if (currentHandler === handler || currentHandler?._original === handler) {
       this.handlers.delete(eventType)
     }
 
     return this
   }
 
-  removeListener<T extends string, P = unknown>(
-    eventType: T,
-    handler: EventHandler<T, P>
-  ): this {
+  removeListener<T extends string, P = unknown>(eventType: T, handler: EventHandler<T, P>): this {
     return this.off(eventType, handler)
   }
 
@@ -85,7 +93,6 @@ export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransactio
     }
     return this
   }
-
 
   getListener(eventType: string): AnyListener | undefined {
     return this.handlers.get(eventType) as unknown as AnyListener | undefined
@@ -118,10 +125,7 @@ export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransactio
   }
 
   start(): void {
-    this.outbox.start(
-      this.processEvent,
-      this.onError
-    )
+    this.outbox.start(this.processEvent, this.onError)
   }
 
   async stop(): Promise<void> {

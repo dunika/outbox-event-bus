@@ -12,10 +12,7 @@ export class RedisStreamsPublisher<TTransaction = unknown> implements IPublisher
   private readonly streamKey: string
   private readonly publisher: EventPublisher<TTransaction>
 
-  constructor(
-    bus: IOutboxEventBus<TTransaction>,
-    config: RedisStreamsPublisherConfig
-  ) {
+  constructor(bus: IOutboxEventBus<TTransaction>, config: RedisStreamsPublisherConfig) {
     this.redisClient = config.redisClient
     this.streamKey = config.streamKey
     this.publisher = new EventPublisher(bus, config)
@@ -30,15 +27,19 @@ export class RedisStreamsPublisher<TTransaction = unknown> implements IPublisher
         pipeline.xadd(
           this.streamKey,
           "*",
-          "eventId", event.id || "",
-          "eventType", event.type,
-          "payload", JSON.stringify(event.payload),
-          "occurredAt", (event.occurredAt ?? new Date()).toISOString(),
-          "metadata", JSON.stringify(event.metadata ?? {})
+          "eventId",
+          event.id || "",
+          "eventType",
+          event.type,
+          "payload",
+          JSON.stringify(event.payload),
+          "occurredAt",
+          (event.occurredAt ?? new Date()).toISOString(),
+          "metadata",
+          JSON.stringify(event.metadata ?? {})
         )
       }
       await pipeline.exec()
     })
   }
 }
-
