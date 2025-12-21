@@ -36,8 +36,9 @@ import { SQSPublisher } from '@outbox-event-bus/sqs-publisher';
 const outbox = new PostgresDrizzleOutbox({ db });
 const bus = new OutboxEventBus(outbox, (err) => console.error(err));
 
-// Forward messages to- 
-const publisher = new SQSPublisher(bus, { queueUrl: '...', sqsClient: '... });
+// Forward messages to SQS
+const sqsClient = new SQSClient({ region: 'us-east-1' });
+const publisher = new SQSPublisher(bus, { queueUrl: '...', sqsClient });
 publisher.subscribe(['sync-to-sqs']);
 
 // 2. Register Handlers
@@ -270,16 +271,18 @@ The library provides typed errors to help you handle specific failure scenarios 
 
 - **Configuration Errors**: `DuplicateListenerError`, `UnsupportedOperationError`
 - **Validation Errors**: `BatchSizeLimitError`
-- **Operational Errors**: `TimeoutError`, `BackpressureError`, `MaxRetriesExceededError`
+- **Operational Errors**: `TimeoutError`, `BackpressureError`, `MaxRetriesExceededError`, `HandlerError`
 
 #### Example
 
 ```typescript
-import { OutboxEventBus, TimeoutError } from 'outbox-event-bus';
+import { OutboxEventBus, TimeoutError, MaxRetriesExceededError, HandlerError } from 'outbox-event-bus';
 
 const bus = new OutboxEventBus(outbox, (err, event) => {
   if (err instanceof MaxRetriesExceededError) {
     console.warn(`Event ${event?.id} timed out, will retry...`);
+  } else if (err instanceof HandlerError) {
+    console.warn(`Handler failed for event ${event?.id}, retrying...`, err.originalError);
   } else {
     console.error('Unexpected error:', err);
   }

@@ -365,12 +365,14 @@ console.log(archived);
 ### SqliteBetterSqlite3OutboxConfig
 
 ```typescript
-interface SqliteBetterSqlite3OutboxConfig {
+interface SqliteBetterSqlite3OutboxConfig extends OutboxConfig {
+  // SQLite-specific options
   dbPath?: string;
   db?: Database.Database;
   getTransaction?: () => Database.Database | undefined;
   tableName?: string;
   archiveTableName?: string;
+  // Inherited from OutboxConfig
   maxRetries?: number;
   baseBackoffMs?: number;
   maxErrorBackoffMs?: number;
@@ -379,6 +381,9 @@ interface SqliteBetterSqlite3OutboxConfig {
   batchSize?: number;
 }
 ```
+
+> [!NOTE]
+> All adapters inherit base configuration options from `OutboxConfig`. See the [API Reference](../../docs/API_REFERENCE.md#base-outbox-configuration) for details on inherited options.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|

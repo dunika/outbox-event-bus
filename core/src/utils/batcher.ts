@@ -47,10 +47,14 @@ export class Batcher<T> {
     this.queue = []
 
     try {
-      await this.config.processBatch(currentBatch.map((i) => i.item))
-      currentBatch.forEach((i) => i.resolve())
-    } catch (err) {
-      currentBatch.forEach((i) => i.reject(err))
+      await this.config.processBatch(currentBatch.map((queuedItem) => queuedItem.item))
+      for (const queuedItem of currentBatch) {
+        queuedItem.resolve()
+      }
+    } catch (error) {
+      for (const queuedItem of currentBatch) {
+        queuedItem.reject(error)
+      }
     }
   }
 }

@@ -20,9 +20,9 @@ describe("PostgresPrisma Outbox Transactions with AsyncLocalStorage", () => {
         stdio: "inherit",
         env: { ...process.env, DATABASE_URL },
       })
-    } catch (e) {
-      console.error("Failed to push db schema", e)
-      throw e
+    } catch (error) {
+      console.error("Failed to push db schema", error)
+      throw error
     }
 
     prisma = new PrismaClient()

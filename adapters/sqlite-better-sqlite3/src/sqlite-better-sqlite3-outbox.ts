@@ -5,9 +5,9 @@ import {
   type FailedBusEvent,
   formatErrorMessage,
   type IOutbox,
-  MaxRetriesExceededError,
   type OutboxConfig,
   PollingService,
+  reportEventError,
 } from "outbox-event-bus"
 
 const DEFAULT_EXPIRE_IN_SECONDS = 300
@@ -143,16 +143,16 @@ export class SqliteBetterSqlite3Outbox implements IOutbox<Database.Database> {
     `)
       .all() as OutboxRow[]
 
-    return rows.map((e) => {
+    return rows.map((row) => {
       const event: FailedBusEvent = {
-        id: e.id,
-        type: e.type,
-        payload: JSON.parse(e.payload),
-        occurredAt: new Date(e.occurred_at),
-        retryCount: e.retry_count,
+        id: row.id,
+        type: row.type,
+        payload: JSON.parse(row.payload),
+        occurredAt: new Date(row.occurred_at),
+        retryCount: row.retry_count,
       }
-      if (e.last_error) event.error = e.last_error
-      if (e.started_on) event.lastAttemptAt = new Date(e.started_on)
+      if (row.last_error) event.error = row.last_error
+      if (row.started_on) event.lastAttemptAt = new Date(row.started_on)
       return event
     })
   }
@@ -221,33 +221,26 @@ export class SqliteBetterSqlite3Outbox implements IOutbox<Database.Database> {
 
     if (lockedEvents.length === 0) return
 
-    const busEvents: BusEvent[] = lockedEvents.map((e) => ({
-      id: e.id,
-      type: e.type,
-      payload: JSON.parse(e.payload),
-      occurredAt: new Date(e.occurred_at),
+    const busEvents: BusEvent[] = lockedEvents.map((row) => ({
+      id: row.id,
+      type: row.type,
+      payload: JSON.parse(row.payload),
+      occurredAt: new Date(row.occurred_at),
     }))
 
     const completedEvents: { event: BusEvent; lockedEvent: OutboxRow }[] = []
 
-    for (let i = 0; i < busEvents.length; i++) {
-      const event = busEvents[i]!
-      const lockedEvent = lockedEvents[i]!
+    for (let index = 0; index < busEvents.length; index++) {
+      const event = busEvents[index]!
+      const lockedEvent = lockedEvents[index]!
 
       try {
         await handler(event)
         completedEvents.push({ event, lockedEvent })
       } catch (error) {
-        if (lockedEvent.retry_count + 1 >= this.config.maxRetries) {
-          this.poller.onError?.(new MaxRetriesExceededError(error, lockedEvent.retry_count + 1), {
-            ...event,
-            retryCount: lockedEvent.retry_count + 1,
-          })
-        } else {
-          this.poller.onError?.(error, { ...event, retryCount: lockedEvent.retry_count + 1 })
-        }
-
         const retryCount = lockedEvent.retry_count + 1
+        reportEventError(this.poller.onError, error, event, retryCount, this.config.maxRetries)
+
         const delay = this.poller.calculateBackoff(retryCount)
 
         this.db

@@ -6,9 +6,9 @@ import {
   type FailedBusEvent,
   formatErrorMessage,
   type IOutbox,
-  MaxRetriesExceededError,
   type OutboxConfig,
   PollingService,
+  reportEventError,
 } from "outbox-event-bus"
 import { outboxEvents, outboxEventsArchive } from "./schema"
 
@@ -56,11 +56,11 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
     const executor = transaction ?? this.config.getTransaction?.() ?? this.config.db
 
     await executor.insert(this.config.tables.outboxEvents).values(
-      events.map((e) => ({
-        id: e.id,
-        type: e.type,
-        payload: e.payload,
-        occurredAt: e.occurredAt,
+      events.map((event) => ({
+        id: event.id,
+        type: event.type,
+        payload: event.payload,
+        occurredAt: event.occurredAt,
         status: "created" as const,
       }))
     )
@@ -74,17 +74,17 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
       .orderBy(sql`${this.config.tables.outboxEvents.occurredAt} DESC`)
       .limit(100)
 
-    return events.map((e) => {
-      const event: FailedBusEvent = {
-        id: e.id,
-        type: e.type,
-        payload: e.payload as any,
-        occurredAt: e.occurredAt,
-        retryCount: e.retryCount,
+    return events.map((event) => {
+      const failedEvent: FailedBusEvent = {
+        id: event.id,
+        type: event.type,
+        payload: event.payload as any,
+        occurredAt: event.occurredAt,
+        retryCount: event.retryCount,
       }
-      if (e.lastError) event.error = e.lastError
-      if (e.startedOn) event.lastAttemptAt = e.startedOn
-      return event
+      if (event.lastError) failedEvent.error = event.lastError
+      if (event.startedOn) failedEvent.lastAttemptAt = event.startedOn
+      return failedEvent
     })
   }
 
@@ -143,7 +143,7 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
 
       if (events.length === 0) return
 
-      const eventIds = events.map((e) => e.id)
+      const eventIds = events.map((event) => event.id)
 
       await transaction
         .update(this.config.tables.outboxEvents)
@@ -154,7 +154,6 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
         })
         .where(inArray(this.config.tables.outboxEvents.id, eventIds))
 
-      // Process events one at a time
       for (const event of events) {
         try {
           await handler(event)
@@ -173,16 +172,9 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
           await transaction
             .delete(this.config.tables.outboxEvents)
             .where(eq(this.config.tables.outboxEvents.id, event.id))
-        } catch (e: unknown) {
+        } catch (error: unknown) {
           const retryCount = event.retryCount + 1
-          if (retryCount >= this.config.maxRetries) {
-            this.poller.onError?.(new MaxRetriesExceededError(e, retryCount), {
-              ...event,
-              retryCount,
-            })
-          } else {
-            this.poller.onError?.(e, { ...event, retryCount })
-          }
+          reportEventError(this.poller.onError, error, event, retryCount, this.config.maxRetries)
 
           // Mark this specific event as failed
           const delay = this.poller.calculateBackoff(retryCount)
@@ -191,7 +183,7 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
             .set({
               status: "failed",
               retryCount,
-              lastError: formatErrorMessage(e),
+              lastError: formatErrorMessage(error),
               nextRetryAt: new Date(Date.now() + delay),
             })
             .where(eq(this.config.tables.outboxEvents.id, event.id))

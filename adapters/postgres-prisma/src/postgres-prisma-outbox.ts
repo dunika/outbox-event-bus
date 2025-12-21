@@ -5,9 +5,9 @@ import {
   type FailedBusEvent,
   formatErrorMessage,
   type IOutbox,
-  MaxRetriesExceededError,
   type OutboxConfig,
   PollingService,
+  reportEventError,
 } from "outbox-event-bus"
 
 export interface PostgresPrismaOutboxConfig extends OutboxConfig {
@@ -53,11 +53,11 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
     const executor = transaction ?? this.config.getTransaction?.() ?? this.config.prisma
 
     await (executor as any)[this.config.models!.outbox!].createMany({
-      data: events.map((e) => ({
-        id: e.id,
-        type: e.type,
-        payload: e.payload as any,
-        occurredAt: e.occurredAt,
+      data: events.map((event) => ({
+        id: event.id,
+        type: event.type,
+        payload: event.payload as any,
+        occurredAt: event.occurredAt,
         status: OutboxStatus.created,
       })),
     })
@@ -70,17 +70,17 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
       take: 100,
     })
 
-    return events.map((e: any) => {
-      const event: FailedBusEvent = {
-        id: e.id,
-        type: e.type,
-        payload: e.payload as any,
-        occurredAt: e.occurredAt,
-        retryCount: e.retryCount,
+    return events.map((event: any) => {
+      const failedEvent: FailedBusEvent = {
+        id: event.id,
+        type: event.type,
+        payload: event.payload as any,
+        occurredAt: event.occurredAt,
+        retryCount: event.retryCount,
       }
-      if (e.lastError) event.error = e.lastError
-      if (e.startedOn) event.lastAttemptAt = e.startedOn
-      return event
+      if (event.lastError) failedEvent.error = event.lastError
+      if (event.startedOn) failedEvent.lastAttemptAt = event.startedOn
+      return failedEvent
     })
   }
 
@@ -130,7 +130,7 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
 
       if (events.length === 0) return []
 
-      const eventIds = events.map((e) => e.id)
+      const eventIds = events.map((event) => event.id)
 
       await (transaction as any)[this.config.models!.outbox!].updateMany({
         where: { id: { in: eventIds } },
@@ -147,16 +147,16 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
     if (lockedEvents.length === 0) return
 
     const now = new Date()
-    const busEvents: BusEvent[] = lockedEvents.map((e) => ({
-      id: e.id,
-      type: e.type,
-      payload: e.payload,
-      occurredAt: e.occurredAt,
+    const busEvents: BusEvent[] = lockedEvents.map((event) => ({
+      id: event.id,
+      type: event.type,
+      payload: event.payload,
+      occurredAt: event.occurredAt,
     }))
 
-    for (let i = 0; i < lockedEvents.length; i++) {
-      const event = lockedEvents[i]!
-      const busEvent = busEvents[i]!
+    for (let index = 0; index < lockedEvents.length; index++) {
+      const event = lockedEvents[index]!
+      const busEvent = busEvents[index]!
 
       try {
         await handler(busEvent)
@@ -176,16 +176,9 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
           })
           await (tx as any)[this.config.models!.outbox!].delete({ where: { id: event.id } })
         })
-      } catch (e: unknown) {
+      } catch (error: unknown) {
         const retryCount = event.retryCount + 1
-        if (retryCount >= this.config.maxRetries) {
-          this.poller.onError?.(new MaxRetriesExceededError(e, retryCount), {
-            ...busEvent,
-            retryCount,
-          })
-        } else {
-          this.poller.onError?.(e, { ...busEvent, retryCount })
-        }
+        reportEventError(this.poller.onError, error, busEvent, retryCount, this.config.maxRetries)
 
         // Mark this specific event as failed
         const delay = this.poller.calculateBackoff(retryCount)
@@ -194,7 +187,7 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
           data: {
             status: OutboxStatus.failed,
             retryCount,
-            lastError: formatErrorMessage(e),
+            lastError: formatErrorMessage(error),
             nextRetryAt: new Date(Date.now() + delay),
           },
         })

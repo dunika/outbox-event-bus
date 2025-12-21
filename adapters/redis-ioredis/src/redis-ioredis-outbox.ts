@@ -5,9 +5,9 @@ import {
   type FailedBusEvent,
   formatErrorMessage,
   type IOutbox,
-  MaxRetriesExceededError,
   type OutboxConfig,
   PollingService,
+  reportEventError,
 } from "outbox-event-bus"
 import { pollEventsScript, recoverEventsScript } from "./scripts"
 
@@ -120,7 +120,7 @@ export class RedisIoRedisOutbox implements IOutbox<ChainableCommander> {
 
     const failedEvents: FailedBusEvent[] = []
     if (results) {
-      results.forEach((res, _index) => {
+      for (const res of results) {
         const [err, data] = res
         if (!err && data && Object.keys(data).length > 0) {
           const message = data as Record<string, string>
@@ -137,7 +137,7 @@ export class RedisIoRedisOutbox implements IOutbox<ChainableCommander> {
           // For now, minimal implementation.
           failedEvents.push(event)
         }
-      })
+      }
     }
     return failedEvents
   }
@@ -244,9 +244,9 @@ export class RedisIoRedisOutbox implements IOutbox<ChainableCommander> {
 
     if (!results) return
 
-    for (let i = 0; i < results.length; i++) {
-      const res = results[i]
-      const id = eventIds[i]
+    for (let index = 0; index < results.length; index++) {
+      const res = results[index]
+      const id = eventIds[index]
       if (!res || !id) continue
 
       const [err, messageRaw] = res
@@ -270,14 +270,7 @@ export class RedisIoRedisOutbox implements IOutbox<ChainableCommander> {
         const data = message as Record<string, string>
         const retryCount = Number.parseInt(data.retryCount || "0", 10) + 1
 
-        if (retryCount >= this.config.maxRetries) {
-          this.poller.onError?.(new MaxRetriesExceededError(error, retryCount), {
-            ...event,
-            retryCount,
-          })
-        } else {
-          this.poller.onError?.(error, { ...event, retryCount })
-        }
+        reportEventError(this.poller.onError, error, event, retryCount, this.config.maxRetries)
 
         const pipelineRetry = this.createRetryPipeline(id, retryCount, error)
         await pipelineRetry.exec()

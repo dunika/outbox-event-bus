@@ -254,7 +254,8 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
       const publishPromise = bus.emit(event)
 
       // With Outbox pattern, publish returns immediately after enqueue.
-      await new Promise((resolve) => setTimeout(resolve, 100))
+      await publishPromise
+
       await vi.advanceTimersByTimeAsync(10)
 
       expect(handlerStarted).toBe(true)

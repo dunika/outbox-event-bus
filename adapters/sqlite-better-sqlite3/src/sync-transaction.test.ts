@@ -1,7 +1,7 @@
 import { existsSync, unlinkSync } from "node:fs"
 import Database from "better-sqlite3"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { OutboxEventBus } from "../../../core/src/outbox-event-bus"
+import { afterAll, beforeEach, describe, expect, it } from "vitest"
+import { OutboxEventBus } from "../../../core/src/bus/outbox-event-bus"
 import { SqliteBetterSqlite3Outbox } from "./index"
 
 const DB_PATH = "./test-sync-transactions.db"
@@ -27,7 +27,7 @@ describe("SqliteBetterSqlite3Outbox Synchronous Transactions", () => {
   it("should atomically commit event and data when using shared connection", async () => {
     // 1. Setup Outbox with getTransaction returning the shared db
     const outbox = new SqliteBetterSqlite3Outbox({
-      dbPath: DB_PATH,
+      db,
       getTransaction: () => db, // <--- CRITICAL: Use the same DB instance
     })
     const bus = new OutboxEventBus(outbox, (err) => console.error(err))
@@ -61,7 +61,7 @@ describe("SqliteBetterSqlite3Outbox Synchronous Transactions", () => {
 
   it("should atomically rollback event and data on error", async () => {
     const outbox = new SqliteBetterSqlite3Outbox({
-      dbPath: DB_PATH,
+      db,
       getTransaction: () => db,
     })
     const bus = new OutboxEventBus(outbox, (err) => console.error(err))

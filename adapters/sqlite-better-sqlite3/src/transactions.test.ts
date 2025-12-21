@@ -1,7 +1,7 @@
 import { existsSync, unlinkSync } from "node:fs"
 import Database from "better-sqlite3"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
-import { OutboxEventBus } from "../../../core/src/outbox-event-bus"
+import { OutboxEventBus } from "../../../core/src/bus/outbox-event-bus"
 import {
   getBetterSqlite3Transaction,
   SqliteBetterSqlite3Outbox,

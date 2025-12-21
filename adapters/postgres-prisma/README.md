@@ -239,22 +239,27 @@ This adapter uses **Row-Level Locking** (`SELECT ... FOR UPDATE SKIP LOCKED`) to
 ### PostgresPrismaOutboxConfig
 
 ```typescript
-interface PostgresPrismaOutboxConfig {
+interface PostgresPrismaOutboxConfig extends OutboxConfig {
+  // Prisma-specific options
   prisma: PrismaClient;
   getTransaction?: () => PrismaClient | undefined; // Optional transaction executor getter
+  models?: {                        // Optional model name overrides
+    outbox?: string;                // Default: "outboxEvent"
+    archive?: string;               // Default: "outboxEventArchive"
+  };
+  tableName?: string;               // Optional table name for raw queries (default: "outbox_events")
+  // Inherited from OutboxConfig
   maxRetries?: number;              // Max retry attempts (default: 5)
   baseBackoffMs?: number;           // Base retry backoff (default: 1000ms)
   pollIntervalMs?: number;          // Polling interval (default: 1000ms)
   maxErrorBackoffMs?: number;       // Max polling error backoff (default: 30000ms)
   processingTimeoutMs?: number;     // Processing timeout (default: 30000ms)
   batchSize?: number;               // Events per poll (default: 50)
-  models?: {                        // Optional model name overrides
-    outbox?: string;                // Default: "outboxEvent"
-    archive?: string;               // Default: "outboxEventArchive"
-  };
-  tableName?: string;               // Optional table name for raw queries (default: "outbox_events")
 }
 ```
+
+> [!NOTE]
+> All adapters inherit base configuration options from `OutboxConfig`. See the [API Reference](../../docs/API_REFERENCE.md#base-outbox-configuration) for details on inherited options.
 
 ## Usage
 

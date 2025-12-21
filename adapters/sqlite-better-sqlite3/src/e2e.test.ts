@@ -264,7 +264,7 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
     await Promise.all(workers.map((w) => w.stop()))
 
     expect(processedEvents).toHaveLength(eventCount)
-    const ids = processedEvents.map((e) => e.id)
+    const ids = processedEvents.map((event) => event.id)
     const uniqueIds = new Set(ids)
     expect(uniqueIds.size).toBe(eventCount)
   })

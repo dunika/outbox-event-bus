@@ -1,7 +1,7 @@
 import Database from "better-sqlite3"
-import { MaxRetriesExceededError } from "outbox-event-bus"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { OutboxEventBus } from "../../../core/src/outbox-event-bus"
+import { OutboxEventBus } from "../../../core/src/bus/outbox-event-bus"
+import { HandlerError, MaxRetriesExceededError } from "../../../core/src/errors/errors"
 import { SqliteBetterSqlite3Outbox } from "./sqlite-better-sqlite3-outbox"
 
 describe("Error Handling", () => {
@@ -49,7 +49,8 @@ describe("Error Handling", () => {
     expect(call).toBeDefined()
     const [calledError, calledEvent] = call!
 
-    expect(calledError).toEqual(error)
+    expect(calledError).toBeInstanceOf(HandlerError)
+    expect((calledError as HandlerError).originalError).toEqual(error)
     expect(calledEvent).toBeDefined()
     expect(calledEvent.type).toBe(eventType)
     expect(calledEvent.retryCount).toBe(1)
@@ -95,7 +96,7 @@ describe("Error Handling", () => {
     outbox = new SqliteBetterSqlite3Outbox({
       db,
       pollIntervalMs: 10,
-      maxRetries: 1,
+      maxRetries: 0,
     })
     bus = new OutboxEventBus(outbox, onError)
     bus.start()

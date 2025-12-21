@@ -5,9 +5,9 @@ import {
   type FailedBusEvent,
   formatErrorMessage,
   type IOutbox,
-  MaxRetriesExceededError,
   type OutboxConfig,
   PollingService,
+  reportEventError,
 } from "outbox-event-bus"
 
 const DEFAULT_EXPIRE_IN_SECONDS = 60
@@ -70,17 +70,17 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
   async publish(events: BusEvent[], transaction?: ClientSession): Promise<void> {
     if (events.length === 0) return
 
-    const documents: OutboxDocument[] = events.map((e) => ({
+    const documents: OutboxDocument[] = events.map((event) => ({
       _id: new ObjectId(),
-      eventId: e.id,
-      type: e.type,
-      payload: e.payload,
-      occurredAt: e.occurredAt,
+      eventId: event.id,
+      type: event.type,
+      payload: event.payload,
+      occurredAt: event.occurredAt,
       status: "created",
       retryCount: 0,
-      nextRetryAt: e.occurredAt,
+      nextRetryAt: event.occurredAt,
       expireInSeconds: DEFAULT_EXPIRE_IN_SECONDS,
-      keepAlive: e.occurredAt,
+      keepAlive: event.occurredAt,
     }))
 
     const session = transaction ?? this.config.getSession?.()
@@ -97,16 +97,16 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
       .limit(100)
       .toArray()
 
-    return events.map((e) => {
+    return events.map((doc) => {
       const event: FailedBusEvent = {
-        id: e.eventId,
-        type: e.type,
-        payload: e.payload,
-        occurredAt: e.occurredAt,
-        retryCount: e.retryCount,
+        id: doc.eventId,
+        type: doc.type,
+        payload: doc.payload,
+        occurredAt: doc.occurredAt,
+        retryCount: doc.retryCount,
       }
-      if (e.lastError) event.error = e.lastError
-      if (e.startedOn) event.lastAttemptAt = e.startedOn
+      if (doc.lastError) event.error = doc.lastError
+      if (doc.startedOn) event.lastAttemptAt = doc.startedOn
       return event
     })
   }
@@ -162,7 +162,7 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
 
     // MongoDB's findOneAndUpdate doesn't support bulk locking with returnDocument,
     // so we must lock events sequentially to ensure atomic claim-and-update.
-    for (let i = 0; i < this.config.batchSize; i++) {
+    for (let index = 0; index < this.config.batchSize; index++) {
       const result = await this.collection.findOneAndUpdate(
         {
           $or: [
@@ -214,17 +214,10 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
       try {
         await handler(busEvent)
         completedEventIds.push(busEvent.id)
-      } catch (e: unknown) {
+      } catch (error: unknown) {
         const retryCount = lockedEvent.retryCount + 1
-        if (retryCount >= this.config.maxRetries) {
-          this.poller.onError?.(new MaxRetriesExceededError(e, retryCount), {
-            ...busEvent,
-            retryCount,
-          })
-        } else {
-          this.poller.onError?.(e, { ...busEvent, retryCount })
-        }
-        await this.markEventFailed(busEvent.id, retryCount, e)
+        reportEventError(this.poller.onError, error, busEvent, retryCount, this.config.maxRetries)
+        await this.markEventFailed(busEvent.id, retryCount, error)
       }
     }
 

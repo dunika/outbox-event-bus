@@ -1,4 +1,4 @@
-import type { RetryOptions } from "./types"
+import type { RetryOptions } from "../types/types"
 
 export async function withRetry<T>(
   operation: () => Promise<T>,

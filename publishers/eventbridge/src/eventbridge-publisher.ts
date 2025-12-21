@@ -34,8 +34,8 @@ export class EventBridgePublisher<TTransaction = unknown> implements IPublisher 
     this.publisher.subscribe(eventTypes, async (events: BusEvent[]) => {
       if (events.length === 0) return
 
-      for (let i = 0; i < events.length; i += MAX_BATCH_SIZE) {
-        const chunk = events.slice(i, i + MAX_BATCH_SIZE)
+      for (let offset = 0; offset < events.length; offset += MAX_BATCH_SIZE) {
+        const chunk = events.slice(offset, offset + MAX_BATCH_SIZE)
         await this.eventBridgeClient.send(
           new PutEventsCommand({
             Entries: chunk.map((event) => ({

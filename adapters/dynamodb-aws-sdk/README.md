@@ -138,30 +138,37 @@ await client.send(new TransactWriteCommand({ TransactItems: items }));
 ### `DynamoDBAwsSdkOutboxConfig`
 
 ```typescript
-interface DynamoDBAwsSdkOutboxConfig {
+interface DynamoDBAwsSdkOutboxConfig extends OutboxConfig {
+  // DynamoDB-specific options
   client: DynamoDBClient;              // AWS SDK v3 Client instance
   tableName: string;                   // DynamoDB table name
   statusIndexName?: string;            // GSI name (default: 'status-gsiSortKey-index')
+  getCollector?: () => any[] | undefined; // Transaction collector getter
+  // Inherited from OutboxConfig
   batchSize?: number;                  // Events per poll (default: 50)
   pollIntervalMs?: number;             // Polling interval (default: 1000ms)
   processingTimeoutMs?: number;        // Processing timeout (default: 30000ms)
   maxRetries?: number;                 // Max retry attempts (default: 5)
   baseBackoffMs?: number;              // Base backoff delay (default: 1000ms)
   maxErrorBackoffMs?: number;          // Max polling error backoff (default: 30000ms)
-  getCollector?: () => any[] | undefined; // Transaction collector getter
 }
 ```
+
+> [!NOTE]
+> All adapters inherit base configuration options from `OutboxConfig`. See the [API Reference](../../docs/API_REFERENCE.md#base-outbox-configuration) for details on inherited options.
 
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `client` | `DynamoDBClient` | **Required** | AWS SDK v3 Client instance. |
 | `tableName` | `string` | **Required** | The DynamoDB table name. |
 | `statusIndexName` | `string` | `'status-gsiSortKey-index'` | The name of the GSI used for polling. |
+| `getCollector` | `() => any[] \| undefined` | - | Transaction collector getter for atomic writes. |
 | `batchSize` | `number` | `50` | Number of events to claim per poll. |
 | `pollIntervalMs` | `number` | `1000` | Delay between poll cycles. |
 | `processingTimeoutMs`| `number` | `30000` | After this time, a 'PROCESSING' event is considered stuck. |
 | `maxRetries` | `number` | `5` | Maximum attempts for a failed event. |
 | `baseBackoffMs` | `number` | `1000` | Base delay for exponential backoff. |
+| `maxErrorBackoffMs` | `number` | `30000` | Maximum backoff delay after polling errors. |
 
 ---
 

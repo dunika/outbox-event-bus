@@ -108,3 +108,16 @@ export class MaxRetriesExceededError extends OperationalError {
     this.name = "MaxRetriesExceededError"
   }
 }
+
+export class HandlerError extends OutboxError {
+  constructor(
+    public readonly originalError: unknown,
+    context?: Record<string, unknown>
+  ) {
+    const message = originalError instanceof Error ? originalError.message : String(originalError)
+    super(`Event handler failed: ${message}`, "HandlerError", { originalError, ...context })
+    if (originalError instanceof Error && originalError.stack) {
+      this.stack = originalError.stack
+    }
+  }
+}

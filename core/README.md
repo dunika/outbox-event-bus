@@ -18,6 +18,28 @@ The library consists of three main components:
 2.  **[IOutbox](../docs/API_REFERENCE.md#ioutbox-interface) (Adapter)**: Responsible for persisting events to the database and polling for new events.
 3.  **[IPublisher](../docs/API_REFERENCE.md#publishers)**: Optional component that subscribes to the bus and forwards events to external systems (SQS, Kafka, etc.).
 
+## Project Structure
+
+The core package is organized into the following directories:
+
+```
+core/src/
+├── bus/              # OutboxEventBus implementation
+├── errors/           # Error classes and utilities
+├── outboxes/         # Built-in outbox implementations (InMemoryOutbox)
+├── services/         # PollingService and EventPublisher
+├── types/            # TypeScript interfaces and types
+└── utils/            # Utility functions (time, etc.)
+```
+
+**Key Files:**
+- `bus/outbox-event-bus.ts` - Main event bus implementation
+- `types/interfaces.ts` - Core interfaces (`IOutbox`, `IOutboxEventBus`, `IPublisher`)
+- `types/types.ts` - Type definitions (`BusEvent`, `BusEventInput`, `FailedBusEvent`)
+- `errors/errors.ts` - Error class hierarchy
+- `services/polling-service.ts` - Background polling service
+- `services/event-publisher.ts` - Base publisher implementation
+
 ## Usage
 
 ```typescript

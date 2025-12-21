@@ -12,9 +12,9 @@ import {
   type FailedBusEvent,
   formatErrorMessage,
   type IOutbox,
-  MaxRetriesExceededError,
   type OutboxConfig,
   PollingService,
+  reportEventError,
 } from "outbox-event-bus"
 
 // DynamoDB has a hard limit of 100 items per transaction
@@ -308,14 +308,7 @@ export class DynamoDBAwsSdkOutbox implements IOutbox<DynamoDBAwsSdkTransactionCo
         }
 
         const newRetryCount = (item.retryCount || 0) + 1
-        if (newRetryCount >= this.config.maxRetries) {
-          this.poller.onError?.(new MaxRetriesExceededError(error, newRetryCount), {
-            ...event,
-            retryCount: newRetryCount,
-          })
-        } else {
-          this.poller.onError?.(error, { ...event, retryCount: newRetryCount })
-        }
+        reportEventError(this.poller.onError, error, event, newRetryCount, this.config.maxRetries)
 
         const errorMsg = formatErrorMessage(error)
         const delay = this.poller.calculateBackoff(newRetryCount)

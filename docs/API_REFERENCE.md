@@ -4,7 +4,7 @@
 
 ### OutboxEventBus
 
-The main orchestrator for event emission and handling.
+The main orchestrator for event emission and handling. The API is inspired by [the Node.js EventEmitter](https://nodejs.org/api/events.html#class-eventemitter).
 
 #### Constructor
 
@@ -83,6 +83,9 @@ Removes the handler for a specific event type.
 bus.off(eventType: string): void
 ```
 
+> [!TIP]
+> `off()` and `removeListener()` are equivalent methods. Similarly, `on()` and `addListener()` are equivalent. Use whichever naming convention you prefer.
+
 ##### `removeAllListeners()`
 Removes all registered handlers.
 
@@ -124,11 +127,11 @@ Storage adapters must implement this interface.
 
 ```typescript
 interface IOutbox<TTransaction = unknown> {
-  publish(events: BusEventInput[], transaction?: TTransaction): Promise<void>;
-  start(handler: (event: BusEvent) => Promise<void>, onError: (error: unknown) => void): void;
+  publish(events: BusEvent[], transaction?: TTransaction): Promise<void>;
+  start(handler: (event: BusEvent) => Promise<void>, onError: ErrorHandler): void;
   stop(): Promise<void>;
-  getFailedEvents?(): Promise<FailedBusEvent[]>;
-  retryEvents?(eventIds: string[]): Promise<void>;
+  getFailedEvents(): Promise<FailedBusEvent[]>;
+  retryEvents(eventIds: string[]): Promise<void>;
 }
 ```
 
@@ -557,6 +560,7 @@ The library provides a structured error hierarchy to help you distinguish betwee
 | `BackpressureError` | Operational | Thrown by publishers if the underlying storage/channel is full. |
 | `MaintenanceError` | Operational | Reported to `onError` if a background maintenance task fails. |
 | `MaxRetriesExceededError` | Operational | Reported to `onError` when an event exhausts its configured retry attempts. |
+| `HandlerError` | Operational | Reported to `onError` when an event handler throws an error (before max retries). |
 
 ### The `onError` Callback
 
@@ -568,7 +572,8 @@ The `onError` callback is the primary place to handle background processing fail
 import { 
   MaxRetriesExceededError, 
   BackpressureError, 
-  MaintenanceError 
+  MaintenanceError,
+  HandlerError
 } from 'outbox-event-bus';
 
 const bus = new OutboxEventBus(outbox, (error, event) => {
@@ -578,6 +583,9 @@ const bus = new OutboxEventBus(outbox, (error, event) => {
       error: error.originalError,
       attempts: error.retryCount
     });
+  } else if (error instanceof HandlerError) {
+    // The event handler failed, but the event will be retried.
+    console.warn(`Handler failed for event ${event?.id}, retrying...`, error.originalError);
   } else if (error instanceof BackpressureError) {
     // The publisher cannot keep up.
     console.warn(`Backpressure detected on ${error.data?.resource}`);
