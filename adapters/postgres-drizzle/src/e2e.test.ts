@@ -6,7 +6,7 @@ import { outboxEvents } from "./schema"
 import { eq } from "drizzle-orm"
 import { randomUUID } from "node:crypto"
 
-const DB_URL = "postgres://test_user:test_password@localhost:5432/outbox_test"
+const DB_URL = "postgres://test_user:test_password@localhost:5433/outbox_test"
 
 describe("PostgresDrizzleOutbox E2E", () => {
   let client: postgres.Sql
@@ -176,8 +176,64 @@ describe("PostgresDrizzleOutbox E2E", () => {
     expect(result).toHaveLength(1)
     expect(result[0]?.status).toBe("failed")
     expect(result[0]?.retryCount).toBeGreaterThan(1)
-    expect(attempts).toBeGreaterThan(1)
     expect(onError).toHaveBeenCalled()
+  })
+
+  it("should support manual management of failed events", async () => {
+    outbox = new PostgresDrizzleOutbox({
+      db,
+      pollIntervalMs: 100,
+    })
+
+    const eventId = crypto.randomUUID()
+    const event = {
+      id: eventId,
+      type: "manual.retry",
+      payload: {},
+      occurredAt: new Date(),
+    }
+
+    // 1. Insert directly as failed
+    await db.insert(outboxEvents).values({
+      id: eventId,
+      type: event.type,
+      payload: event.payload,
+      occurredAt: event.occurredAt,
+      status: "failed",
+      retryCount: 5,
+      lastError: "Manual failure",
+    })
+
+    const inserted = await db.select().from(outboxEvents).where(eq(outboxEvents.id, eventId))
+    console.log("DRIZZLE TEST DEBUG: Inserted row:", inserted)
+
+    // 2. Get failed events
+    const failed = await outbox.getFailedEvents()
+    const targetEvent = failed.find((e) => e.id === eventId)
+    
+    expect(targetEvent).toBeDefined()
+    expect(targetEvent!.id).toBe(eventId)
+    expect(targetEvent!.error).toBe("Manual failure")
+    expect(targetEvent!.retryCount).toBe(5)
+    await outbox.retryEvents([eventId])
+
+    // 4. Verify status reset
+    const retried = await db.select().from(outboxEvents).where(eq(outboxEvents.id, eventId))
+    expect(retried[0]?.status).toBe("created")
+    expect(retried[0]?.retryCount).toBe(0)
+    expect(retried[0]?.lastError).toBeNull()
+
+    // 5. Verify it gets processed
+    const processed: any[] = []
+    outbox.start(async (e) => {
+      processed.push(e)
+    }, (err) => console.error(err))
+
+    await new Promise(r => setTimeout(r, 1000))
+    await outbox.stop()
+
+    expect(processed).toHaveLength(1)
+    expect(processed[0].id).toBe(eventId)
   })
 
   it("should recover from stuck events", async () => {

@@ -4,7 +4,7 @@ import { PostgresPrismaOutbox } from "./index"
 import { execSync } from "child_process"
 import { randomUUID } from "node:crypto"
 
-const DATABASE_URL = "postgresql://test_user:test_password@localhost:5432/outbox_test"
+const DATABASE_URL = "postgresql://test_user:test_password@127.0.0.1:5434/outbox_test"
 
 describe("PostgresPrismaOutbox E2E", () => {
   let prisma: PrismaClient
@@ -19,7 +19,7 @@ describe("PostgresPrismaOutbox E2E", () => {
       let retries = 5
       while (retries > 0) {
         try {
-            execSync("npx prisma db push --accept-data-loss", { stdio: "inherit", env: { ...process.env, DATABASE_URL } })
+            execSync(`npx prisma db push --accept-data-loss --url "${DATABASE_URL}"`, { stdio: "inherit", env: process.env })
             break
         } catch (e) {
             retries--
@@ -32,7 +32,16 @@ describe("PostgresPrismaOutbox E2E", () => {
       throw e
     }
 
-    prisma = new PrismaClient()
+    // @ts-ignore
+    const { Pool } = await import("pg")
+    // @ts-ignore
+    const { PrismaPg } = await import("@prisma/adapter-pg")
+    
+    const pool = new Pool({ connectionString: DATABASE_URL })
+    const adapter = new PrismaPg(pool)
+    
+    // @ts-ignore - Prisma 7 config workaround
+    prisma = new PrismaClient({ adapter })
     await prisma.$connect()
   })
 
@@ -124,6 +133,63 @@ describe("PostgresPrismaOutbox E2E", () => {
     expect(saved?.retryCount).toBeGreaterThan(0)
     expect(attempts).toBeGreaterThan(1)
     expect(onError).toHaveBeenCalled()
+  })
+
+  it("should support manual management of failed events", async () => {
+    outbox = new PostgresPrismaOutbox({
+      prisma,
+      pollIntervalMs: 100,
+    })
+
+    const eventId = randomUUID()
+    const event = {
+      id: eventId,
+      type: "manual.retry",
+      payload: {},
+      occurredAt: new Date(),
+    }
+
+    // 1. Insert directly as failed
+    await prisma.outboxEvent.create({
+      data: {
+        id: eventId,
+        type: event.type,
+        payload: event.payload,
+        occurredAt: event.occurredAt,
+        status: OutboxStatus.failed,
+        retryCount: 5,
+        lastError: "Manual failure"
+      }
+    })
+
+    // 2. Get failed events
+    const failed = await outbox.getFailedEvents()
+    const targetEvent = failed.find((e) => e.id === eventId)
+    
+    expect(targetEvent).toBeDefined()
+    expect(targetEvent!.id).toBe(eventId)
+    expect(targetEvent!.error).toBe("Manual failure")
+
+    // 3. Retry
+    await outbox.retryEvents([eventId])
+
+    // 4. Verify status reset
+    const retried = await prisma.outboxEvent.findUnique({ where: { id: eventId } })
+    expect(retried?.status).toBe(OutboxStatus.created)
+    expect(retried?.retryCount).toBe(0)
+    expect(retried?.lastError).toBeNull()
+
+    // 5. Verify it gets processed
+    const processed: any[] = []
+    outbox.start(async (e) => {
+      processed.push(e)
+    }, (err) => console.error(err))
+
+    await new Promise(r => setTimeout(r, 1000))
+    await outbox.stop()
+
+    expect(processed).toHaveLength(1)
+    expect(processed[0].id).toBe(eventId)
   })
 
   it("should recover from stuck events", async () => {

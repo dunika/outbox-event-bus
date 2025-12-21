@@ -1,478 +1,507 @@
 # outbox-event-bus
 
+<div align="center">
+
 ![npm version](https://img.shields.io/npm/v/outbox-event-bus?style=flat-square&color=2563eb)
+![npm downloads](https://img.shields.io/npm/dm/outbox-event-bus?style=flat-square&color=2563eb)
+![npm bundle size](https://img.shields.io/bundlephobia/minzip/outbox-event-bus?style=flat-square&color=2563eb)
 ![license](https://img.shields.io/npm/l/outbox-event-bus?style=flat-square&color=2563eb)
+
+</div>
 
 > **Never Lose an Event Again**
 >
-> Storage-agnostic outbox event bus. Persist events transactionally alongside your data. Guaranteed at-least-once delivery with robust retries.
+> Transactional outbox pattern made simple. Persist events atomically with your data. Guaranteed delivery with your database.
 
+**The Problem**: You save data to your database and attempt to emit a relevant event. If your process crashes or the network fails before the event is sent, your system becomes inconsistent.
 
+![The Dual Write Problem](./docs/images/problem.png)
 
+**The Solution**: `outbox-event-bus` stores events in your database *within the same transaction* as your data. A background worker then reliably delivers them.
 
-## Quick Start
+![The Outbox Solution](./docs/images/solution.png)
+
+## Quick Start (Postgres + Drizzle ORM + SQS Example)
 
 ```bash
-npm install outbox-event-bus @outbox-event-bus/postgres-prisma-outbox @prisma/client
+npm install outbox-event-bus @outbox-event-bus/postgres-drizzle-outbox drizzle-orm @outbox-event-bus/sqs-publisher
 ```
 
 ```typescript
-import { OutboxEventBus } from '@outbox-event-bus/core'
-import { PostgresPrismaOutbox } from '@outbox-event-bus/postgres-prisma-outbox'
-
-// NOTE: This library enforces a strict 1:1 Command Bus pattern. 
-// One Event Type = One Handler.
-// This ensures safe, isolated retries without side-effects.
-
-// BEFORE: Dangerous, flaky, unsafe
-async function unsafeCreateUser(newUser) {
-  // 1. Write to DB
-  const user = await db.users.create(newUser)
-  
-  // 2. Emit Event - WHAT IF THIS FAILS?
-  // If the process crashes here, your system is inconsistent.
-  // The user exists, but no welcome email is sent.
-  await eventBus.emit('user.created', user) 
-  
-  return user
-}
-
-// AFTER: Atomic, reliable, safe
-async function safeCreateUser(newUser) {
-  // 1. Start a transaction
-  await db.$transaction(async (transaction) => {
-    // A. Write to DB
-    const user = await transaction.users.create(newUser)
-
-    // B. Emit to Outbox
-    // Pass the transaction explicitly to ensure atomic commit.
-    // Both the user creation and event are committed together.
-    await bus.emit({
-      type: 'user.created',
-      payload: user
-    }, transaction)
-  })
-  
-  // 2. The background worker picks up the event and delivers it.
-  // If it fails, it retries with exponential backoff.
-}
-```
-
-## The Problem
-
-In distributed systems, **dual writes are the root of all evil**.
-
-1.  **You write to your database.** (Success)
-2.  **You try to publish an event.** (Failure?)
-
-If step 2 fails (network blip, broker down, process crash), your system is now **inconsistent**. Your local database says one thing, but the rest of your system knows nothing about it.
-
-## The Solution
-
-**The Transactional Outbox Pattern (and beyond)**.
-
-Instead of sending the event directly to the broker, you save the event to your own data store first. This ensures that the intent to send an event is captured durably before the network request is ever made.
-
-```mermaid
-flowchart LR
-    App[Application] -->|Transaction| DB[(Database)]
-    subgraph "Transaction Scale"
-    DB .->|1. Save Data| T1[User Table]
-    DB .->|2. Save Event| T2[Outbox Table]
-    end
-    T2 -->|3. Poll| Poller[Outbox Worker]
-    Poller -->|4. Publish| Broker((Message Broker))
-    Broker -->|5. Consume| Consumer[Downstream Service]
-    style Poller fill:#f9f,stroke:#333
-    style Broker fill:#ff9,stroke:#333
-```
-
-1.  **Durable Capture**: The event is saved to your storage (Postgres, Mongo, Redis, etc.) alongside your data.
-2.  **Guaranteed at-least-once Delivery**: A separate background worker (the Poller) reads the saved events and publishes them only after they are safely stored.
-3.  **Resilient Retries**: If the publisher fails, the poller retries with exponential backoff.
-4.  **Optional Atomicity**: When using a transactional database (like Postgres), you can use transactions to ensure your data and events are committed together with absolute consistency.
-
----
-
-## 📖 Key Concepts
-
-### Type System
-
-The library uses a clear type distinction between events you create and events that are stored:
-
-```typescript
-// BusEventInput: What you provide when emitting events
-type BusEventInput<T extends string = string, P = unknown> = {
-  type: T
-  payload: P
-  id?: string              // Optional - auto-generated if not provided
-  occurredAt?: Date        // Optional - defaults to new Date()
-  metadata?: Record<string, unknown>
-}
-
-// BusEvent: What gets stored and passed to handlers
-type BusEvent<T extends string = string, P = unknown> = {
-  id: string               // Always present
-  type: T
-  payload: P
-  occurredAt: Date         // Always present
-  metadata?: Record<string, unknown>
-}
-```
-
-**Why this matters:**
-- You don't need to generate IDs or timestamps manually
-- Handlers always receive fully-populated events
-- Type safety ensures you can't forget required fields
-
-### Storage-Agnostic Architecture
-Unlike traditional outbox libraries tied to a specific ORM or database, `outbox-event-bus` works with **any storage backend**.
-- **SQL Databases**: Use ACID transactions for perfect atomicity
-- **NoSQL Stores**: Leverage durable persistence without multi-document transaction requirements
-- **Key-Value Stores**: High-speed persistence for lightweight event flows
-- **Mix and Match**: Combine any storage adapter with any publisher—complete flexibility
-
-### Generic Transaction Support
-
-The event bus is generic over transaction types, providing full type safety for your specific database:
-
-```typescript
-import { OutboxEventBus } from 'outbox-event-bus'
-import { PrismaClient } from '@prisma/client'
-import type { Prisma } from '@prisma/client'
-
-// Type the bus with your transaction type
-const bus = new OutboxEventBus<Prisma.TransactionClient>(outbox, errorHandler)
-
-// Now TypeScript knows what transaction type to expect
-await db.$transaction(async (transaction) => {
-  const user = await transaction.users.create({ data: newUser })
-  
-  // Transaction parameter is fully typed
-  await bus.emit({ 
-    type: 'user.created', 
-    payload: user 
-  }, transaction)
-})
-```
-
-**Supported Transaction Types:**
-- **Prisma**: `Prisma.TransactionClient`
-- **Drizzle**: Database transaction object
-- **MongoDB**: `ClientSession`
-- **DynamoDB**: `TransactWriteItem[]` (transaction collector)
-- **Redis**: `Pipeline` object
-- **SQLite**: Database transaction object
-
-### Strict 1:1 Command Bus Architecture
-This library enforces a **Command Bus pattern**: Each event type can have exactly **one** handler.
-- **Why?** If you have 2 handlers and one fails, retrying the event would re-run the successful handler too (double side-effects).
-- **Solution:** Strict 1:1 binding ensures that if a handler fails, only that specific logic is retried.
-- **Fan-Out:** If you need multiple actions (e.g., Send Email + Index Search), use the "Fan-Out Pattern": The main handler should publish new "Intent Events" (`send-email`, `index-search`) back to the outbox.
-
-### Guaranteed Delivery with Resilient Retries
-- **At-Least-Once Delivery**: Events are retried until successful delivery or max retries exceeded
-- **Exponential Backoff**: Automatic retry delays that double with each attempt (1s → 2s → 4s → 8s...)
-- **Durable Failure Tracking**: Failed events persist in your database with error details for inspection and manual retry
-- **Idempotency Required**: Consumers should handle duplicate events gracefully
-
----
-
-## 🛡️ Reliability & Failure Handling
-
-What happens when an event fails?
-
-By default, `outbox-event-bus` will retry failed events **5 times** with exponential backoff.
-
-- **Durable Failure Tracking**: Failed events are marked as `failed` in your database and **never deleted**
-- **Error Inspection**: Each failed event stores the `last_error` message for debugging
-- **Manual Recovery**: Reset the status to `created` to trigger a re-delivery after fixing the underlying issue
-- **Zero Data Loss**: Events persist in your primary database, surviving application restarts and broker outages
-- **Audit Trail**: Complete event history remains queryable for compliance and debugging
-- **Efficient Batching**: Publishers **batch events by default** to maximize throughput:
-  - **Core Default**: 100 items or 100ms timeout
-  - **AWS Publishers** (SQS, SNS, EventBridge): 10 items or 100ms timeout (respects AWS API limits)
-  - **Automatic Chunking**: AWS publishers automatically split larger batches into multiple API calls
-
-## 🧩 Adapters & Ecosystem
-
-Mix and match any storage adapter with any publisher.
-
-### 💾 Storage Adapters (The "Outbox")
-
-These store your events. Choose one that matches your primary database.
-
-| Adapter | Best For | Status | Package |
-|:---|:---|:---:|:---|
-| **[Postgres (Prisma)](./adapters/postgres-prisma/README.md)** | Prisma Users | ✅ | `@outbox-event-bus/postgres-prisma-outbox` |
-| **[Postgres (Drizzle)](./adapters/postgres-drizzle/README.md)** | SQL Purists | ✅ | `@outbox-event-bus/postgres-drizzle-outbox` |
-| **[MongoDB](./adapters/mongo/README.md)** | Document Stores | ✅ | `@outbox-event-bus/mongo-outbox` |
-| **[DynamoDB](./adapters/dynamodb/README.md)** | Serverless | ✅ | `@outbox-event-bus/dynamodb-outbox` |
-| **[Redis](./adapters/redis/README.md)** | High Speed | ⚠️ | `@outbox-event-bus/redis-outbox` |
-| **[SQLite](./adapters/sqlite/README.md)** | Local/Edge | ✅ | `@outbox-event-bus/sqlite-outbox` |
-
-### 📢 Publishers (The "Transport")
-
-These send your events to the world.
-
-| Publisher | Target | Package |
-|:---|:---|:---|
-| **[AWS SQS](./publishers/sqs/README.md)** | Amazon SQS Queues | `@outbox-event-bus/sqs-publisher` |
-| **[AWS SNS](./publishers/sns/README.md)** | Amazon SNS Topics | `@outbox-event-bus/sns-publisher` |
-| **[EventBridge](./publishers/eventbridge/README.md)** | AWS Event Bus | `@outbox-event-bus/eventbridge-publisher` |
-| **[RabbitMQ](./publishers/rabbitmq/README.md)** | AMQP Brokers | `@outbox-event-bus/rabbitmq-publisher` |
-| **[Kafka](./publishers/kafka/README.md)** | Streaming | `@outbox-event-bus/kafka-publisher` |
-| **[Redis Streams](./publishers/redis-streams/README.md)** | Lightweight Stream | `@outbox-event-bus/redis-streams-publisher` |
-
-
-## 📚 API Reference
-
-### OutboxEventBus
-
-The main event bus orchestrator. Provides an event emitter interface with durable persistence.
-
-#### Constructor
-
-```typescript
-class OutboxEventBus<TTransaction> {
-  constructor(
-    outbox: IOutbox<TTransaction>,
-    onError: (error: unknown) => void
-  )
-}
-```
-
-**Parameters:**
-- `outbox`: Storage adapter implementing the `IOutbox` interface
-- `onError`: Global error handler for unhandled errors during event processing
-
-#### Methods
-
-##### emit()
-Emit a single event to the outbox.
-
-```typescript
-await bus.emit<T extends string, P>({
-  type: T,
-  payload: P,
-  id?: string,
-  occurredAt?: Date,
-  metadata?: Record<string, unknown>
-}, transaction?: TTransaction): Promise<void>
-```
-
-##### emitMany()
-Emit multiple events atomically.
-
-```typescript
-await bus.emitMany([
-  { type: 'user.created', payload: user },
-  { type: 'email.queued', payload: { to: user.email } }
-], transaction?): Promise<void>
-```
-
-##### on() / addListener()
-Register a handler for an event type. **One handler per event type** (Command Bus pattern).
-
-```typescript
-bus.on('user.created', async (event: BusEvent<'user.created', User>) => {
-  await sendWelcomeEmail(event.payload)
-})
-```
-
-##### once()
-Register a one-time handler that auto-removes after first execution.
-
-```typescript
-bus.once('migration.complete', async (event) => {
-  console.log('Migration finished!')
-})
-```
-
-##### off() / removeListener()
-Remove a specific handler.
-
-```typescript
-bus.off('user.created', myHandler)
-```
-
-##### removeAllListeners()
-Remove all handlers, or all handlers for a specific event type.
-
-```typescript
-bus.removeAllListeners()              // Remove all
-bus.removeAllListeners('user.created') // Remove for specific type
-```
-
-##### subscribe()
-Register a handler for multiple event types.
-
-```typescript
-bus.subscribe(['order.created', 'order.updated'], async (event) => {
-  await syncToWarehouse(event)
-})
-```
-
-##### waitFor()
-Wait for a specific event to be emitted (useful in tests).
-
-```typescript
-const event = await bus.waitFor('user.created', 5000) // 5s timeout
-```
-
-##### start()
-Start the background polling worker.
-
-```typescript
-bus.start()
-```
-
-##### stop()
-Stop the background worker and clean up resources.
-
-```typescript
-await bus.stop()
-```
-
----
-
-### EventPublisher
-
-Manages reliable delivery from the outbox to message brokers with batching and retries.
-
-#### Constructor
-
-```typescript
-class EventPublisher<TTransaction> {
-  constructor(
-    bus: IOutboxEventBus<TTransaction>,
-    config?: PublisherConfig
-  )
-}
-```
-
-#### Configuration
-
-```typescript
-interface PublisherConfig {
-  retryConfig?: {
-    maxAttempts?: number      // Default: 3
-    initialDelayMs?: number   // Default: 1000
-    maxDelayMs?: number       // Default: 10000
-  }
-  batchConfig?: {
-    batchSize?: number        // Default: 100 (core), 10 (AWS publishers)
-    batchTimeoutMs?: number   // Default: 100
-  }
-}
-```
-
-**Retry Behavior:**
-- Exponential backoff: delays double with each attempt (1s → 2s → 4s...)
-- Capped at `maxDelayMs`
-- After `maxAttempts`, the error bubbles to the outbox error handler
-
-**Batching Behavior:**
-- Events are buffered until `batchSize` is reached OR `batchTimeoutMs` elapses
-- AWS publishers automatically chunk batches larger than 10 into multiple API calls
-- Set `batchSize: 1` to disable batching
-
-#### Methods
-
-##### subscribe()
-Subscribe to event types and forward them to a handler.
-
-```typescript
-publisher.subscribe(
-  ['user.created', 'user.updated'],
-  async (events: BusEvent[]) => {
-    // Publish batch to external system
-    await sqsClient.send(new SendMessageBatchCommand({ ... }))
-  }
-)
-```
-
----
-
-### IOutbox Interface
-
-Adapter interface for implementing custom storage backends.
-
-```typescript
-interface IOutbox<TTransaction> {
-  publish(events: BusEvent[], transaction?: TTransaction): Promise<void>
-  start(handler: (event: BusEvent) => Promise<void>, onError: (error: unknown) => void): void
-  stop(): Promise<void>
-}
-```
-
-**Implementing a Custom Adapter:**
-1. Implement `publish()` to store events in your database
-2. Implement `start()` to poll for pending events and call the handler
-3. Implement `stop()` to clean up polling resources
-4. Handle retry logic, status tracking, and stuck event recovery
-
-See existing adapters for reference implementations.
-
----
-
-## Quick Start Example
-
-```typescript
-import { OutboxEventBus, InMemoryOutbox } from 'outbox-event-bus';
-
-// 1. Initialize Storage
-// (Use a real adapter in production, e.g., PostgresPrismaOutbox)
-const outbox = new InMemoryOutbox();
-
-// 2. Create Bus
-const bus = new OutboxEventBus(outbox, (error) => console.error(error));
-
-// 3. Start the Poller
+import { OutboxEventBus } from 'outbox-event-bus';
+import { PostgresDrizzleOutbox } from '@outbox-event-bus/postgres-drizzle-outbox';
+import { SQSPublisher } from '@outbox-event-bus/sqs-publisher';
+
+// 1. Setup
+const outbox = new PostgresDrizzleOutbox({ db });
+const bus = new OutboxEventBus(outbox, (err) => console.error(err));
+
+// Forward messages to- 
+const publisher = new SQSPublisher(bus, { queueUrl: '...', sqsClient: '... });
+publisher.subscribe(['sync-to-sqs']);
+
+// 2. Register Handlers
+bus.on('user.created', async (event) => {
+  // Fan Out as needed
+  await bus.emitMany([
+    { type: 'send.welcome', payload: event.payload },
+    { type: 'sync-to-sqs', payload: event.payload }
+  ]);
+});
+
+bus.on('send.welcome', async (event) => {
+  await emailService.sendWelcome(event.payload.email);
+});
+
+
+// 3. Start the Bus
 bus.start();
 
-// 4. Emit Events (Reliably)
-await bus.emit({
-  type: 'user.created',
-  payload: { id: 1, name: 'Alice' }
+// 4. Emit Transactionally
+await db.transaction(async (transaction) => {
+  const [user] = await transaction.insert(users).values(newUser).returning();
+  
+  // Both operations commit together or rollback together
+  await bus.emit({ type: 'user.created', payload: user }, transaction);
 });
 ```
 
-## Fan-Out Pattern Example
+## Why outbox-event-bus?
 
-To perform multiple actions for a single event, use the **Fan-Out Pattern**:
+- **Zero Event Loss**: Events persist atomically with your data using database transactions.
+- **Storage Agnostic**: Works with any database. **Use our built-in adapters** for Postgres, MongoDB, DynamoDB, Redis, and SQLite, or create your own.
+- **Guaranteed Delivery**: At-least-once semantics with exponential backoff and dead letter handling.
+- **Safe Retries**: Strict 1:1 command bus pattern prevents duplicate side-effects.
+- **Built-in Publishers**: Comes with optional publishers for SQS, SNS, Kafka, RabbitMQ, Redis Streams, and EventBridge
+- **TypeScript First**: Full type safety with generics for events, payloads, and transactions.
+
+## Contents
+
+- [Concepts](#concepts)
+- [Error Handling](#error-handling)
+- [Tutorials](#tutorials)
+- [How-To Guides](#how-to-guides)
+- [API Reference](./docs/API_REFERENCE.md)
+- [Adapters & Publishers](#adapters--publishers)
+- [Production Guide](#production-guide)
+- [Contributing](./docs/CONTRIBUTING.md)
+- [License](#license)
+
+
+
+## Concepts
+
+### Strict 1:1 Command Bus Pattern
+
+> [!IMPORTANT]
+> This library enforces a **Command Bus pattern**: Each event type can have exactly **one** handler.
+
+**Why?**
+- If you have 2 handlers and one fails, retrying the event would re-run the successful handler too (double side-effects)
+- Example: `user.created` triggers "Send Welcome Email", "Send Analytics" and "Sync to SQS". If "Send Analytics" fails and retries, "Send Welcome Email" runs again → duplicate emails
+
+**Solution:** Strict 1:1 binding ensures that if a handler fails, only that specific logic is retried.
+
+**Fan-Out Pattern:** If you need multiple actions, publish new "intent events" from your handler:
 
 ```typescript
-// 1. Initial Event
+// Main handler
 bus.on('user.created', async (event) => {
   // Fan-out: Publish intent events back to the outbox
   await bus.emitMany([
-    { type: 'send-welcome-email', payload: event.payload },
-    { type: 'sync-to-salesforce', payload: event.payload }
-  ])
-})
+    { type: 'send.welcome', payload: event.payload },
+    { type: 'send.analytics', payload: event.payload },
+    { type: 'sync-to-sqs', payload: event.payload }
+  ]);
+});
 
-// 2. Specialized Handlers (1:1)
-bus.on('send-welcome-email', async (event) => {
-  await emailService.send(event.payload.email)
-})
+// Specialized handlers (1:1)
+bus.on('send.welcome', async (event) => {
+  await emailService.sendWelcome(event.payload.email);
+});
 
-bus.on('sync-to-salesforce', async (event) => {
-  await crm.sync(event.payload)
-})
+bus.on('send.analytics', async (event) => {
+  await analyticsService.track(event.payload);
+});
 ```
 
-## Contributing
+### Event Lifecycle
 
-We welcome PRs! 
+Events flow through several states from creation to completion:
 
-1. **Fork** the repository.
-2. **Clone** it locally.
-3. Install dependencies: `npm install`.
-4. Run tests: `npm test`.
+![Event Lifecycle](./docs/images/event_life_cycle.png)
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed setup.
+**State Descriptions:**
+
+| State | Description | Next States |
+|:---|:---|:---|
+| `created` | Event saved to outbox, waiting to be processed | `active` (claimed by worker) |
+| `active` | Event claimed by worker, handler executing | `completed` (success), `failed` (error), `active` (timeout) |
+| `completed` | Handler succeeded, event ready for archival | `archived` (maintenance) |
+| `failed` | Error occurred (retry pending or max retries exceeded) | `active` (retry), Manual intervention (max retries) |
+
+**Stuck Event Recovery:**
+
+If a worker crashes while processing an event (status: `active`), the event becomes "stuck". The outbox adapter automatically reclaims stuck events after `processingTimeoutMs` (default: 30s).
+
+**SQL Example (Postgres/SQLite):**
+```sql
+-- Events stuck for more than 30 seconds are reclaimed
+SELECT * FROM outbox_events 
+WHERE status = 'active' 
+  AND keep_alive < NOW() - INTERVAL '30 seconds';
+```
+
+> **Note:** Non-SQL adapters (DynamoDB, Redis, Mongo) implement equivalent recovery mechanisms using their native features (TTL, Sorted Sets, etc).
+
+## Error Handling
+
+The library provides typed errors to help you handle specific failure scenarios programmatically. All errors extend the base `OutboxError` class.
+
+- **Configuration Errors**: `DuplicateListenerError`, `UnsupportedOperationError`
+- **Validation Errors**: `BatchSizeLimitError`
+- **Operational Errors**: `TimeoutError`, `BackpressureError`, `MaxRetriesExceededError`
+
+### Example
+
+```typescript
+import { OutboxEventBus, TimeoutError } from 'outbox-event-bus';
+
+const bus = new OutboxEventBus(outbox, (err, event) => {
+  if (err instanceof MaxRetriesExceededError) {
+    console.warn(`Event ${event?.id} timed out, will retry...`);
+  } else {
+    console.error('Unexpected error:', err);
+  }
+});
+```
+
+For a complete list and usage examples, see the [API Reference](./docs/API_REFERENCE.md).
+
+## Tutorials
+
+### Working with Transactions (Prisma + Postgres Example)
+
+```typescript
+import { PrismaClient } from '@prisma/client';
+import { PostgresPrismaOutbox } from '@outbox-event-bus/postgres-prisma-outbox';
+import { OutboxEventBus } from 'outbox-event-bus';
+
+const prisma = new PrismaClient();
+const outbox = new PostgresPrismaOutbox({ prisma });
+const bus = new OutboxEventBus(outbox);
+
+bus.start();
+
+// Register handler
+bus.on('user.created', async (event) => {
+  await emailService.sendWelcome(event.payload.email);
+});
+
+// Emit within a transaction
+async function createUser(userData: any) {
+  await prisma.$transaction(async (transaction) => {
+    // 1. Create user
+    const user = await transaction.user.create({ data: userData });
+    
+    // 2. Emit event (will commit with the user creation)
+    await bus.emit({ type: 'user.created', payload: user }, transaction);
+  });
+}
+```
+
+### Async Transactions (SQLite + better-sqlite3 Example)
+
+SQLite transactions are synchronous by default. To use `await` with the event bus, use the `withBetterSqlite3Transaction` helper which manages the transaction scope for you.
+
+```typescript
+import Database from 'better-sqlite3';
+import { SqliteBetterSqlite3Outbox, withBetterSqlite3Transaction, getBetterSqlite3Transaction } from '@outbox-event-bus/sqlite-better-sqlite3-outbox';
+import { OutboxEventBus } from 'outbox-event-bus';
+
+const db = new Database('app.db');
+const outbox = new SqliteBetterSqlite3Outbox({ 
+  dbPath: 'app.db',
+  getTransaction: getBetterSqlite3Transaction() 
+});
+const bus = new OutboxEventBus(outbox);
+
+bus.start();
+
+async function createUser(userData: any) {
+  return withBetterSqlite3Transaction(db, async (transaction) => {
+    const stmt = transaction.prepare('INSERT INTO users (name) VALUES (?)');
+    const info = stmt.run(userData.name);
+    
+    await bus.emit({ 
+      type: 'user.created', 
+      payload: { id: info.lastInsertRowid, ...userData } 
+    });
+    
+    return info;
+  });
+}
+```
+
+> **Note:** Similar helpers (`withPrismaTransaction`, `withDrizzleTransaction`, `withMongodbTransaction`, etc.) are available in other adapters to simplify transaction management and avoid passing transaction objects manually.
+
+### Environment-Specific Adapters
+
+```typescript
+import { InMemoryOutbox } from 'outbox-event-bus';
+import { PostgresPrismaOutbox } from '@outbox-event-bus/postgres-prisma-outbox';
+
+const outbox = process.env.NODE_ENV === 'production'
+  ? new PostgresPrismaOutbox({ prisma })
+  : new InMemoryOutbox();
+
+const bus = new OutboxEventBus(outbox);
+```
+
+## How-To Guides
+
+### Testing Event Handlers
+
+**Problem:** How do I test event-driven code without a real database?
+
+**Solution:** Use `InMemoryOutbox` and `waitFor`:
+
+```typescript
+import { describe, it, expect } from 'vitest';
+import { OutboxEventBus, InMemoryOutbox } from 'outbox-event-bus';
+
+describe('User Creation', () => {
+  it('sends welcome email when user is created', async () => {
+    const outbox = new InMemoryOutbox();
+    const bus = new OutboxEventBus(outbox);
+    
+    let emailSent = false;
+    bus.on('user.created', async (event) => {
+      emailSent = true;
+    });
+    
+    bus.start();
+    
+    await bus.emit({ type: 'user.created', payload: { email: 'test@example.com' } });
+    await bus.waitFor('user.created');
+    
+    expect(emailSent).toBe(true);
+    
+    await bus.stop();
+  });
+});
+```
+
+### Monitoring & Debugging
+
+**Problem:** How do I monitor event processing errors in production?
+
+**Solution:** Use the `onError` callback for infrastructure errors and query the outbox table for failed events (DLQ).
+
+> **Note:** The `onError` callback captures unexpected errors (e.g., database connection loss, handler crashes). Events that simply fail processing and are retried are not considered "errors" until they exceed max retries, at which point they are marked as `failed` in the database.
+
+```typescript
+const bus = new OutboxEventBus(outbox, (error, event) => {
+  // Log to your monitoring service
+  logger.error('Event processing failed', {
+    eventId: event?.id,
+    eventType: event?.type,
+    error: error.message,
+    stack: error.stack
+  });
+  
+  // Send to error tracking (Sentry, Datadog, etc.)
+  Sentry.captureException(error, {
+    tags: { eventType: event?.type },
+    extra: { event }
+  });
+});
+```
+
+**Query failed events:**
+```typescript
+// Get failed events (if supported by adapter)
+const failedEvents = await bus.getFailedEvents();
+```
+
+Or via SQL:
+```sql
+SELECT * FROM outbox_events 
+WHERE status = 'failed' 
+ORDER BY created_on DESC 
+LIMIT 10;
+```
+
+### Handling Failures
+
+**Problem:** An event failed after max retries. How do I retry it?
+
+**Solution:** Use `retryEvents` or reset via SQL.
+
+**Using API:**
+```typescript
+const failedEvents = await bus.getFailedEvents();
+const idsToRetry = failedEvents.map(e => e.id);
+await bus.retryEvents(idsToRetry);
+```
+
+**Using SQL:**
+```sql
+-- Reset a specific event
+UPDATE outbox_events 
+SET status = 'created', retry_count = 0, last_error = NULL 
+WHERE id = 'event-id-here';
+
+-- Reset all failed events of a type
+UPDATE outbox_events 
+SET status = 'created', retry_count = 0, last_error = NULL 
+WHERE status = 'failed' AND type = 'user.created';
+```
+
+### Schema Evolution
+
+**Problem:** I need to change my event payload structure. How do I handle old events?
+
+**Solution:** Use versioned event types and handlers:
+
+```typescript
+// Old handler (still processes legacy events)
+bus.on('user.created.v1', async (event) => {
+  const { firstName, lastName } = event.payload;
+  await emailService.send({ name: `${firstName} ${lastName}` });
+});
+
+// New handler (processes new events)
+bus.on('user.created.v2', async (event) => {
+  const { fullName } = event.payload;
+  await emailService.send({ name: fullName });
+});
+
+// Emit new version
+await bus.emit({ type: 'user.created.v2', payload: { fullName: 'John Doe' } });
+```
+
+## Adapters & Publishers
+
+Mix and match any storage adapter with any publisher.
+
+### Storage Adapters (The "Outbox")
+
+These store your events. Choose one that matches your primary database.
+
+| Adapter | Best For | Transaction Support | Status | Package |
+|:---|:---|:---:|:---:|:---|
+| **[Postgres (Prisma)](./adapters/postgres-prisma/README.md)** | Prisma Users | Full | Stable | `@outbox-event-bus/postgres-prisma-outbox` |
+| **[Postgres (Drizzle)](./adapters/postgres-drizzle/README.md)** | SQL Purists | Full | Stable | `@outbox-event-bus/postgres-drizzle-outbox` |
+| **[MongoDB](./adapters/mongo-mongodb/README.md)** | Document Stores | Limited | Stable | `@outbox-event-bus/mongo-mongodb-outbox` |
+| **[DynamoDB](./adapters/dynamodb-aws-sdk/README.md)** | Serverless AWS | Limited | Stable | `@outbox-event-bus/dynamodb-aws-sdk-outbox` |
+| **[Redis](./adapters/redis-ioredis/README.md)** | High Speed | None | Beta | `@outbox-event-bus/redis-ioredis-outbox` |
+| **[SQLite](./adapters/sqlite-better-sqlite3/README.md)** | Local/Edge | Full | Stable | `@outbox-event-bus/sqlite-better-sqlite3-outbox` |
+
+**Legend:**
+
+- **Full**: ACID transactions with atomicity guarantees
+- **Limited**: Single-document transactions or optimistic locking
+- **None**: No transaction support (events saved separately)
+
+### Publishers
+
+These send your events to the world.
+
+| Publisher | Target | Batching | Package |
+|:---|:---|:---:|:---|
+| **[AWS SQS](./publishers/sqs/README.md)** | Amazon SQS Queues | Yes (10) | `@outbox-event-bus/sqs-publisher` |
+| **[AWS SNS](./publishers/sns/README.md)** | Amazon SNS Topics | Yes (10) | `@outbox-event-bus/sns-publisher` |
+| **[EventBridge](./publishers/eventbridge/README.md)** | AWS Event Bus | Yes (10) | `@outbox-event-bus/eventbridge-publisher` |
+| **[RabbitMQ](./publishers/rabbitmq/README.md)** | AMQP Brokers | Yes (100) | `@outbox-event-bus/rabbitmq-publisher` |
+| **[Kafka](./publishers/kafka/README.md)** | Streaming | Yes (100) | `@outbox-event-bus/kafka-publisher` |
+| **[Redis Streams](./publishers/redis-streams/README.md)** | Lightweight Stream | Yes (100) | `@outbox-event-bus/redis-streams-publisher` |
+
+
+### Choosing the Right Publisher
+
+![Choose Publisher](./docs/images/choose_publisher.png)
+
+## Production Guide
+
+> [!TIP]
+> Start with conservative settings and tune based on your metrics. It's easier to increase throughput than to debug overload issues.
+
+### Deployment Checklist
+
+- [ ] **Database Schema**: Ensure outbox tables are created and migrated
+- [ ] **Connection Pooling**: Size your connection pool for concurrent workers
+- [ ] **Error Monitoring**: Set up error tracking (Sentry, Datadog, etc.)
+- [ ] **Metrics**: Track event processing rates, retry counts, failure rates
+- [ ] **Archiving**: Configure automatic archiving of completed events
+- [ ] **Scaling**: Plan for horizontal scaling (multiple workers)
+
+### Monitoring
+
+**Key Metrics to Track:**
+
+1. **Event Processing Rate**: Events/second processed
+2. **Retry Rate**: Percentage of events requiring retries
+3. **Failure Rate**: Percentage of events failing after max retries
+4. **Processing Latency**: Time from event creation to successful delivery
+5. **Queue Depth**: Number of pending events in the outbox
+
+
+### Scaling
+
+**Horizontal Scaling:**
+
+Run multiple instances of your application. Each instance runs its own poller. The outbox adapter handles coordination using:
+
+- **Row-level locking** (Postgres, SQLite): `FOR UPDATE SKIP LOCKED`
+- **Optimistic locking** (MongoDB, DynamoDB): Version fields
+- **Distributed locks** (Redis): Redlock algorithm
+
+**Vertical Scaling:**
+
+Increase `batchSize` and reduce `pollIntervalMs` for higher throughput:
+
+```typescript
+const outbox = new PostgresPrismaOutbox({
+  prisma,
+  batchSize: 100,        // Process 100 events per poll
+  pollIntervalMs: 500    // Poll every 500ms
+});
+```
+
+### Security
+
+**Best Practices:**
+
+1. **Encrypt Sensitive Payloads**: Use application-level encryption for PII
+2. **IAM Permissions**: Grant minimal permissions to publishers (e.g., `sqs:SendMessage` only)
+3. **Network Security**: Use VPC endpoints for AWS services
+4. **Audit Logging**: Log all event emissions and processing
+
+**Example: Encrypting Payloads**
+
+Essential when forwarding events to external systems (SQS, Kafka) or to protect PII stored in the `outbox_events` table.
+
+```typescript
+import { encrypt, decrypt } from './crypto';
+
+await bus.emit({
+  type: 'user.created',
+  payload: encrypt(user) // Encrypt before saving
+});
+
+bus.on('user.created', async (event) => {
+  const user = decrypt(event.payload); // Decrypt in handler
+  await emailService.send(user.email);
+});
+```
 
 ## License
 
 MIT © [Dunika](https://github.com/dunika)
+
+<div align="center">
+
+**[⬆ Back to Top](#outbox-event-bus)**
+
+</div>

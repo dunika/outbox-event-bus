@@ -1,6 +1,6 @@
 import type { Channel } from "amqplib"
 import type { BusEvent, IOutboxEventBus, IPublisher, PublisherConfig } from "outbox-event-bus"
-import { EventPublisher } from "outbox-event-bus"
+import { EventPublisher, BackpressureError } from "outbox-event-bus"
 
 export interface RabbitMQPublisherConfig extends PublisherConfig {
   channel: Channel
@@ -42,7 +42,7 @@ export class RabbitMQPublisher<TTransaction = unknown> implements IPublisher {
         )
 
         if (!published) {
-          throw new Error("Failed to publish message to RabbitMQ: channel buffer full (backpressure)")
+          throw new BackpressureError("RabbitMQ channel")
         }
       }
     })

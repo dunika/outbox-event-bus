@@ -42,7 +42,9 @@
   },
   "devDependencies": {
     "@outbox-event-bus/config": "workspace:*",
+    "@prisma/adapter-pg": "^7.2.0",
     "@types/node": "catalog:",
+    "pg": "^8.16.3",
     "prisma": "^7.2.0",
     "tsdown": "catalog:",
     "typescript": "catalog:",

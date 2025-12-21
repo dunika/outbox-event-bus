@@ -85,6 +85,10 @@ interface PostgresDrizzleOutboxConfig {
   processingTimeoutMs?: number;     // Processing timeout (default: 30000ms)
   pollIntervalMs?: number;          // Polling interval (default: 1000ms)
   batchSize?: number;               // Events per poll (default: 50)
+  tables?: {                        // Optional Drizzle table definitions
+    outbox: Table;
+    archive?: Table;
+  };
 }
 ```
 

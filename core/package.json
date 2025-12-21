@@ -28,11 +28,12 @@
     "dist",
     "src",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "docs"
   ],
   "scripts": {
     "build": "tsdown",
-    "prepublishOnly": "cp ../README.md ./README.md",
+    "prepublishOnly": "cp ../README.md ./README.md && cp -r ../docs ./docs",
     "lint": "eslint .",
     "test": "vitest run",
     "format": "biome check --write .",

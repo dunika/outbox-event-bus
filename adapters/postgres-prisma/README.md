@@ -97,6 +97,11 @@ interface PostgresPrismaOutboxConfig {
   maxErrorBackoffMs?: number;       // Max polling error backoff (default: 30000ms)
   processingTimeoutMs?: number;     // Processing timeout (default: 30000ms)
   batchSize?: number;               // Events per poll (default: 50)
+  models?: {                        // Optional model name overrides
+    outbox?: string;                // Default: "outboxEvent"
+    archive?: string;               // Default: "outboxEventArchive"
+  };
+  tableName?: string;               // Optional table name for raw queries (default: "outbox_events")
 }
 ```
 

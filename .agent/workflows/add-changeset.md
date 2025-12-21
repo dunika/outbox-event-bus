@@ -45,10 +45,10 @@ Add a changeset when you:
 $ pnpm changeset
 🦋  Which packages would you like to include? 
   ◯ outbox-event-bus
-  ◉ @outbox-event-bus/redis-outbox
-  ◯ @outbox-event-bus/dynamodb-outbox
+  ◉ @outbox-event-bus/redis-ioredis-outbox
+  ◯ @outbox-event-bus/dynamodb-aws-sdk-outbox
 
-🦋  What kind of change is this for @outbox-event-bus/redis-outbox?
+🦋  What kind of change is this for @outbox-event-bus/redis-ioredis-outbox?
   ◯ patch
   ◉ minor
   ◯ major

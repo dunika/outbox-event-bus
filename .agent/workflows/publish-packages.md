@@ -67,12 +67,12 @@ If you need to publish manually:
 
 All packages are published under the `@outbox-event-bus` scope:
 - `outbox-event-bus` (core package)
-- `@outbox-event-bus/redis-outbox`
-- `@outbox-event-bus/dynamodb-outbox`
-- `@outbox-event-bus/mongo-outbox`
+- `@outbox-event-bus/redis-ioredis-outbox`
+- `@outbox-event-bus/dynamodb-aws-sdk-outbox`
+- `@outbox-event-bus/mongo-mongodb-outbox`
 - `@outbox-event-bus/postgres-drizzle-outbox`
 - `@outbox-event-bus/postgres-prisma-outbox`
-- `@outbox-event-bus/sqlite-outbox`
+- `@outbox-event-bus/sqlite-better-sqlite3-outbox`
 - `@outbox-event-bus/sqs-publisher`
 - `@outbox-event-bus/eventbridge-publisher`
 - `@outbox-event-bus/kafka-publisher`
