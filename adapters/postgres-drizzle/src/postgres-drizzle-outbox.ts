@@ -20,7 +20,6 @@ export class PostgresDrizzleOutbox implements IOutbox {
       baseBackoffMs: config.baseBackoffMs ?? 1000,
       processingTimeoutMs: config.processingTimeoutMs ?? 30000,
       maxErrorBackoffMs: config.maxErrorBackoffMs ?? 30000,
-      onError: config.onError,
       db: config.db,
       getExecutor: config.getExecutor,
     }
@@ -30,7 +29,6 @@ export class PostgresDrizzleOutbox implements IOutbox {
         pollIntervalMs: this.config.pollIntervalMs,
         baseBackoffMs: this.config.baseBackoffMs,
         maxErrorBackoffMs: this.config.maxErrorBackoffMs,
-        onError: this.config.onError,
         processBatch: (handler) => this.processBatch(handler),
       }
     )
@@ -52,8 +50,11 @@ export class PostgresDrizzleOutbox implements IOutbox {
     )
   }
 
-  start(handler: (events: BusEvent[]) => Promise<void>): void {
-    this.poller.start(handler)
+  start(
+    handler: (events: BusEvent[]) => Promise<void>,
+    onError: (error: unknown) => void
+  ): void {
+    this.poller.start(handler, onError)
   }
 
   async stop(): Promise<void> {
@@ -126,7 +127,6 @@ export class PostgresDrizzleOutbox implements IOutbox {
 
         await tx.delete(outboxEvents).where(inArray(outboxEvents.id, eventIds))
       } catch (e: unknown) {
-        this.config.onError(e)
         const msNow = Date.now()
         await Promise.all(
           events.map((event) => {

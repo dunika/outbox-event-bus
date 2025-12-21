@@ -1,5 +1,6 @@
 import type { Channel } from "amqplib"
 import type { BusEvent, IOutboxEventBus, IPublisher, ErrorHandler, RetryOptions } from "outbox-event-bus"
+import { withRetry } from "outbox-event-bus"
 
 export interface RabbitMQPublisherConfig {
   channel: Channel
@@ -30,11 +31,8 @@ export class RabbitMQPublisher implements IPublisher {
 
   subscribe(eventTypes: string[]): void {
     this.bus.subscribe(eventTypes, async (event: BusEvent) => {
-      let lastError: unknown
-      let delay = this.retryOptions.initialDelayMs
-
-      for (let attempt = 1; attempt <= this.retryOptions.maxAttempts; attempt++) {
-        try {
+      await withRetry(
+        async () => {
           const message = JSON.stringify(event)
           const published = this.channel.publish(
             this.exchange,
@@ -52,19 +50,9 @@ export class RabbitMQPublisher implements IPublisher {
           if (!published) {
             throw new Error("Failed to publish message to RabbitMQ: channel buffer full")
           }
-          
-          return // Success
-        } catch (error) {
-          lastError = error
-          if (attempt < this.retryOptions.maxAttempts) {
-            await new Promise((resolve) => setTimeout(resolve, delay))
-            delay = Math.min(delay * 2, this.retryOptions.maxDelayMs)
-          }
-        }
-      }
-
-      // If we reach here, all attempts failed
-      throw lastError
+        },
+        this.retryOptions
+      )
     })
   }
 }

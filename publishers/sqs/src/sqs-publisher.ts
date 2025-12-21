@@ -1,6 +1,7 @@
 import type { SQSClient } from "@aws-sdk/client-sqs"
 import { SendMessageCommand } from "@aws-sdk/client-sqs"
 import type { BusEvent, IOutboxEventBus, IPublisher, ErrorHandler, RetryOptions } from "outbox-event-bus"
+import { withRetry } from "outbox-event-bus"
 
 export interface SQSPublisherConfig {
   sqsClient: SQSClient
@@ -28,11 +29,8 @@ export class SQSPublisher implements IPublisher {
 
   subscribe(eventTypes: string[]): void {
     this.bus.subscribe(eventTypes, async (event: BusEvent) => {
-      let lastError: unknown
-      let delay = this.retryOptions.initialDelayMs
-
-      for (let attempt = 1; attempt <= this.retryOptions.maxAttempts; attempt++) {
-        try {
+      await withRetry(
+        async () => {
           await this.sqsClient.send(
             new SendMessageCommand({
               QueueUrl: this.queueUrl,
@@ -45,17 +43,9 @@ export class SQSPublisher implements IPublisher {
               }
             })
           )
-          return 
-        } catch (error) {
-          lastError = error
-          if (attempt < this.retryOptions.maxAttempts) {
-            await new Promise((resolve) => setTimeout(resolve, delay))
-            delay = Math.min(delay * 2, this.retryOptions.maxDelayMs)
-          }
-        }
-      }
-
-      throw lastError
+        },
+        this.retryOptions
+      )
     })
   }
 }

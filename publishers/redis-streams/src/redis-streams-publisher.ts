@@ -1,5 +1,6 @@
 import type { Redis } from "ioredis"
 import type { BusEvent, IOutboxEventBus, IPublisher, ErrorHandler, RetryOptions } from "outbox-event-bus"
+import { withRetry } from "outbox-event-bus"
 
 export interface RedisStreamsPublisherConfig {
   redisClient: Redis
@@ -27,11 +28,8 @@ export class RedisStreamsPublisher implements IPublisher {
 
   subscribe(eventTypes: string[]): void {
     this.bus.subscribe(eventTypes, async (event: BusEvent) => {
-      let lastError: unknown
-      let delay = this.retryOptions.initialDelayMs
-
-      for (let attempt = 1; attempt <= this.retryOptions.maxAttempts; attempt++) {
-        try {
+      await withRetry(
+        async () => {
           await this.redisClient.xadd(
             this.streamKey,
             "*",
@@ -41,17 +39,9 @@ export class RedisStreamsPublisher implements IPublisher {
             "occurredAt", (event.occurredAt ?? new Date()).toISOString(),
             "metadata", JSON.stringify(event.metadata ?? {})
           )
-          return // Success
-        } catch (error) {
-          lastError = error
-          if (attempt < this.retryOptions.maxAttempts) {
-            await new Promise((resolve) => setTimeout(resolve, delay))
-            delay = Math.min(delay * 2, this.retryOptions.maxDelayMs)
-          }
-        }
-      }
-
-      throw lastError
+        },
+        this.retryOptions
+      )
     })
   }
 }

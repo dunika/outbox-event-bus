@@ -29,7 +29,6 @@ export class DynamoDBOutbox implements IOutbox {
       baseBackoffMs: config.baseBackoffMs ?? 1000,
       processingTimeoutMs: config.processingTimeoutMs ?? 30000,
       maxErrorBackoffMs: config.maxErrorBackoffMs ?? 30000,
-      onError: config.onError,
       tableName: config.tableName,
       statusIndexName: config.statusIndexName ?? "status-index",
       client: config.client,
@@ -44,7 +43,6 @@ export class DynamoDBOutbox implements IOutbox {
         pollIntervalMs: this.config.pollIntervalMs,
         baseBackoffMs: this.config.baseBackoffMs,
         maxErrorBackoffMs: this.config.maxErrorBackoffMs,
-        onError: this.config.onError,
         performMaintenance: () => this.recoverStuckEvents(),
         processBatch: (handler) => this.processBatch(handler),
       }
@@ -84,8 +82,11 @@ export class DynamoDBOutbox implements IOutbox {
     }
   }
 
-  start(handler: (events: BusEvent[]) => Promise<void>): void {
-    this.poller.start(handler);
+  start(
+    handler: (events: BusEvent[]) => Promise<void>,
+    onError: (error: unknown) => void
+  ): void {
+    this.poller.start(handler, onError);
   }
 
   async stop(): Promise<void> {
@@ -122,7 +123,7 @@ export class DynamoDBOutbox implements IOutbox {
             }
           }))
         } catch (e: unknown) {
-          this.config.onError(e)
+          // Error recovering stuck event - will retry on next maintenance cycle
         }
       }
     }

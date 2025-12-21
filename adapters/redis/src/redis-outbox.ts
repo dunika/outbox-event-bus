@@ -7,15 +7,15 @@ export interface RedisOutboxConfig {
   batchSize?: number
   pollIntervalMs?: number
   processingTimeoutMs?: number
-  onError: (error: unknown) => void
 }
 
 export class RedisOutbox implements IOutbox {
   private readonly redis: Redis
+  private readonly keyPrefix: string
   private readonly batchSize: number
   private readonly pollIntervalMs: number
   private readonly processingTimeoutMs: number
-  private readonly onError: (error: unknown) => void
+  private onError?: (error: unknown) => void
   private readonly KEYS: {
     PENDING: string
     PROCESSING: string
@@ -29,16 +29,15 @@ export class RedisOutbox implements IOutbox {
 
   constructor(config: RedisOutboxConfig) {
     this.redis = config.redis
-    this.batchSize = config.batchSize ?? 10
+    this.keyPrefix = config.keyPrefix ?? "outbox"
+    this.batchSize = config.batchSize ?? 50
     this.pollIntervalMs = config.pollIntervalMs ?? 1000
     this.processingTimeoutMs = config.processingTimeoutMs ?? 30000
-    this.onError = config.onError
 
-    const prefix = config.keyPrefix ?? "outbox"
     this.KEYS = {
-      PENDING: `${prefix}:pending`,
-      PROCESSING: `${prefix}:processing`,
-      EVENT_PREFIX: `${prefix}:event:`
+      PENDING: `${this.keyPrefix}:pending`,
+      PROCESSING: `${this.keyPrefix}:processing`,
+      EVENT_PREFIX: `${this.keyPrefix}:event:`
     }
 
     this.registerLuaScripts()
@@ -106,7 +105,11 @@ export class RedisOutbox implements IOutbox {
     await pipeline.exec()
   }
 
-  start(handler: (events: BusEvent[]) => Promise<void>): void {
+  start(
+    handler: (events: BusEvent[]) => Promise<void>,
+    onError: (error: unknown) => void
+  ): void {
+    this.onError = onError
     if (this.isPolling) return
     this.isPolling = true
     void this.poll(handler)

@@ -8,7 +8,6 @@ export interface PostgresPrismaOutboxConfig {
   baseBackoffMs?: number
   pollIntervalMs?: number
   batchSize?: number
-  onError: (error: unknown) => void
 }
 
 export class PostgresPrismaOutbox implements IOutbox {
@@ -18,7 +17,7 @@ export class PostgresPrismaOutbox implements IOutbox {
   private readonly baseBackoffMs: number
   private readonly batchSize: number
   private readonly pollIntervalMs: number
-  private readonly onError: (error: unknown) => void
+  private onError?: (error: unknown) => void
 
   private isPolling = false
   private pollTimer: NodeJS.Timeout | null = null
@@ -32,7 +31,6 @@ export class PostgresPrismaOutbox implements IOutbox {
     this.baseBackoffMs = config.baseBackoffMs ?? 1000
     this.pollIntervalMs = config.pollIntervalMs ?? 1000
     this.batchSize = config.batchSize ?? 50
-    this.onError = config.onError
   }
 
   async publish(
@@ -51,7 +49,11 @@ export class PostgresPrismaOutbox implements IOutbox {
     })
   }
 
-  start(handler: (events: BusEvent[]) => Promise<void>): void {
+  start(
+    handler: (events: BusEvent[]) => Promise<void>,
+    onError: (error: unknown) => void
+  ): void {
+    this.onError = onError
     if (this.isPolling) return
     this.isPolling = true
     void this.poll(handler)
@@ -72,7 +74,7 @@ export class PostgresPrismaOutbox implements IOutbox {
       await this.processBatch(handler)
       this.errorCount = 0 // Reset on success
     } catch (error) {
-      this.onError(error)
+      this.onError?.(error)
       this.errorCount++
     } finally {
       if (this.isPolling) {

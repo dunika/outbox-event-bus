@@ -143,9 +143,12 @@ export class OutboxEventBus implements IOutboxEventBus {
   }
 
   start(): void {
-    this.outbox.start(async (events) => {
-      await Promise.all(events.map((event) => this.processEvent(event)))
-    })
+    this.outbox.start(
+      async (events) => {
+        await Promise.all(events.map((event) => this.processEvent(event)))
+      },
+      this.onError
+    )
   }
 
   async stop(): Promise<void> {

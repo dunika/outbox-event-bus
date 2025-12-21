@@ -15,7 +15,11 @@ export class PollingService {
     this.maxErrorBackoffMs = config.maxErrorBackoffMs ?? 30000
   }
 
-  start(handler: (events: BusEvent[]) => Promise<void>): void {
+  start(
+    handler: (events: BusEvent[]) => Promise<void>,
+    onError: (error: unknown) => void
+  ): void {
+    this.onError = onError
     if (this.isPolling) return
     this.isPolling = true
     void this.poll(handler)

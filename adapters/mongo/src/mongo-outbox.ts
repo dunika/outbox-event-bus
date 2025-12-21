@@ -37,7 +37,6 @@ export class MongoOutbox implements IOutbox {
       processingTimeoutMs: config.processingTimeoutMs ?? 30000,
       maxErrorBackoffMs: config.maxErrorBackoffMs ?? 30000,
       collectionName: config.collectionName ?? "outbox_events",
-      onError: config.onError,
       client: config.client,
       dbName: config.dbName,
     }
@@ -51,7 +50,6 @@ export class MongoOutbox implements IOutbox {
         pollIntervalMs: this.config.pollIntervalMs,
         baseBackoffMs: this.config.baseBackoffMs,
         maxErrorBackoffMs: this.config.maxErrorBackoffMs,
-        onError: this.config.onError,
         processBatch: (handler) => this.processBatch(handler),
       }
     )
@@ -77,8 +75,11 @@ export class MongoOutbox implements IOutbox {
     await this.collection.insertMany(documents)
   }
 
-  start(handler: (events: BusEvent[]) => Promise<void>): void {
-    this.poller.start(handler)
+  start(
+    handler: (events: BusEvent[]) => Promise<void>,
+    onError: (error: unknown) => void
+  ): void {
+    this.poller.start(handler, onError)
   }
 
   async stop(): Promise<void> {
@@ -143,7 +144,6 @@ export class MongoOutbox implements IOutbox {
       )
       
     } catch (e: unknown) {
-      this.config.onError(e)
       // Mark failed
       const msNow = Date.now()
       await Promise.all(
@@ -164,7 +164,7 @@ export class MongoOutbox implements IOutbox {
               }
             )
           } catch (updateError) {
-             this.config.onError(updateError)
+             // Error updating failed event - will be retried on next poll
           }
         })
       )

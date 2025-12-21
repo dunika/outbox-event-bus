@@ -2,7 +2,10 @@ import type { BusEvent, AnyListener } from "./types"
 
 export interface IOutbox {
   publish: (events: BusEvent[]) => Promise<void>
-  start: (handler: (events: BusEvent[]) => Promise<void>) => void
+  start: (
+    handler: (events: BusEvent[]) => Promise<void>,
+    onError: (error: unknown) => void
+  ) => void
   stop: () => Promise<void>
 }
 
@@ -57,4 +60,23 @@ export interface IOutboxEventBus {
 
 export interface IPublisher {
   subscribe(eventTypes: string[]): void
+}
+
+export interface OutboxConfig {
+  maxRetries?: number
+  baseBackoffMs?: number
+  pollIntervalMs?: number
+  batchSize?: number
+  processingTimeoutMs?: number
+  maxErrorBackoffMs?: number
+}
+
+export type ResolvedOutboxConfig = Required<OutboxConfig>
+
+export interface PollingServiceConfig {
+  pollIntervalMs: number
+  baseBackoffMs: number
+  maxErrorBackoffMs?: number
+  processBatch: (handler: (events: BusEvent[]) => Promise<void>) => Promise<void>
+  performMaintenance?: () => Promise<void>
 }

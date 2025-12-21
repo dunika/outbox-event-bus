@@ -15,8 +15,12 @@ export class InMemoryOutbox implements IOutbox {
     this.process()
   }
 
-  start(handler: (events: BusEvent[]) => Promise<void>): void {
+  start(
+    handler: (events: BusEvent[]) => Promise<void>,
+    onError: (error: unknown) => void
+  ): void {
     this.handler = handler
+    this.onError = onError
     this.process()
   }
 
