@@ -1,5 +1,5 @@
 import { PrismaClient, OutboxStatus, type OutboxEvent } from "@prisma/client"
-import { type OutboxEvent as BusOutboxEvent, type IOutbox, type OutboxConfig, type ResolvedOutboxConfig, PollingService } from "outbox-event-bus"
+import { type BusEvent, type IOutbox, type OutboxConfig, PollingService, formatErrorMessage } from "outbox-event-bus"
 
 export interface PostgresPrismaOutboxConfig extends OutboxConfig {
   prisma: PrismaClient
@@ -31,7 +31,7 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
   }
 
   async publish(
-    events: BusOutboxEvent[],
+    events: BusEvent[],
     transaction?: PrismaClient,
   ): Promise<void> {
     const executor = transaction ?? this.config.getTransaction?.() ?? this.config.prisma
@@ -48,7 +48,7 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
   }
 
   start(
-    handler: (events: BusOutboxEvent[]) => Promise<void>,
+    handler: (event: BusEvent) => Promise<void>,
     onError: (error: unknown) => void
   ): void {
     this.poller.start(handler, onError)
@@ -58,11 +58,15 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
     await this.poller.stop()
   }
 
-  private async processBatch(handler: (events: BusOutboxEvent[]) => Promise<void>) {
+  private async processBatch(handler: (event: BusEvent) => Promise<void>) {
     await this.config.prisma.$transaction(async (transaction) => {
       const now = new Date()
 
       // Use raw query to support SKIP LOCKED which is not available in standard Prisma API
+      // Select events that are:
+      // 1. New (status = created)
+      // 2. Failed but can be retried
+      // 3. Active but stuck/timed out
       const events = await transaction.$queryRaw<OutboxEvent[]>`
         SELECT * FROM "outbox_events"
         WHERE "status" = 'created'::outbox_status
@@ -85,65 +89,52 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
         },
       })
 
-      const busEvents = events.map((e: any) => ({
+      const busEvents: BusEvent[] = events.map((e) => ({
         id: e.id,
         type: e.type,
         payload: e.payload,
-        occurredAt: e.occurred_at,
+        occurredAt: e.occurredAt,
       }))
 
-      try {
-        await handler(busEvents)
-        await this.handleJobSuccess(transaction, events, eventIds, now)
-      } catch (e: unknown) {
-        this.poller.onError?.(e)
-        await this.handleJobFailure(transaction, events, e)
+      // Process events one at a time
+      for (let i = 0; i < events.length; i++) {
+        const event = events[i]!
+        const busEvent = busEvents[i]!
+        
+        try {
+          await handler(busEvent)
+          // Archive successful event immediately
+          await transaction.outboxEventArchive.create({
+            data: {
+              id: event.id,
+              type: event.type,
+              payload: event.payload as any,
+              occurredAt: event.occurredAt,
+              status: OutboxStatus.completed,
+              retryCount: event.retryCount,
+              createdOn: event.createdOn,
+              startedOn: now,
+              completedOn: new Date(),
+            },
+          })
+          await transaction.outboxEvent.delete({ where: { id: event.id } })
+        } catch (e: unknown) {
+          this.poller.onError?.(e)
+          // Mark this specific event as failed
+          const retryCount = event.retryCount + 1
+          const delay = this.poller.calculateBackoff(retryCount)
+          await transaction.outboxEvent.update({
+            where: { id: event.id },
+            data: {
+              status: OutboxStatus.failed,
+              retryCount,
+              lastError: formatErrorMessage(e),
+              nextRetryAt: new Date(Date.now() + delay),
+            },
+          })
+        }
       }
     })
-  }
-
-  private async handleJobSuccess(transaction: unknown, events: OutboxEvent[], eventIds: string[], now: Date) {
-    // Archive successfully processed events
-    await (transaction as any).outboxEventArchive.createMany({
-      data: events.map((e: any) => ({
-        id: e.id,
-        type: e.type,
-        payload: e.payload,
-        occurredAt: e.occurred_at,
-        status: OutboxStatus.completed,
-        retryCount: e.retry_count,
-        createdOn: e.created_on,
-        startedOn: now,
-        completedOn: new Date(),
-      })),
-    })
-
-    // Delete from main table
-    await (transaction as any).outboxEvent.deleteMany({
-      where: { id: { in: eventIds } },
-    })
-  }
-
-  private async handleJobFailure(transaction: unknown, events: OutboxEvent[], error: unknown) {
-    const msNow = Date.now()
-    
-    // Handle failure for each event
-    await Promise.all(
-      events.map((event: any) => {
-        const retryCount = event.retry_count + 1
-        const delay = this.poller.calculateBackoff(retryCount)
-
-        return (transaction as any).outboxEvent.update({
-          where: { id: event.id },
-          data: {
-            status: OutboxStatus.failed,
-            retryCount,
-            lastError: error instanceof Error ? error.message : String(error),
-            nextRetryAt: new Date(msNow + delay),
-          },
-        })
-      })
-    )
   }
 
 }

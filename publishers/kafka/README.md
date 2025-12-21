@@ -50,8 +50,24 @@ npm install @outbox-event-bus/kafka-publisher kafkajs
 interface KafkaPublisherConfig {
   producer: Producer;        // KafkaJS producer instance
   topic: string;             // Target Kafka topic
-  retryOptions?: RetryOptions; // Application-level retry logic
+  retryConfig?: RetryOptions;      // Application-level retry logic
+  batchConfig?: BatchOptions;      // Batch processing settings (default: batchSize: 100, batchTimeoutMs: 100)
 }
+```
+
+## Batching
+
+This publisher has **batching enabled by default** (100 items or 100ms). While Kafka can handle much larger batches, this safe default ensures compatibility across all outbox-event-bus publishers.
+
+To tune batching for high throughput, increase the `batchSize`:
+```typescript
+const publisher = new KafkaPublisher(bus, {
+  // ...
+  batchConfig: { 
+    batchSize: 500,
+    batchTimeoutMs: 50 
+  }
+});
 ```
 
 ## Usage
@@ -90,7 +106,7 @@ The publisher implements **internal retries with exponential backoff** to handle
 ```typescript
 const publisher = new KafkaPublisher(bus, {
   // ...
-  retryOptions: {
+  retryConfig: {
     maxAttempts: 5,
     initialDelayMs: 1000
   }

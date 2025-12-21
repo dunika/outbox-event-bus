@@ -68,8 +68,8 @@ describe("PostgresPrismaOutbox E2E", () => {
 
     // 2. Start processing
     const processedEvents: any[] = []
-    await outbox.start(async (events: any[]) => {
-      processedEvents.push(...events)
+    await outbox.start(async (event: any) => {
+      processedEvents.push(event)
     }, (err: unknown) => console.error("Outbox Error:", err))
 
     // Wait for poll
@@ -151,8 +151,8 @@ describe("PostgresPrismaOutbox E2E", () => {
     })
 
     const processedEvents: any[] = []
-    outbox.start(async (events) => {
-      processedEvents.push(...events)
+    outbox.start(async (event) => {
+      processedEvents.push(event)
     }, (err) => console.error("Outbox Error:", err))
 
     // Wait for recovery poll
@@ -186,10 +186,10 @@ describe("PostgresPrismaOutbox E2E", () => {
     const workers: PostgresPrismaOutbox[] = []
 
     // Shared handler that pushes to processedEvents
-    const handler = async (events: any[]) => {
+    const handler = async (event: any) => {
       // Simulate some work
       await new Promise((resolve) => setTimeout(resolve, Math.random() * 50))
-      processedEvents.push(...events)
+      processedEvents.push(event)
     }
 
     for (let i = 0; i < workerCount; i++) {

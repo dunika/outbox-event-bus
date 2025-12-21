@@ -73,8 +73,8 @@ describe("MongoOutbox E2E", () => {
 
     // 2. Start processing
     const processedEvents: any[] = []
-    const handler = async (events: any[]) => {
-      processedEvents.push(...events)
+    const handler = async (event: any) => {
+      processedEvents.push(event)
     }
 
     await outbox.start(handler)
@@ -111,7 +111,7 @@ describe("MongoOutbox E2E", () => {
     await outbox.publish([event])
 
     let attempts = 0
-    const handler = async (_events: any[]) => {
+    const handler = async (_event: any) => {
         attempts++
         throw new Error("Processing failed")
     }
@@ -148,12 +148,13 @@ describe("MongoOutbox E2E", () => {
         occurredAt: new Date(now.getTime() - 70000),
         status: "active",
         retryCount: 0,
+        expireInSeconds: 60,
         keepAlive: new Date(now.getTime() - 65000) // In the past, beyond 60s hardcoded timeout
     } as any)
 
     const processedEvents: any[] = []
-    outbox.start(async (events) => {
-        processedEvents.push(...events)
+    outbox.start(async (event) => {
+        processedEvents.push(event)
     }, (err) => console.error("Outbox Error:", err))
 
     // Wait for recovery poll
@@ -183,9 +184,9 @@ describe("MongoOutbox E2E", () => {
     const processedEvents: any[] = []
     const workers: MongoOutbox[] = []
 
-    const handler = async (events: any[]) => {
+    const handler = async (event: any) => {
       await new Promise((resolve) => setTimeout(resolve, Math.random() * 50))
-      processedEvents.push(...events)
+      processedEvents.push(event)
     }
 
     const clientsToClose: MongoClient[] = []

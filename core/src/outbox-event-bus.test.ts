@@ -4,10 +4,9 @@ import { OutboxEventBus } from "./outbox-event-bus"
 import type { BusEvent } from "./types"
 
 describe("OutboxEventBus", () => {
-  let eventBus: OutboxEventBus
-  let outbox: IOutbox
-  let outboxHandler: (events: BusEvent[]) => Promise<void>
-  let onMaxListeners: any
+  let eventBus: OutboxEventBus<unknown>
+  let outbox: IOutbox<unknown>
+  let outboxHandler: (event: BusEvent) => Promise<void>
   let onError: any
 
   beforeEach(() => {
@@ -18,9 +17,8 @@ describe("OutboxEventBus", () => {
       }),
       stop: vi.fn().mockResolvedValue(undefined),
     }
-    onMaxListeners = vi.fn()
     onError = vi.fn()
-    eventBus = new OutboxEventBus(outbox, onMaxListeners, onError)
+    eventBus = new OutboxEventBus(outbox, onError)
   })
 
   it("should publish events to the outbox", async () => {
@@ -109,7 +107,7 @@ describe("OutboxEventBus", () => {
     }
 
     // Simulate outbox pushing events
-    await outboxHandler([event])
+    await outboxHandler(event)
 
     expect(handler).toHaveBeenCalledWith(event)
   })
@@ -127,7 +125,7 @@ describe("OutboxEventBus", () => {
     }
 
     // Simulate outbox pushing events
-    await outboxHandler([event])
+    await outboxHandler(event)
 
     expect(handler).not.toHaveBeenCalled()
   })
@@ -145,11 +143,11 @@ describe("OutboxEventBus", () => {
     }
 
     // First emission
-    await outboxHandler([event])
+    await outboxHandler(event)
     expect(handler).toHaveBeenCalledTimes(1)
 
     // Second emission
-    await outboxHandler([event])
+    await outboxHandler(event)
     expect(handler).toHaveBeenCalledTimes(1)
   })
 
@@ -165,22 +163,21 @@ describe("OutboxEventBus", () => {
       occurredAt: new Date(),
     }
 
-    await outboxHandler([event])
+    await outboxHandler(event)
     expect(handler).toHaveBeenCalledTimes(1)
 
     eventBus.off("test-event", handler)
 
-    await outboxHandler([event])
+    await outboxHandler(event)
     expect(handler).toHaveBeenCalledTimes(1)
   })
 
   it("should handle errors in subscribers gracefully", async () => {
     eventBus.start()
     const errorHandler = vi.fn().mockRejectedValue(new Error("oops"))
-    const successHandler = vi.fn().mockResolvedValue(undefined)
 
-    // Chaining test
-    eventBus.on("test-event", errorHandler).on("test-event", successHandler)
+    // Single failing handler
+    eventBus.on("test-event", errorHandler)
 
     const event: BusEvent = {
       id: "1",
@@ -189,67 +186,38 @@ describe("OutboxEventBus", () => {
       occurredAt: new Date(),
     }
 
-    await outboxHandler([event])
+    // Expect the promise to reject because one handler failed
+    await expect(outboxHandler(event)).rejects.toThrow("oops")
 
     expect(errorHandler).toHaveBeenCalled()
-    expect(successHandler).toHaveBeenCalled()
-    expect(onError).toHaveBeenCalledWith(expect.any(Error))
+    expect(errorHandler).toHaveBeenCalled()
+    // onError is no longer called by processEvent directly, it relies on the adapter/caller to handle the error
   })
 
-  describe("Parity Features", () => {
-    it("should remove all listeners", async () => {
-      eventBus.start()
-      const handler1 = vi.fn()
-      const handler2 = vi.fn()
-      eventBus.on("event-1", handler1).on("event-2", handler2)
+  describe("1:1 Command Bus Features", () => {
+    it("should throw when adding a second listener for the same event", async () => {
+      eventBus.on("test-event", async () => {})
+      
+      expect(() => {
+        eventBus.on("test-event", async () => {})
+      }).toThrow(/Event type "test-event" already has a listener/i)
+    })
 
-      expect(eventBus.getSubscriptionCount()).toBe(2)
+    it("should remove listener", async () => {
+      eventBus.start()
+      const handler = vi.fn()
+      eventBus.on("test-event", handler)
+
+      expect(eventBus.getSubscriptionCount()).toBe(1)
 
       // Remove specific event listeners
-      eventBus.removeAllListeners("event-1")
-      expect(eventBus.listenerCount("event-1")).toBe(0)
-      expect(eventBus.listenerCount("event-2")).toBe(1)
+      eventBus.removeAllListeners("test-event")
+      expect(eventBus.listenerCount("test-event")).toBe(0)
 
       // Remove all listeners
+      eventBus.on("test-event", handler)
       eventBus.removeAllListeners()
       expect(eventBus.getSubscriptionCount()).toBe(0)
-    })
-
-    it("should prepend listeners", async () => {
-      eventBus.start()
-      const callOrder: string[] = []
-
-      const normalHandler = vi.fn().mockImplementation(async () => {
-        callOrder.push("normal")
-      })
-      const prependHandler = vi.fn().mockImplementation(async () => {
-        callOrder.push("prepend")
-      })
-
-      eventBus.on("test", normalHandler).prependListener("test", prependHandler)
-
-      const event: BusEvent = {
-        id: "1",
-        type: "test",
-        payload: {},
-        occurredAt: new Date(),
-      }
-
-      await outboxHandler([event])
-
-      expect(callOrder).toEqual(["prepend", "normal"])
-    })
-
-    it("should warn on max listeners exceeded", async () => {
-      eventBus.setMaxListeners(2)
-
-      eventBus.on("test", async () => {}).on("test", async () => {})
-
-      expect(onMaxListeners).not.toHaveBeenCalled()
-
-      eventBus.on("test", async () => {})
-
-      expect(onMaxListeners).toHaveBeenCalledWith(eventBus, "test", 2)
     })
 
     it("should wait for events", async () => {
@@ -270,7 +238,7 @@ describe("OutboxEventBus", () => {
 
       // Simulate async arrival
       setTimeout(() => {
-        void outboxHandler([event])
+        void outboxHandler(event)
       }, 10)
 
       const result = await waitPromise
@@ -280,20 +248,6 @@ describe("OutboxEventBus", () => {
     it("should timeout when waiting", async () => {
       eventBus.start()
       await expect(eventBus.waitFor("never-happens", 10)).rejects.toThrow("Timed out waiting")
-    })
-
-    it("should allow removing multiple listeners with array", async () => {
-      eventBus.start()
-      const handler = vi.fn()
-      eventBus.subscribe(["A", "B"], handler)
-
-      expect(eventBus.listenerCount("A")).toBe(1)
-      expect(eventBus.listenerCount("B")).toBe(1)
-
-      eventBus.off(["A", "B"], handler)
-
-      expect(eventBus.listenerCount("A")).toBe(0)
-      expect(eventBus.listenerCount("B")).toBe(0)
     })
 
     it("should support addListener alias", async () => {
@@ -309,100 +263,12 @@ describe("OutboxEventBus", () => {
       expect(eventBus.listenerCount("test")).toBe(0)
     })
 
-    it("should return raw listeners", async () => {
-      const handler1 = vi.fn()
-      const handler2 = vi.fn()
-      eventBus.on("test", handler1)
-      eventBus.on("test", handler2)
+    it("should return listener", async () => {
+      const handler = vi.fn()
+      eventBus.on("test", handler)
 
-      const listeners = eventBus.rawListeners("test")
-      expect(listeners).toHaveLength(2)
-      expect(listeners).toContain(handler1)
-      expect(listeners).toContain(handler2)
-
-      // Should return copy or actual array? Node returns a copy of the array of wrappers or functions.
-      // My implementation returns a copy `[...handlers]`.
-      listeners.pop()
-      expect(eventBus.listenerCount("test")).toBe(2)
-    })
-
-    it("should support prependOnceListener", async () => {
-      eventBus.start()
-      const callOrder: string[] = []
-      const normalHandler = vi.fn().mockImplementation(async () => {
-        callOrder.push("normal")
-      })
-      const prependOnceHandler = vi.fn().mockImplementation(async () => {
-        callOrder.push("prependOnce")
-      })
-
-      eventBus.on("test", normalHandler)
-      eventBus.prependOnceListener("test", prependOnceHandler)
-
-      const event: BusEvent = {
-        id: "1",
-        type: "test",
-        payload: {},
-        occurredAt: new Date(),
-      }
-
-      await outboxHandler([event])
-      expect(callOrder).toEqual(["prependOnce", "normal"])
-      expect(prependOnceHandler).toHaveBeenCalledTimes(1)
-
-      // Emit again, prependOnce should be gone
-      callOrder.length = 0
-      await outboxHandler([event])
-      expect(callOrder).toEqual(["normal"])
-      expect(prependOnceHandler).toHaveBeenCalledTimes(1) // still 1
-    })
-
-    it("should handle handlers that modify the handlers array during processing", async () => {
-      eventBus.start()
-      const callOrder: string[] = []
-
-      // This handler removes itself during execution
-      const selfRemovingHandler = vi.fn().mockImplementation(async () => {
-        callOrder.push("selfRemoving")
-        eventBus.off("test", selfRemovingHandler)
-      })
-
-      // This handler should still execute even though the previous handler modified the array
-      const normalHandler = vi.fn().mockImplementation(async () => {
-        callOrder.push("normal")
-      })
-
-      // This handler adds a new handler during execution
-      const addingHandler = vi.fn().mockImplementation(async () => {
-        callOrder.push("adding")
-        eventBus.on("test", lateHandler)
-      })
-
-      const lateHandler = vi.fn().mockImplementation(async () => {
-        callOrder.push("late")
-      })
-
-      eventBus.on("test", selfRemovingHandler)
-      eventBus.on("test", normalHandler)
-      eventBus.on("test", addingHandler)
-
-      const event: BusEvent = {
-        id: "1",
-        type: "test",
-        payload: {},
-        occurredAt: new Date(),
-      }
-
-      // First emission: all three original handlers should execute
-      // The late handler should NOT execute because it was added during processing
-      await outboxHandler([event])
-      expect(callOrder).toEqual(["selfRemoving", "normal", "adding"])
-      expect(eventBus.listenerCount("test")).toBe(3) // selfRemoving removed, lateHandler added
-
-      // Second emission: only normal, adding, and late handlers should execute
-      callOrder.length = 0
-      await outboxHandler([event])
-      expect(callOrder).toEqual(["normal", "adding", "late"])
+      const listener = eventBus.getListener("test")
+      expect(listener).toBe(handler)
     })
   })
 })

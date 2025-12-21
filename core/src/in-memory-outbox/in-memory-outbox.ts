@@ -1,29 +1,40 @@
 import type { IOutbox } from "../interfaces"
 import { PollingService } from "../polling-service"
-import type { OutboxEvent } from "../types"
+import type { BusEvent } from "../types"
 
+const IN_MEMORY_POLL_INTERVAL_MS = 10
+const IN_MEMORY_BASE_BACKOFF_MS = 10
+const IN_MEMORY_MAX_ERROR_BACKOFF_MS = 50
+const IN_MEMORY_DEFAULT_MAX_RETRIES = 3
+
+export interface InMemoryOutboxConfig {
+  maxRetries?: number
+}
 
 export class InMemoryOutbox implements IOutbox<unknown> {
-  private events: OutboxEvent[] = []
+  private events: BusEvent[] = []
   private readonly poller: PollingService
-  private handler: ((events: OutboxEvent[]) => Promise<void>) | null = null
+  private handler: ((event: BusEvent) => Promise<void>) | null = null
   public onError?: (error: unknown) => void
+  private readonly maxRetries?: number
+  private retryCounts = new Map<string, number>()
 
-  constructor() {
+  constructor(config: InMemoryOutboxConfig = {}) {
+    this.maxRetries = config.maxRetries ?? IN_MEMORY_DEFAULT_MAX_RETRIES
     this.poller = new PollingService({
-      pollIntervalMs: 10,
-      baseBackoffMs: 10,
-      maxErrorBackoffMs: 50,
+      pollIntervalMs: IN_MEMORY_POLL_INTERVAL_MS,
+      baseBackoffMs: IN_MEMORY_BASE_BACKOFF_MS,
+      maxErrorBackoffMs: IN_MEMORY_MAX_ERROR_BACKOFF_MS,
       processBatch: (handler) => this.processBatch(handler),
     })
   }
 
-  async publish(events: OutboxEvent[]): Promise<void> {
+  async publish(events: BusEvent[]): Promise<void> {
     this.events.push(...events)
   }
 
   start(
-    handler: (events: OutboxEvent[]) => Promise<void>,
+    handler: (event: BusEvent) => Promise<void>,
     onError: (error: unknown) => void
   ): void {
     this.handler = handler
@@ -40,21 +51,44 @@ export class InMemoryOutbox implements IOutbox<unknown> {
     this.handler = null
   }
 
-  private async processBatch(handler: (events: OutboxEvent[]) => Promise<void>) {
+  private async processBatch(handler: (event: BusEvent) => Promise<void>) {
     if (this.events.length === 0) return
 
     const batch = [...this.events]
     this.events = []
 
-    try {
-      await handler(batch)
-    } catch (error) {
-      // Do not call onError here, PollingService will handle it
-      // this.onError?.(error)
-      // For in-memory, we just put them back to try again
-      // In a real DB adapter, we would update status/retry count
-      this.events.unshift(...batch)
-      throw error // Re-throw to let PollingService handle backoff
+    const failedEvents: BusEvent[] = []
+    
+    for (const event of batch) {
+      try {
+        await handler(event)
+        if (event.id) {
+          this.retryCounts.delete(event.id)
+        }
+      } catch (error) {
+        this.onError?.(error)
+        
+        let shouldRetry = true
+        if (this.maxRetries !== undefined && event.id) {
+          const currentRetries = this.retryCounts.get(event.id) ?? 0
+          if (currentRetries >= this.maxRetries) {
+            shouldRetry = false
+            this.retryCounts.delete(event.id)
+            this.onError?.(new Error(`Max retries exceeded for event ${event.id}`))
+          } else {
+            this.retryCounts.set(event.id, currentRetries + 1)
+          }
+        }
+
+        if (shouldRetry) {
+          failedEvents.push(event)
+        }
+      }
+    }
+    
+    // Put failed events back for retry
+    if (failedEvents.length > 0) {
+      this.events.unshift(...failedEvents)
     }
   }
 }

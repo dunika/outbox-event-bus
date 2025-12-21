@@ -23,8 +23,7 @@ function createEventBus() {
   const outbox = new InMemoryOutbox()
   return new OutboxEventBus(
     outbox,
-    (_bus, _type, _count) => {},
-    (_error) => {}
+    (error) => { console.error("Test EventBus Error:", error) }
   )
 }
 
@@ -53,23 +52,16 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
       expect(handler).toHaveBeenCalledWith(event)
     })
 
-    it("should allow registering same event type multiple times via on()", async () => {
+    it("should throw when registering same event type multiple times", async () => {
       const eventBus = createEventBus()
       const handler1 = vi.fn().mockResolvedValue(undefined)
       const handler2 = vi.fn().mockResolvedValue(undefined)
 
       eventBus.on("usersService.create", handler1)
-      eventBus.on("usersService.create", handler2)
-      eventBus.start()
-
-      const event = createTestEvent()
-      await eventBus.emit(event)
-      await vi.advanceTimersByTimeAsync(20)
-
-      expect(handler1).toHaveBeenCalledTimes(1)
-      expect(handler1).toHaveBeenCalledWith(event)
-      expect(handler2).toHaveBeenCalledTimes(1)
-      expect(handler2).toHaveBeenCalledWith(event)
+      
+      expect(() => {
+        eventBus.on("usersService.create", handler2)
+      }).toThrow(/Event type "usersService.create" already has a listener/)
     })
 
     it("should publish many events", async () => {
@@ -116,7 +108,7 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
   })
 
   describe("EventEmitter Interface", () => {
-    let bus: OutboxEventBus
+    let bus: OutboxEventBus<unknown>
 
     beforeEach(() => {
       bus = createEventBus()
@@ -176,12 +168,12 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
 
     it("should track event names and listener counts", async () => {
       bus.on("A", async () => {})
-      bus.on("A", async () => {})
+      // bus.on("A", async () => {}) // Duplicate not allowed
       bus.on("B", async () => {})
 
       expect(bus.eventNames()).toContain("A")
       expect(bus.eventNames()).toContain("B")
-      expect(bus.listenerCount("A")).toBe(2)
+      expect(bus.listenerCount("A")).toBe(1)
       expect(bus.listenerCount("B")).toBe(1)
     })
 
@@ -192,13 +184,16 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
       expect(bus.getSubscriptionCount()).toBe(1)
 
       // Multiple handlers for same event type should increase count
-      bus.on("A", async () => {})
-      expect(bus.getSubscriptionCount()).toBe(2)
+      // Multiple handlers for same event type should throw
+      expect(() => {
+        bus.on("A", async () => {})
+      }).toThrow()
+      expect(bus.getSubscriptionCount()).toBe(1)
     })
 
     it("should allow single handler to subscribe to multiple events", async () => {
       bus.start()
-      const handler = vi.fn()
+      const handler = vi.fn().mockResolvedValue(undefined)
       bus.subscribe(["A", "B"], handler)
 
       expect(bus.listenerCount("A")).toBe(1)
@@ -218,8 +213,8 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
         occurredAt: new Date(),
       })
 
-      // Wait for outbox processing
-      await vi.advanceTimersByTimeAsync(10)
+      // Wait for outbox processing (sequential, so needs more time)
+      await vi.advanceTimersByTimeAsync(50)
 
       expect(handler).toHaveBeenCalledTimes(2)
     })
@@ -242,14 +237,16 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
       }
 
       // controlled promise to resolve handler
-      let finishHandler: () => void
-      const handlerPromise = new Promise<void>((resolve) => {
-        finishHandler = resolve
+      function resolveHandlerDefault() {}
+      let resolveHandler: () => void = resolveHandlerDefault
+      const handler = vi.fn().mockImplementation(() => {
+        return new Promise<void>((resolve) => {
+          resolveHandler = resolve
+        })
       })
-
       bus.on("test", async () => {
         handlerStarted = true
-        await handlerPromise
+        await handler() // Call the mocked handler which returns a promise
         handlerFinished = true
       })
 
@@ -267,7 +264,7 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
       expect(handlerStarted).toBe(true)
       expect(handlerFinished).toBe(false)
 
-      finishHandler?.()
+      resolveHandler?.()
       // We need to wait for the microtask queue to process the resolution
       await Promise.resolve()
       // Or simple process pending promises
@@ -282,7 +279,7 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
       const bus = createEventBus()
       bus.start()
 
-      let resolveHandler: () => void
+      let resolveHandler: (() => void) | undefined
       const handlerFinished = new Promise<void>((resolve) => {
         resolveHandler = resolve
       })
@@ -332,6 +329,8 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
 
       bus.start()
 
+      bus.removeAllListeners("usersService.create")
+      
       expect(() => {
         bus.on("usersService.create", async () => {})
       }).not.toThrow()
@@ -350,7 +349,7 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
       const processedEvents: string[] = []
 
       // Use a controlled promise to simulate "work"
-      let resolveWork: () => void
+      let resolveWork: (() => void) | undefined
       const workPromise = new Promise<void>((resolve) => {
         resolveWork = resolve
       })

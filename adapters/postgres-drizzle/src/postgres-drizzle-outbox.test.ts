@@ -148,9 +148,7 @@ describe("PostgresDrizzleOutbox", () => {
     outbox.start(handler, vi.fn())
     await new Promise(resolve => setTimeout(resolve, 60))
 
-    expect(handler).toHaveBeenCalledWith(expect.arrayContaining([
-        expect.objectContaining({ id: "1" })
-    ]))
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ id: "1" }))
     
     // Should be picked up and processed (status updated to active again with new timestamp)
     expect(queryBuilder.set).toHaveBeenCalledWith(expect.objectContaining({ status: "active" }))

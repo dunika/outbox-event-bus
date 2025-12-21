@@ -32,6 +32,7 @@
   ],
   "scripts": {
     "build": "tsdown",
+    "prepublishOnly": "cp ../README.md ./README.md",
     "lint": "eslint .",
     "test": "vitest run",
     "format": "biome check --write .",

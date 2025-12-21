@@ -80,6 +80,17 @@ interface DynamoDBOutboxConfig {
 }
 ```
 
+### DynamoDBTransactionCollector
+
+The transaction collector is an object that accumulates DynamoDB transaction items:
+
+```typescript
+type DynamoDBTransactionCollector = {
+  push: (item: any) => void;  // Method to add transaction items
+  items?: any[];              // Optional array of collected items
+}
+```
+
 ## Usage
 
 ### Basic Setup
@@ -95,11 +106,7 @@ const outbox = new DynamoDBOutbox({
   statusIndexName: 'status-gsiSortKey-index'
 });
 
-const bus = new OutboxEventBus(
-  outbox,
-  (bus, eventType, count) => console.warn(`Max listeners: ${eventType}`),
-  (error) => console.error('Bus error:', error)
-);
+const bus = new OutboxEventBus(outbox, (error) => console.error(error));
 
 bus.start();
 ```
@@ -123,7 +130,7 @@ const outbox = new DynamoDBOutbox({
   getCollector: () => als.getStore()
 });
 
-const bus = new OutboxEventBus(outbox, console.warn, console.error);
+const bus = new OutboxEventBus(outbox, (error) => console.error(error));
 
 async function createItem(item: any) {
   const transactionItems: any[] = [];

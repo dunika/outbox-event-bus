@@ -45,8 +45,24 @@ npm install @outbox-event-bus/redis-streams-publisher ioredis
 interface RedisStreamsPublisherConfig {
   redisClient: Redis;    // ioredis client instance
   streamKey: string;     // Key of the Redis Stream
-  retryOptions?: RetryOptions; // Application-level retry logic
+  retryConfig?: RetryOptions;      // Application-level retry logic
+  batchConfig?: BatchOptions;      // Batch processing settings (default: batchSize: 100, batchTimeoutMs: 100)
 }
+```
+
+## Batching
+
+This publisher has **batching enabled by default** (100 items or 100ms). It uses Redis **Pipelines** to send multiple `XADD` commands in a single round-trip, significantly improving throughput.
+
+To tune batching for maximum performance, increase the `batchSize`:
+```typescript
+const publisher = new RedisStreamsPublisher(bus, {
+  // ...
+  batchConfig: { 
+    batchSize: 100,
+    batchTimeoutMs: 50 
+  }
+});
 ```
 
 ## Usage
@@ -87,7 +103,7 @@ You can also configure application-level retries for command failures:
 ```typescript
 const publisher = new RedisStreamsPublisher(bus, {
   // ...
-  retryOptions: {
+  retryConfig: {
     maxAttempts: 3,
     initialDelayMs: 1000
   }

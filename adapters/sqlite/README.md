@@ -67,6 +67,8 @@ interface SqliteOutboxConfig {
 
 Use `AsyncLocalStorage` to manage SQLite transactions, ensuring outbox events are committed along with your business data.
 
+> **Note**: better-sqlite3 transactions are synchronous, but `bus.emit()` is async. The recommended pattern is to call `emit()` synchronously within the transaction (it queues the write) and the actual I/O happens immediately since better-sqlite3 is synchronous.
+
 ```typescript
 import Database from 'better-sqlite3';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -78,19 +80,21 @@ const outbox = new SqliteOutbox({
   getTransaction: () => als.getStore()
 });
 
-const bus = new OutboxEventBus(outbox, console.warn, console.error);
+const bus = new OutboxEventBus(outbox, (error) => console.error(error));
 
 async function createUser(user: any) {
   const db = new Database('./data/events.db');
   
+  // Run the transaction synchronously
   const transaction = db.transaction(() => {
-    als.run(db, () => {
+    // Set ALS context for the transaction
+    return als.run(db, () => {
       // 1. Save business data
       db.prepare('INSERT INTO users (name) VALUES (?)').run(user.name);
 
-      // 2. Emit event (automatically uses 'db' from ALS)
-      // Note: bus.emit is async, so we wait for it inside the transaction
-      bus.emit({
+      // 2. Emit event (synchronously writes to outbox table via ALS)
+      // The emit() call is async but the underlying SQLite write is synchronous
+      void bus.emit({
         id: crypto.randomUUID(),
         type: 'user.created',
         payload: user
@@ -98,6 +102,7 @@ async function createUser(user: any) {
     });
   });
 
+  // Execute the transaction
   transaction();
 }
 ```
@@ -113,7 +118,8 @@ const transaction = db.transaction(() => {
   db.prepare('INSERT INTO users (name) VALUES (?)').run(user.name);
 
   // 2. Emit event (passing the db explicitly)
-  bus.emit({
+  // The emit() is async but writes synchronously to SQLite
+  void bus.emit({
     id: crypto.randomUUID(),
     type: 'user.created',
     payload: user
@@ -132,7 +138,7 @@ const outbox = new SqliteOutbox({
   dbPath: './data/events.db'
 });
 
-const bus = new OutboxEventBus(outbox, console.warn, console.error);
+const bus = new OutboxEventBus(outbox, (error) => console.error(error));
 bus.start();
 ```
 

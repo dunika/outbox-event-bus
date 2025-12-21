@@ -28,7 +28,7 @@ describe("InMemoryOutbox Unit", () => {
     await outbox.publish([event])
     await new Promise(resolve => setTimeout(resolve, 200))
 
-    expect(handler).toHaveBeenCalledWith([event])
+    expect(handler).toHaveBeenCalledWith(event)
     expect(onError).not.toHaveBeenCalled()
   })
 
@@ -49,7 +49,7 @@ describe("InMemoryOutbox Unit", () => {
 
     outbox.start(handler, onError)
     await new Promise(resolve => setTimeout(resolve, 50))
-    expect(handler).toHaveBeenCalledWith([event])
+    expect(handler).toHaveBeenCalledWith(event)
   })
 
   it("should call onError when handler fails", async () => {
@@ -92,5 +92,39 @@ describe("InMemoryOutbox Unit", () => {
 
     await outbox.publish([event])
     expect(handler).not.toHaveBeenCalled()
+  })
+  it("should stop retrying after maxRetries is exceeded", async () => {
+    const onError = vi.fn()
+    // Configure with maxRetries: 2 (total 3 attempts: 1 initial + 2 retries)
+    outbox = new InMemoryOutbox({ maxRetries: 2 })
+    const error = new Error("permanent failure")
+    const handler = vi.fn().mockRejectedValue(error)
+
+    outbox.start(handler, onError)
+
+    const event = {
+      id: "retry-test-1",
+      type: "test",
+      payload: {},
+      occurredAt: new Date(),
+    }
+
+    await outbox.publish([event])
+
+    // Wait enough time for retries to happen
+    // Initial + 2 retries with backoff
+    await new Promise(resolve => setTimeout(resolve, 500))
+
+    // Should be called 3 times: 1 initial + 2 retries
+    expect(handler).toHaveBeenCalledTimes(3)
+    
+    // Should call onError 3 times for the original error
+    // PLUS 1 time for the "Max retries exceeded" error
+    expect(onError).toHaveBeenCalledTimes(4)
+    
+    // Check that we got the max retries error
+    expect(onError).toHaveBeenLastCalledWith(expect.objectContaining({
+      message: expect.stringContaining("Max retries exceeded")
+    }))
   })
 })

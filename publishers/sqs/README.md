@@ -46,8 +46,24 @@ npm install @outbox-event-bus/sqs-publisher
 interface SQSPublisherConfig {
   sqsClient: SQSClient;   // AWS SDK v3 SQS client
   queueUrl: string;       // Target SQS Queue URL
-  retryOptions?: RetryOptions; // Application-level retry logic
+  retryConfig?: RetryOptions;      // Application-level retry logic
+  batchConfig?: BatchOptions;      // Batch processing settings (default: batchSize: 10, batchTimeoutMs: 100)
 }
+```
+
+## Batching
+
+This publisher has **batching enabled by default** (10 items or 100ms).
+
+- **Automatic Chunking**: If you configure a `batchSize` larger than 10, the publisher will automatically split the batch into multiple `SendMessageBatch` calls to respect the AWS limit of 10 messages per request.
+- **Efficient**: This allows you to buffer more events in memory while ensuring safe delivery to SQS.
+
+To disable batching, set `batchSize` to `1`:
+```typescript
+const publisher = new SQSPublisher(bus, {
+  // ...
+  batchConfig: { batchSize: 1 }
+});
 ```
 
 ## Usage
@@ -86,7 +102,7 @@ Configure application-level retries for extra resiliency:
 ```typescript
 const publisher = new SQSPublisher(bus, {
   // ...
-  retryOptions: {
+  retryConfig: {
     maxAttempts: 3,
     initialDelayMs: 1000
   }

@@ -1,5 +1,5 @@
 import type { PollingServiceConfig } from "./interfaces"
-import type { OutboxEvent } from "./types"
+import type { BusEvent } from "./types"
 
 export class PollingService {
   private isPolling = false
@@ -17,7 +17,7 @@ export class PollingService {
   }
 
   start(
-    handler: (events: OutboxEvent[]) => Promise<void>,
+    handler: (event: BusEvent) => Promise<void>,
     onError: (error: unknown) => void
   ): void {
     this.onError = onError
@@ -41,15 +41,10 @@ export class PollingService {
     return this.config.baseBackoffMs * Math.pow(2, retryCount - 1)
   }
 
-  private async poll(handler: (events: OutboxEvent[]) => Promise<void>) {
+  private async poll(handler: (event: BusEvent) => Promise<void>) {
     if (!this.isPolling) return
 
-    const pollExecution = (async () => {
-      if (this.config.performMaintenance) {
-        await this.config.performMaintenance()
-      }
-      await this.config.processBatch(handler)
-    })()
+    const pollExecution = this.executePoll(handler)
 
     this.activePollPromise = pollExecution
 
@@ -75,5 +70,23 @@ export class PollingService {
         }, delay)
       }
     }
+  }
+
+  private async executePoll(handler: (event: BusEvent) => Promise<void>): Promise<void> {
+    if (this.config.performMaintenance) {
+      try {
+        await this.config.performMaintenance()
+      } catch (maintenanceError) {
+        // Wrap maintenance errors with context for better debugging
+        const wrappedError = new Error(
+          `Maintenance operation failed: ${maintenanceError instanceof Error ? maintenanceError.message : String(maintenanceError)}`
+        )
+        if (maintenanceError instanceof Error && maintenanceError.stack) {
+          wrappedError.stack = maintenanceError.stack
+        }
+        throw wrappedError
+      }
+    }
+    await this.config.processBatch(handler)
   }
 }

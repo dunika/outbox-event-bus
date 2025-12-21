@@ -1,5 +1,7 @@
 import { ObjectId, type Collection, type MongoClient, type ClientSession } from "mongodb"
-import { type OutboxEvent, type IOutbox, type OutboxConfig, type ResolvedOutboxConfig, PollingService } from "outbox-event-bus"
+import { type BusEvent, type IOutbox, type OutboxConfig, type ResolvedOutboxConfig, PollingService, formatErrorMessage } from "outbox-event-bus"
+
+const DEFAULT_EXPIRE_IN_SECONDS = 60
 
 export interface MongoOutboxConfig extends OutboxConfig {
   client: MongoClient
@@ -28,6 +30,8 @@ export class MongoOutbox implements IOutbox<ClientSession> {
   private readonly config: Required<MongoOutboxConfig>
   private readonly collection: Collection<OutboxDocument>
   private readonly poller: PollingService
+  private handler: ((event: BusEvent) => Promise<void>) | null = null
+  private onError?: (error: unknown) => void
 
   constructor(config: MongoOutboxConfig) {
     this.config = {
@@ -57,7 +61,7 @@ export class MongoOutbox implements IOutbox<ClientSession> {
     )
   }
 
-  async publish(events: OutboxEvent[], transaction?: ClientSession): Promise<void> {
+  async publish(events: BusEvent[], transaction?: ClientSession): Promise<void> {
     if (events.length === 0) return
 
     const documents: OutboxDocument[] = events.map((e) => ({
@@ -69,7 +73,7 @@ export class MongoOutbox implements IOutbox<ClientSession> {
       status: "created",
       retryCount: 0,
       nextRetryAt: e.occurredAt,
-      expireInSeconds: 60,
+      expireInSeconds: DEFAULT_EXPIRE_IN_SECONDS,
       keepAlive: e.occurredAt,
     }))
 
@@ -81,21 +85,25 @@ export class MongoOutbox implements IOutbox<ClientSession> {
   }
 
   start(
-    handler: (events: OutboxEvent[]) => Promise<void>,
+    handler: (event: BusEvent) => Promise<void>,
     onError: (error: unknown) => void
   ): void {
-    this.poller.start(handler, onError)
+    this.handler = handler
+    this.onError = onError
+    this.poller.start(async () => {}, onError)
   }
 
   async stop(): Promise<void> {
     await this.poller.stop()
   }
 
-  private async processBatch(handler: (events: OutboxEvent[]) => Promise<void>) {
+  private async processBatch(handler: (event: BusEvent) => Promise<void>) {
     const now = new Date()
 
     const lockedEvents: OutboxDocument[] = []
     
+    // MongoDB's findOneAndUpdate doesn't support bulk locking with returnDocument,
+    // so we must lock events sequentially to ensure atomic claim-and-update
     for (let i = 0; i < this.config.batchSize; i++) {
       const result = await this.collection.findOneAndUpdate(
         {
@@ -106,6 +114,8 @@ export class MongoOutbox implements IOutbox<ClientSession> {
               retryCount: { $lt: this.config.maxRetries },
               nextRetryAt: { $lt: now },
             },
+            // Check if event is stuck (keepAlive is older than expireInSeconds)
+            // This handles cases where a worker crashed while processing
             {
               $expr: {
                 $lt: [
@@ -137,51 +147,53 @@ export class MongoOutbox implements IOutbox<ClientSession> {
 
     if (lockedEvents.length === 0) return
 
-    const busEvents: OutboxEvent[] = lockedEvents.map((e) => ({
+    const busEvents: BusEvent[] = lockedEvents.map((e) => ({
       id: e.eventId,
       type: e.type,
       payload: e.payload,
       occurredAt: e.occurredAt,
     }))
 
-    try {
-      await handler(busEvents)
-
-      await this.collection.updateMany(
-        { _id: { $in: lockedEvents.map(e => e._id) } },
-        {
-          $set: {
-            status: "completed",
-            completedOn: new Date()
-          }
+    // Process each event individually
+    for (const busEvent of busEvents) {
+      try {
+        await this.handler!(busEvent)
+        
+        // Mark as completed
+        const lockedEvent = lockedEvents.find(e => e.eventId === busEvent.id)
+        if (lockedEvent) {
+          await this.collection.updateOne(
+            { _id: lockedEvent._id },
+            {
+              $set: {
+                status: "completed",
+                completedOn: new Date()
+              }
+            }
+          )
         }
-      )
-      
-    } catch (e: unknown) {
-      // Mark failed
-      const msNow = Date.now()
-      await Promise.all(
-        lockedEvents.map(async (event) => {
-          const retryCount = event.retryCount + 1
+      } catch (e: unknown) {
+        this.onError?.(e)
+        
+        // Mark as failed with retry info
+        const lockedEvent = lockedEvents.find(ev => ev.eventId === busEvent.id)
+        if (lockedEvent) {
+          const retryCount = lockedEvent.retryCount + 1
           const delay = this.poller.calculateBackoff(retryCount)
           
-          try {
-            await this.collection.updateOne(
-              { _id: event._id },
-              {
-                $set: {
-                  status: "failed",
-                  retryCount,
-                  lastError: e instanceof Error ? e.message : String(e),
-                  nextRetryAt: new Date(msNow + delay)
-                }
+          await this.collection.updateOne(
+            { _id: lockedEvent._id },
+            {
+              $set: {
+                status: "failed",
+                retryCount,
+                lastError: formatErrorMessage(e),
+                nextRetryAt: new Date(Date.now() + delay)
               }
-            )
-          } catch (updateError) {
-             // Error updating failed event - will be retried on next poll
-          }
-        })
-      )
+            }
+          )
+        }
+      }
     }
   }
 }

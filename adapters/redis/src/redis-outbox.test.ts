@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import RedisMock from "ioredis-mock"
 import { RedisOutbox } from "./index"
-import type { BusEvent } from "outbox-event-bus"
+import type { OutboxEvent } from "outbox-event-bus"
 
 describe("RedisOutbox", () => {
   let redis: any
@@ -24,7 +24,7 @@ describe("RedisOutbox", () => {
   })
 
   it("should publish events to Redis", async () => {
-    const event: BusEvent = {
+    const event: OutboxEvent = {
       id: "1",
       type: "test",
       payload: { foo: "bar" },
@@ -60,7 +60,7 @@ describe("RedisOutbox", () => {
   })
 
   it("should process events", async () => {
-    const event: BusEvent = {
+    const event: OutboxEvent = {
       id: "1",
       type: "test",
       payload: { foo: "bar" },
@@ -75,9 +75,7 @@ describe("RedisOutbox", () => {
     // Wait for polling
     await new Promise((resolve) => setTimeout(resolve, 200))
 
-    expect(handler).toHaveBeenCalledWith(expect.arrayContaining([
-      expect.objectContaining({ id: "1" })
-    ]))
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ id: "1" }))
 
     // Should be removed from pending and processing
     const pending = await redis.zrange("outbox:pending", 0, -1)
@@ -92,7 +90,7 @@ describe("RedisOutbox", () => {
   })
 
   it("should retry failed events", async () => {
-    const event: BusEvent = {
+    const event: OutboxEvent = {
       id: "1",
       type: "test",
       payload: { foo: "bar" },
@@ -102,7 +100,7 @@ describe("RedisOutbox", () => {
     await outbox.publish([event])
 
     // Handler fails once then succeeds
-    const handler = vi.fn(async (_events: any[]) => {})
+    const handler = vi.fn(async (_event: unknown) => {})
       .mockRejectedValueOnce(new Error("Fail"))
       .mockResolvedValue(undefined)
 
@@ -151,8 +149,6 @@ describe("RedisOutbox", () => {
     // Wait for recovery and processing (need more time for recovery + poll cycle)
     await new Promise((resolve) => setTimeout(resolve, 400))
 
-    expect(handler).toHaveBeenCalledWith(expect.arrayContaining([
-      expect.objectContaining({ id: "stuck" })
-    ]))
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ id: "stuck" }))
   })
 })

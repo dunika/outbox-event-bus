@@ -1,5 +1,7 @@
+
 import type { Redis, ChainableCommander } from "ioredis"
-import { type OutboxEvent, type IOutbox, type OutboxConfig, PollingService } from "outbox-event-bus"
+import { type BusEvent, type IOutbox, type OutboxConfig, PollingService, formatErrorMessage } from "outbox-event-bus"
+import { pollEventsScript, recoverEventsScript } from "./scripts"
 
 export interface RedisOutboxConfig extends OutboxConfig {
   redis: Redis
@@ -31,6 +33,7 @@ export class RedisOutbox implements IOutbox<ChainableCommander> {
       getPipeline: config.getPipeline,
     }
 
+
     this.redis = config.redis
 
     this.KEYS = {
@@ -53,64 +56,33 @@ export class RedisOutbox implements IOutbox<ChainableCommander> {
   private registerLuaScripts() {
     this.redis.defineCommand("pollOutboxEvents", {
       numberOfKeys: 2,
-      lua: `
-        local pendingKey = KEYS[1]
-        local processingKey = KEYS[2]
-        local now = ARGV[1]
-        local batchSize = ARGV[2]
-
-        local ids = redis.call('ZRANGEBYSCORE', pendingKey, '-inf', now, 'LIMIT', 0, batchSize)
-        if #ids > 0 then
-          for _, id in ipairs(ids) do
-            redis.call('ZREM', pendingKey, id)
-            redis.call('ZADD', processingKey, now, id)
-          end
-        end
-        return ids
-      `
+      lua: pollEventsScript
     })
 
     this.redis.defineCommand("recoverOutboxEvents", {
       numberOfKeys: 2,
-      lua: `
-        local processingKey = KEYS[1]
-        local pendingKey = KEYS[2]
-        local timeout = ARGV[1]
-        local now = ARGV[2]
-        local threshold = now - timeout
-
-        local stuckIds = redis.call('ZRANGEBYSCORE', processingKey, '-inf', threshold)
-        if #stuckIds > 0 then
-          for _, id in ipairs(stuckIds) do
-            redis.call('ZREM', processingKey, id)
-            redis.call('ZADD', pendingKey, now, id)
-          end
-        end
-        return #stuckIds
-      `
+      lua: recoverEventsScript
     })
   }
 
-  async publish(events: OutboxEvent[], transaction?: unknown): Promise<void> {
+  async publish(events: BusEvent[], transaction?: unknown): Promise<void> {
     if (events.length === 0) return
 
     const externalExecutor = (transaction ?? this.config.getPipeline?.()) as ChainableCommander | undefined
     const pipeline = externalExecutor ?? this.redis.pipeline()
     
     for (const event of events) {
-      const id = event.id!
-      const key = `${this.KEYS.EVENT_PREFIX}${id}`
-      const occurredAt = event.occurredAt!
+      const key = `${this.KEYS.EVENT_PREFIX}${event.id}`
       // Use hmset for ioredis-mock compatibility (multiple hset calls don't work in pipelines)
       pipeline.hmset(key, 
-        "id", id,
+        "id", event.id,
         "type", event.type,
         "payload", JSON.stringify(event.payload),
-        "occurredAt", occurredAt.toISOString(),
+        "occurredAt", event.occurredAt.toISOString(),
         "status", "created",
         "retryCount", "0"
       )
-      pipeline.zadd(this.KEYS.PENDING, occurredAt.getTime(), id)
+      pipeline.zadd(this.KEYS.PENDING, event.occurredAt.getTime(), event.id)
     }
 
     if (!externalExecutor) {
@@ -119,7 +91,7 @@ export class RedisOutbox implements IOutbox<ChainableCommander> {
   }
 
   start(
-    handler: (events: OutboxEvent[]) => Promise<void>,
+    handler: (event: BusEvent) => Promise<void>,
     onError: (error: unknown) => void
   ): void {
     this.poller.start(handler, onError)
@@ -131,7 +103,7 @@ export class RedisOutbox implements IOutbox<ChainableCommander> {
 
   private async recoverStuckEvents() {
     const now = Date.now()
-    // @ts-expect-error - Custom method on redis client
+    // Redis Lua script handles recovery logic
     await this.redis.recoverOutboxEvents(
       this.KEYS.PROCESSING,
       this.KEYS.PENDING,
@@ -140,7 +112,7 @@ export class RedisOutbox implements IOutbox<ChainableCommander> {
     )
   }
 
-  private async processBatch(handler: (events: OutboxEvent[]) => Promise<void>) {
+  private async processBatch(handler: (event: BusEvent) => Promise<void>) {
     const now = Date.now()
 
     // @ts-expect-error - Custom method on redis client
@@ -161,74 +133,59 @@ export class RedisOutbox implements IOutbox<ChainableCommander> {
 
     if (!results) return
 
-    const eventsToProcess: OutboxEvent[] = []
-    const successfulIds: string[] = []
+    for (let i = 0; i < results.length; i++) {
+        const res = results[i]
+        const id = eventIds[i]
+        if (!res || !id) continue
 
-    results.forEach((res, index) => {
-      const [err, messageRaw] = res
-      if (!err && messageRaw && Object.keys(messageRaw).length > 0) {
+        const [err, messageRaw] = res
+        if (err || !messageRaw || Object.keys(messageRaw).length === 0) continue
+
         const message = messageRaw as Record<string, unknown>
-        const id = eventIds[index]
-        if (id) {
-          eventsToProcess.push({
+        
+        const event: BusEvent = {
             id: message.id as string,
             type: message.type as string,
             payload: JSON.parse(message.payload as string),
             occurredAt: new Date(message.occurredAt as string)
-          })
-          successfulIds.push(id)
         }
-      }
-    })
 
-    if (eventsToProcess.length === 0) return
+        try {
+            await handler(event)
 
-    try {
-      await handler(eventsToProcess)
+            // Cleanup successful event
+            const pipelineCleanup = this.redis.pipeline()
+            pipelineCleanup.zrem(this.KEYS.PROCESSING, id)
+            pipelineCleanup.del(`${this.KEYS.EVENT_PREFIX}${id}`)
+            await pipelineCleanup.exec()
+        } catch (error) {
+            this.poller.onError?.(error)
 
-      const pipelineCleanup = this.redis.pipeline()
-      for (const id of successfulIds) {
-        pipelineCleanup.zrem(this.KEYS.PROCESSING, id)
-        pipelineCleanup.del(`${this.KEYS.EVENT_PREFIX}${id}`)
-      }
-      await pipelineCleanup.exec()
-    } catch (error) {
-      this.poller.onError?.(error)
+            // Handle failure
+            const data = message as Record<string, string>
+            const retryCount = Number.parseInt(data.retryCount || '0', 10) + 1
 
-      const pipelineFetch = this.redis.pipeline()
-      for (const id of successfulIds) {
-        pipelineFetch.hgetall(`${this.KEYS.EVENT_PREFIX}${id}`)
-      }
-      const fetchResults = await pipelineFetch.exec()
+            const pipelineRetry = this.redis.pipeline()
+            if (retryCount >= this.config.maxRetries) {
+                pipelineRetry.zrem(this.KEYS.PROCESSING, id)
+                pipelineRetry.hmset(`${this.KEYS.EVENT_PREFIX}${id}`,
+                  "retryCount", retryCount.toString(),
+                  "status", "FAILED",
+                  "lastError", formatErrorMessage(error)
+                )
+            } else {
+                const delay = this.poller.calculateBackoff(retryCount)
+                const nextAttemptTime = Date.now() + delay
 
-      const pipelineRetry = this.redis.pipeline()
-      successfulIds.forEach((id, index) => {
-        const [err, eventData] = fetchResults?.[index] ?? [null, {}]
-        if (err || !eventData) return
-
-        const data = eventData as Record<string, string>
-        const retryCount = Number.parseInt(data.retryCount || '0', 10) + 1
-
-        if (retryCount >= this.config.maxRetries) {
-          pipelineRetry.zrem(this.KEYS.PROCESSING, id)
-          pipelineRetry.hmset(`${this.KEYS.EVENT_PREFIX}${id}`,
-            "retryCount", retryCount.toString(),
-            "status", "FAILED",
-            "lastError", error instanceof Error ? error.message : String(error)
-          )
-        } else {
-          const delay = this.poller.calculateBackoff(retryCount)
-          const nextAttemptTime = Date.now() + delay
-
-          pipelineRetry.zrem(this.KEYS.PROCESSING, id)
-          pipelineRetry.zadd(this.KEYS.PENDING, nextAttemptTime, id)
-          pipelineRetry.hmset(`${this.KEYS.EVENT_PREFIX}${id}`,
-            "retryCount", retryCount.toString(),
-            "lastError", error instanceof Error ? error.message : String(error)
-          )
+                pipelineRetry.zrem(this.KEYS.PROCESSING, id)
+                pipelineRetry.zadd(this.KEYS.PENDING, nextAttemptTime, id)
+                pipelineRetry.hmset(`${this.KEYS.EVENT_PREFIX}${id}`,
+                  "retryCount", retryCount.toString(),
+                  "lastError", formatErrorMessage(error)
+                )
+            }
+            await pipelineRetry.exec()
         }
-      })
-      await pipelineRetry.exec()
     }
   }
 }

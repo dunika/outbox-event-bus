@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { SQSPublisher } from "./sqs-publisher"
-import { SendMessageCommand } from "@aws-sdk/client-sqs"
+import { SendMessageBatchCommand } from "@aws-sdk/client-sqs"
 
 describe("SQSPublisher", () => {
   let mockSqsClient: any
@@ -47,10 +47,11 @@ describe("SQSPublisher", () => {
     
     expect(mockSqsClient.send).toHaveBeenCalled()
     const command = mockSqsClient.send.mock.calls[0][0]
-    expect(command).toBeInstanceOf(SendMessageCommand)
+    expect(command).toBeInstanceOf(SendMessageBatchCommand)
     expect(command.input.QueueUrl).toBe(config.queueUrl)
-    expect(command.input.MessageBody).toBe(JSON.stringify(event))
-    expect(command.input.MessageAttributes?.EventType?.StringValue).toBe(event.type)
+    expect(command.input.Entries).toHaveLength(1)
+    expect(command.input.Entries?.[0].MessageBody).toBe(JSON.stringify(event))
+    expect(command.input.Entries?.[0].MessageAttributes?.EventType?.StringValue).toBe(event.type)
   })
 
   it("should throw error when SQS send fails", async () => {
@@ -65,3 +66,4 @@ describe("SQSPublisher", () => {
     await expect(handler({ type: "user.created" } as any)).rejects.toThrow("SQS Error")
   })
 })
+

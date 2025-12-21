@@ -99,7 +99,7 @@ const outbox = new MongoOutbox({
   dbName: 'myapp'
 });
 
-const bus = new OutboxEventBus(outbox, console.warn, console.error);
+const bus = new OutboxEventBus(outbox, (error) => console.error(error));
 bus.start();
 ```
 
@@ -120,7 +120,7 @@ const outbox = new MongoOutbox({
   getSession: () => als.getStore()
 });
 
-const bus = new OutboxEventBus(outbox, console.warn, console.error);
+const bus = new OutboxEventBus(outbox, (error) => console.error(error));
 
 async function createOrder(orderData: any) {
   const session = client.startSession();

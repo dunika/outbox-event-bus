@@ -105,7 +105,7 @@ const outbox = new PostgresDrizzleOutbox({
   db
 });
 
-const bus = new OutboxEventBus(outbox, console.warn, console.error);
+const bus = new OutboxEventBus(outbox, (error) => console.error(error));
 bus.start();
 ```
 
@@ -124,7 +124,7 @@ const outbox = new PostgresDrizzleOutbox({
   getTransaction: () => als.getStore()
 });
 
-const bus = new OutboxEventBus(outbox, console.warn, console.error);
+const bus = new OutboxEventBus(outbox, (error) => console.error(error));
 
 // In your service
 async function createUser(user: any) {

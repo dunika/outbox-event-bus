@@ -77,13 +77,15 @@ const outbox = new RedisOutbox({
   redis: new Redis()
 });
 
-const bus = new OutboxEventBus(outbox, console.warn, console.error);
+const bus = new OutboxEventBus(outbox, (error) => console.error(error));
 bus.start();
 ```
 
 ### With Transactions (AsyncLocalStorage)
 
 Use `AsyncLocalStorage` to manage Redis pipelines or multi-exec blocks, ensuring outbox events are atomic with your business logic.
+
+> **Note**: `ChainableCommander` is the return type of both `redis.multi()` and `redis.pipeline()`, so you can use either for transactions.
 
 ```typescript
 import Redis, { ChainableCommander } from 'ioredis';
@@ -97,10 +99,10 @@ const outbox = new RedisOutbox({
   getPipeline: () => als.getStore()
 });
 
-const bus = new OutboxEventBus(outbox, console.warn, console.error);
+const bus = new OutboxEventBus(outbox, (error) => console.error(error));
 
 async function processData(data: any) {
-  const multi = redis.multi();
+  const multi = redis.multi();  // or redis.pipeline()
   
   await als.run(multi, async () => {
     // 1. Add business logic to the transaction
@@ -155,6 +157,7 @@ const outbox = new RedisOutbox({ redis });
 - **Stuck Event Recovery**: Automatically moves events from `processing` back to `pending` if they exceed `processingTimeoutMs`.
 - **High Performance**: Leverages Redis Sorted Sets for $O(\log N)$ scheduling efficiency.
 - **Pipelining**: Uses Redis pipelines for batch operations to reduce network round-trips.
+- **ioredis-mock Compatible**: Uses `hmset` for setting event data to ensure compatibility with ioredis-mock in tests.
 
 ## Troubleshooting
 

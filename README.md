@@ -17,8 +17,12 @@ npm install outbox-event-bus @outbox-event-bus/postgres-prisma-outbox @prisma/cl
 ```
 
 ```typescript
-import { OutboxEventBus } from 'outbox-event-bus'
+import { OutboxEventBus } from '@outbox-event-bus/core'
 import { PostgresPrismaOutbox } from '@outbox-event-bus/postgres-prisma-outbox'
+
+// NOTE: This library enforces a strict 1:1 Command Bus pattern. 
+// One Event Type = One Handler.
+// This ensures safe, isolated retries without side-effects.
 
 // BEFORE: Dangerous, flaky, unsafe
 async function unsafeCreateUser(newUser) {
@@ -92,6 +96,35 @@ flowchart LR
 
 ## 📖 Key Concepts
 
+### Type System
+
+The library uses a clear type distinction between events you create and events that are stored:
+
+```typescript
+// BusEventInput: What you provide when emitting events
+type BusEventInput<T extends string = string, P = unknown> = {
+  type: T
+  payload: P
+  id?: string              // Optional - auto-generated if not provided
+  occurredAt?: Date        // Optional - defaults to new Date()
+  metadata?: Record<string, unknown>
+}
+
+// BusEvent: What gets stored and passed to handlers
+type BusEvent<T extends string = string, P = unknown> = {
+  id: string               // Always present
+  type: T
+  payload: P
+  occurredAt: Date         // Always present
+  metadata?: Record<string, unknown>
+}
+```
+
+**Why this matters:**
+- You don't need to generate IDs or timestamps manually
+- Handlers always receive fully-populated events
+- Type safety ensures you can't forget required fields
+
 ### Storage-Agnostic Architecture
 Unlike traditional outbox libraries tied to a specific ORM or database, `outbox-event-bus` works with **any storage backend**.
 - **SQL Databases**: Use ACID transactions for perfect atomicity
@@ -99,15 +132,43 @@ Unlike traditional outbox libraries tied to a specific ORM or database, `outbox-
 - **Key-Value Stores**: High-speed persistence for lightweight event flows
 - **Mix and Match**: Combine any storage adapter with any publisher—complete flexibility
 
-### Explicit Transaction Support
-Pass transactions directly to the event bus for guaranteed atomicity:
+### Generic Transaction Support
+
+The event bus is generic over transaction types, providing full type safety for your specific database:
+
 ```typescript
+import { OutboxEventBus } from 'outbox-event-bus'
+import { PrismaClient } from '@prisma/client'
+import type { Prisma } from '@prisma/client'
+
+// Type the bus with your transaction type
+const bus = new OutboxEventBus<Prisma.TransactionClient>(outbox, errorHandler)
+
+// Now TypeScript knows what transaction type to expect
 await db.$transaction(async (transaction) => {
-  const user = await transaction.users.create(newUser)
-  // Both operations commit together or rollback together
-  await bus.emit({ type: 'user.created', payload: user }, transaction)
+  const user = await transaction.users.create({ data: newUser })
+  
+  // Transaction parameter is fully typed
+  await bus.emit({ 
+    type: 'user.created', 
+    payload: user 
+  }, transaction)
 })
 ```
+
+**Supported Transaction Types:**
+- **Prisma**: `Prisma.TransactionClient`
+- **Drizzle**: Database transaction object
+- **MongoDB**: `ClientSession`
+- **DynamoDB**: `TransactWriteItem[]` (transaction collector)
+- **Redis**: `Pipeline` object
+- **SQLite**: Database transaction object
+
+### Strict 1:1 Command Bus Architecture
+This library enforces a **Command Bus pattern**: Each event type can have exactly **one** handler.
+- **Why?** If you have 2 handlers and one fails, retrying the event would re-run the successful handler too (double side-effects).
+- **Solution:** Strict 1:1 binding ensures that if a handler fails, only that specific logic is retried.
+- **Fan-Out:** If you need multiple actions (e.g., Send Email + Index Search), use the "Fan-Out Pattern": The main handler should publish new "Intent Events" (`send-email`, `index-search`) back to the outbox.
 
 ### Guaranteed Delivery with Resilient Retries
 - **At-Least-Once Delivery**: Events are retried until successful delivery or max retries exceeded
@@ -128,6 +189,10 @@ By default, `outbox-event-bus` will retry failed events **5 times** with exponen
 - **Manual Recovery**: Reset the status to `created` to trigger a re-delivery after fixing the underlying issue
 - **Zero Data Loss**: Events persist in your primary database, surviving application restarts and broker outages
 - **Audit Trail**: Complete event history remains queryable for compliance and debugging
+- **Efficient Batching**: Publishers **batch events by default** to maximize throughput:
+  - **Core Default**: 100 items or 100ms timeout
+  - **AWS Publishers** (SQS, SNS, EventBridge): 10 items or 100ms timeout (respects AWS API limits)
+  - **Automatic Chunking**: AWS publishers automatically split larger batches into multiple API calls
 
 ## 🧩 Adapters & Ecosystem
 
@@ -160,21 +225,208 @@ These send your events to the world.
 | **[Redis Streams](./publishers/redis-streams/README.md)** | Lightweight Stream | `@outbox-event-bus/redis-streams-publisher` |
 
 
-## Core Components
+## 📚 API Reference
 
 ### OutboxEventBus
 
-The `OutboxEventBus` is the main orchestrator. It acts as your standard event emitter but persists everything to storage first.
+The main event bus orchestrator. Provides an event emitter interface with durable persistence.
+
+#### Constructor
 
 ```typescript
-import { OutboxEventBus, InMemoryOutbox } from '@outbox-event-bus/core';
+class OutboxEventBus<TTransaction> {
+  constructor(
+    outbox: IOutbox<TTransaction>,
+    onError: (error: unknown) => void
+  )
+}
+```
+
+**Parameters:**
+- `outbox`: Storage adapter implementing the `IOutbox` interface
+- `onError`: Global error handler for unhandled errors during event processing
+
+#### Methods
+
+##### emit()
+Emit a single event to the outbox.
+
+```typescript
+await bus.emit<T extends string, P>({
+  type: T,
+  payload: P,
+  id?: string,
+  occurredAt?: Date,
+  metadata?: Record<string, unknown>
+}, transaction?: TTransaction): Promise<void>
+```
+
+##### emitMany()
+Emit multiple events atomically.
+
+```typescript
+await bus.emitMany([
+  { type: 'user.created', payload: user },
+  { type: 'email.queued', payload: { to: user.email } }
+], transaction?): Promise<void>
+```
+
+##### on() / addListener()
+Register a handler for an event type. **One handler per event type** (Command Bus pattern).
+
+```typescript
+bus.on('user.created', async (event: BusEvent<'user.created', User>) => {
+  await sendWelcomeEmail(event.payload)
+})
+```
+
+##### once()
+Register a one-time handler that auto-removes after first execution.
+
+```typescript
+bus.once('migration.complete', async (event) => {
+  console.log('Migration finished!')
+})
+```
+
+##### off() / removeListener()
+Remove a specific handler.
+
+```typescript
+bus.off('user.created', myHandler)
+```
+
+##### removeAllListeners()
+Remove all handlers, or all handlers for a specific event type.
+
+```typescript
+bus.removeAllListeners()              // Remove all
+bus.removeAllListeners('user.created') // Remove for specific type
+```
+
+##### subscribe()
+Register a handler for multiple event types.
+
+```typescript
+bus.subscribe(['order.created', 'order.updated'], async (event) => {
+  await syncToWarehouse(event)
+})
+```
+
+##### waitFor()
+Wait for a specific event to be emitted (useful in tests).
+
+```typescript
+const event = await bus.waitFor('user.created', 5000) // 5s timeout
+```
+
+##### start()
+Start the background polling worker.
+
+```typescript
+bus.start()
+```
+
+##### stop()
+Stop the background worker and clean up resources.
+
+```typescript
+await bus.stop()
+```
+
+---
+
+### EventPublisher
+
+Manages reliable delivery from the outbox to message brokers with batching and retries.
+
+#### Constructor
+
+```typescript
+class EventPublisher<TTransaction> {
+  constructor(
+    bus: IOutboxEventBus<TTransaction>,
+    config?: PublisherConfig
+  )
+}
+```
+
+#### Configuration
+
+```typescript
+interface PublisherConfig {
+  retryConfig?: {
+    maxAttempts?: number      // Default: 3
+    initialDelayMs?: number   // Default: 1000
+    maxDelayMs?: number       // Default: 10000
+  }
+  batchConfig?: {
+    batchSize?: number        // Default: 100 (core), 10 (AWS publishers)
+    batchTimeoutMs?: number   // Default: 100
+  }
+}
+```
+
+**Retry Behavior:**
+- Exponential backoff: delays double with each attempt (1s → 2s → 4s...)
+- Capped at `maxDelayMs`
+- After `maxAttempts`, the error bubbles to the outbox error handler
+
+**Batching Behavior:**
+- Events are buffered until `batchSize` is reached OR `batchTimeoutMs` elapses
+- AWS publishers automatically chunk batches larger than 10 into multiple API calls
+- Set `batchSize: 1` to disable batching
+
+#### Methods
+
+##### subscribe()
+Subscribe to event types and forward them to a handler.
+
+```typescript
+publisher.subscribe(
+  ['user.created', 'user.updated'],
+  async (events: BusEvent[]) => {
+    // Publish batch to external system
+    await sqsClient.send(new SendMessageBatchCommand({ ... }))
+  }
+)
+```
+
+---
+
+### IOutbox Interface
+
+Adapter interface for implementing custom storage backends.
+
+```typescript
+interface IOutbox<TTransaction> {
+  publish(events: BusEvent[], transaction?: TTransaction): Promise<void>
+  start(handler: (event: BusEvent) => Promise<void>, onError: (error: unknown) => void): void
+  stop(): Promise<void>
+}
+```
+
+**Implementing a Custom Adapter:**
+1. Implement `publish()` to store events in your database
+2. Implement `start()` to poll for pending events and call the handler
+3. Implement `stop()` to clean up polling resources
+4. Handle retry logic, status tracking, and stuck event recovery
+
+See existing adapters for reference implementations.
+
+---
+
+## Quick Start Example
+
+```typescript
+import { OutboxEventBus, InMemoryOutbox } from 'outbox-event-bus';
 
 // 1. Initialize Storage
 // (Use a real adapter in production, e.g., PostgresPrismaOutbox)
 const outbox = new InMemoryOutbox();
 
 // 2. Create Bus
-const bus = new OutboxEventBus(outbox);
+const bus = new OutboxEventBus(outbox, (error) => console.error(error));
 
 // 3. Start the Poller
 bus.start();
@@ -186,23 +438,28 @@ await bus.emit({
 });
 ```
 
-### EventPublisher
+## Fan-Out Pattern Example
 
-A utility class that makes building custom publishers (like for RabbitMQ, Kafka, or Webhooks) robust. It wraps the raw bus subscription with retry logic.
+To perform multiple actions for a single event, use the **Fan-Out Pattern**:
 
 ```typescript
-import { EventPublisher } from '@outbox-event-bus/core';
+// 1. Initial Event
+bus.on('user.created', async (event) => {
+  // Fan-out: Publish intent events back to the outbox
+  await bus.emitMany([
+    { type: 'send-welcome-email', payload: event.payload },
+    { type: 'sync-to-salesforce', payload: event.payload }
+  ])
+})
 
-const publisher = new EventPublisher(bus, {
-  maxAttempts: 3,
-  initialDelayMs: 1000,
-  maxDelayMs: 10000
-});
+// 2. Specialized Handlers (1:1)
+bus.on('send-welcome-email', async (event) => {
+  await emailService.send(event.payload.email)
+})
 
-publisher.subscribe(['user.created'], async (event) => {
-  // If this throws, it handles the retry logic for you automatically
-  await sendToExternalSystem(event);
-});
+bus.on('sync-to-salesforce', async (event) => {
+  await crm.sync(event.payload)
+})
 ```
 
 ## Contributing

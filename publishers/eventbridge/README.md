@@ -48,8 +48,24 @@ interface EventBridgePublisherConfig {
   eventBridgeClient: EventBridgeClient; // AWS SDK v3 EventBridge client
   eventBusName?: string;                // Target event bus (default: 'default')
   source: string;                       // Your application identifier
-  retryOptions?: RetryOptions;           // Application-level retry logic
+  retryConfig?: RetryOptions;           // Application-level retry logic
+  batchConfig?: BatchOptions;           // Batch processing settings (default: batchSize: 10, batchTimeoutMs: 100)
 }
+```
+
+## Batching
+
+This publisher has **batching enabled by default** (10 items or 100ms).
+
+- **Automatic Chunking**: If you configure a `batchSize` larger than 10, the publisher will automatically split the batch into multiple `PutEvents` calls to respect the AWS limit of 10 entries per request.
+- **Efficient**: This allows you to buffer more events in memory while ensuring safe delivery to EventBridge.
+
+To disable batching, set `batchSize` to `1`:
+```typescript
+const publisher = new EventBridgePublisher(bus, {
+  // ...
+  batchConfig: { batchSize: 1 }
+});
 ```
 
 ## Usage
@@ -93,7 +109,7 @@ In addition to SDK retries, you can configure application-level retries for extr
 ```typescript
 const publisher = new EventBridgePublisher(bus, {
   // ...
-  retryOptions: {
+  retryConfig: {
     maxAttempts: 3,
     initialDelayMs: 1000
   }

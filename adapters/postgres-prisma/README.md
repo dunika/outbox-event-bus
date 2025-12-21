@@ -114,7 +114,7 @@ const outbox = new PostgresPrismaOutbox({
   prisma
 });
 
-const bus = new OutboxEventBus(outbox, console.warn, console.error);
+const bus = new OutboxEventBus(outbox, (error) => console.error(error));
 bus.start();
 ```
 
@@ -134,7 +134,7 @@ const outbox = new PostgresPrismaOutbox({
   getTransaction: () => als.getStore()
 });
 
-const bus = new OutboxEventBus(outbox, console.warn, console.error);
+const bus = new OutboxEventBus(outbox, (error) => console.error(error));
 
 async function createUser(userData: any) {
   return await prisma.$transaction(async (tx) => {

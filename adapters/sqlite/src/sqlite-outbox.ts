@@ -1,4 +1,4 @@
-import { type OutboxEvent, type IOutbox, type OutboxConfig, PollingService } from "outbox-event-bus"
+import { type BusEvent, type IOutbox, type OutboxConfig, PollingService, formatErrorMessage } from "outbox-event-bus"
 import Database from "better-sqlite3"
 
 export interface SqliteOutboxConfig extends OutboxConfig {
@@ -53,7 +53,7 @@ export class SqliteOutbox implements IOutbox<Database.Database> {
   }
 
   private init() {
-    this.db.exec(`
+    const OUTBOX_SCHEMA = `
       CREATE TABLE IF NOT EXISTS outbox_events (
         id TEXT PRIMARY KEY,
         type TEXT NOT NULL,
@@ -63,7 +63,7 @@ export class SqliteOutbox implements IOutbox<Database.Database> {
         retry_count INTEGER NOT NULL DEFAULT 0,
         last_error TEXT,
         next_retry_at TEXT,
-        created_on TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+        created_on TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
         started_on TEXT,
         completed_on TEXT,
         keep_alive TEXT,
@@ -84,11 +84,13 @@ export class SqliteOutbox implements IOutbox<Database.Database> {
       );
 
       CREATE INDEX IF NOT EXISTS idx_outbox_events_status_retry ON outbox_events (status, next_retry_at);
-    `)
+    `;
+
+    this.db.exec(OUTBOX_SCHEMA)
   }
 
   async publish(
-    events: OutboxEvent[],
+    events: BusEvent[],
     transaction?: Database.Database,
   ): Promise<void> {
     if (events.length === 0) return
@@ -113,7 +115,7 @@ export class SqliteOutbox implements IOutbox<Database.Database> {
   }
 
   start(
-    handler: (events: OutboxEvent[]) => Promise<void>,
+    handler: (event: BusEvent) => Promise<void>,
     onError: (error: unknown) => void
   ): void {
     this.poller.start(handler, onError)
@@ -121,15 +123,14 @@ export class SqliteOutbox implements IOutbox<Database.Database> {
 
   async stop(): Promise<void> {
     await this.poller.stop()
-    // Wait a bit to ensure any in-flight transactions complete
-    await new Promise(resolve => setTimeout(resolve, 100))
-    this.db.close()
   }
 
-  private async processBatch(handler: (events: OutboxEvent[]) => Promise<void>) {
+  private async processBatch(handler: (event: BusEvent) => Promise<void>) {
     const now = new Date().toISOString()
+    const msNow = Date.now()
 
     const lockedEvents = this.db.transaction(() => {
+      // Select events that are ready to process
       const rows = this.db.prepare(`
         SELECT * FROM outbox_events
         WHERE status = 'created'
@@ -159,57 +160,56 @@ export class SqliteOutbox implements IOutbox<Database.Database> {
 
     if (lockedEvents.length === 0) return
 
-    const busEvents: OutboxEvent[] = lockedEvents.map((e) => ({
+    const busEvents: BusEvent[] = lockedEvents.map((e) => ({
       id: e.id,
       type: e.type,
       payload: JSON.parse(e.payload),
       occurredAt: new Date(e.occurred_at),
     }))
 
-    try {
-      await handler(busEvents)
+    for (let i = 0; i < busEvents.length; i++) {
+        const event = busEvents[i]!
+        const lockedEvent = lockedEvents[i]!
 
-      this.db.transaction(() => {
-        const insertArchive = this.db.prepare(`
-          INSERT INTO outbox_events_archive (
-            id, type, payload, occurred_at, status, retry_count, last_error, created_on, started_on, completed_on
-          ) VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?)
-        `)
-        
-        const deleteEvent = this.db.prepare(`DELETE FROM outbox_events WHERE id = ?`)
-        
-        const completedAt = new Date().toISOString()
-        
-        for (const e of lockedEvents) {
-          insertArchive.run(
-            e.id, e.type, e.payload, e.occurred_at, e.retry_count, e.last_error, e.created_on, now, completedAt
-          )
-          deleteEvent.run(e.id)
+        try {
+            await handler(event)
+
+            // Success - archive
+            this.db.transaction(() => {
+                const insertArchive = this.db.prepare(`
+                  INSERT INTO outbox_events_archive (
+                    id, type, payload, occurred_at, status, retry_count, last_error, created_on, started_on, completed_on
+                  ) VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?)
+                `)
+                const deleteEvent = this.db.prepare(`DELETE FROM outbox_events WHERE id = ?`)
+                
+                insertArchive.run(
+                    lockedEvent.id, lockedEvent.type, lockedEvent.payload, lockedEvent.occurred_at, 
+                    lockedEvent.retry_count, lockedEvent.last_error, lockedEvent.created_on, now, new Date().toISOString()
+                )
+                deleteEvent.run(lockedEvent.id)
+            })()
+        } catch (error) {
+            this.poller.onError?.(error)
+
+            // Failure - update status
+            const retryCount = lockedEvent.retry_count + 1
+            const delay = this.poller.calculateBackoff(retryCount)
+
+            this.db.prepare(`
+                UPDATE outbox_events
+                SET status = 'failed',
+                    retry_count = ?,
+                    last_error = ?,
+                    next_retry_at = ?
+                WHERE id = ?
+            `).run(
+                retryCount,
+                formatErrorMessage(error),
+                new Date(msNow + delay).toISOString(),
+                lockedEvent.id
+            )
         }
-      })()
-
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      
-      this.db.transaction(() => {
-        const updateFailure = this.db.prepare(`
-          UPDATE outbox_events
-          SET status = 'failed',
-          retry_count = retry_count + 1,
-              last_error = ?,
-              next_retry_at = ?
-          WHERE id = ?
-        `)
-
-        const msNow = Date.now()
-        for (const e of lockedEvents) {
-          const nextRetryCount = e.retry_count + 1
-          const delay = this.poller.calculateBackoff(nextRetryCount)
-          const nextRetryAt = new Date(msNow + delay).toISOString()
-          
-          updateFailure.run(errorMessage, nextRetryAt, e.id)
-        }
-      })()
     }
   }
 }

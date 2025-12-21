@@ -1,9 +1,9 @@
-import type { BusEvent, OutboxEvent, AnyListener } from "./types"
+import type { BusEventInput, BusEvent, AnyListener } from "./types"
 
 export interface IOutbox<TTransaction> {
-  publish: (events: OutboxEvent[], transaction?: TTransaction) => Promise<void>
+  publish: (events: BusEvent[], transaction?: TTransaction) => Promise<void>
   start: (
-    handler: (events: OutboxEvent[]) => Promise<void>,
+    handler: (event: BusEvent) => Promise<void>,
     onError: (error: unknown) => void
   ) => void
   stop: () => Promise<void>
@@ -11,11 +11,11 @@ export interface IOutbox<TTransaction> {
 
 export interface IOutboxEventBus<TTransaction> {
   emit: <T extends string, P>(
-    event: BusEvent<T, P>,
+    event: BusEventInput<T, P>,
     transaction?: TTransaction
   ) => Promise<void>
   emitMany: <T extends string, P>(
-    events: BusEvent<T, P>[],
+    events: BusEventInput<T, P>[],
     transaction?: TTransaction
   ) => Promise<void>
   on: <T extends string, P = unknown>(
@@ -27,30 +27,21 @@ export interface IOutboxEventBus<TTransaction> {
     handler: (event: BusEvent<T, P>) => Promise<void>
   ) => this
   off: <T extends string, P = unknown>(
-    eventType: T | T[],
+    eventType: T,
     handler: (event: BusEvent<T, P>) => Promise<void>
   ) => this
   removeListener: <T extends string, P = unknown>(
-    eventType: T | T[],
+    eventType: T,
     handler: (event: BusEvent<T, P>) => Promise<void>
   ) => this
   once: <T extends string, P = unknown>(
     eventType: T,
     handler: (event: BusEvent<T, P>) => Promise<void>
   ) => this
-  prependOnceListener: <T extends string, P = unknown>(
-    eventType: T,
-    handler: (event: BusEvent<T, P>) => Promise<void>
-  ) => this
   removeAllListeners: <T extends string>(eventType?: T) => this
-  prependListener: <T extends string, P = unknown>(
-    eventType: T,
-    handler: (event: BusEvent<T, P>) => Promise<void>
-  ) => this
-  setMaxListeners: (n: number) => this
   getSubscriptionCount: () => number
   listenerCount: (eventType: string) => number
-  rawListeners: (eventType: string) => AnyListener[]
+  getListener: (eventType: string) => AnyListener | undefined
   eventNames: () => string[]
   start: () => void
   stop: () => Promise<void>
@@ -83,6 +74,6 @@ export interface PollingServiceConfig {
   pollIntervalMs: number
   baseBackoffMs: number
   maxErrorBackoffMs?: number
-  processBatch: (handler: (events: OutboxEvent[]) => Promise<void>) => Promise<void>
+  processBatch: (handler: (event: BusEvent) => Promise<void>) => Promise<void>
   performMaintenance?: () => Promise<void>
 }

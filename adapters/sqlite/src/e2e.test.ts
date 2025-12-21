@@ -50,8 +50,8 @@ describe("SqliteOutbox E2E", () => {
 
     // 2. Start processing
     const processedEvents: any[] = []
-    const handler = async (events: any[]) => {
-      processedEvents.push(...events)
+    const handler = async (event: any) => {
+      processedEvents.push(event)
     }
 
     outbox.start(handler, (err) => console.error("Outbox Error:", err))
@@ -93,7 +93,7 @@ describe("SqliteOutbox E2E", () => {
     await outbox.publish([event])
 
     let attempts = 0
-    const handler = async (_events: any[]) => {
+    const handler = async (event: any) => {
       attempts++
       throw new Error("Processing failed")
     }
@@ -138,8 +138,8 @@ describe("SqliteOutbox E2E", () => {
     )
 
     const processedEvents: any[] = []
-    const handler = async (events: any[]) => {
-      processedEvents.push(...events)
+    const handler = async (event: any) => {
+      processedEvents.push(event)
     }
 
     outbox.start(handler, (err) => console.error("Outbox Error:", err))
@@ -175,9 +175,9 @@ describe("SqliteOutbox E2E", () => {
     const workers: SqliteOutbox[] = []
 
     // Shared handler that pushes to processedEvents
-    const handler = async (events: any[]) => {
+    const handler = async (event: any) => {
       await new Promise((resolve) => setTimeout(resolve, Math.random() * 50))
-      processedEvents.push(...events)
+      processedEvents.push(event)
     }
 
     for (let i = 0; i < workerCount; i++) {

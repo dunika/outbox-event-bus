@@ -47,8 +47,24 @@ interface RabbitMQPublisherConfig {
   channel: Channel;                 // amqplib Channel instance
   exchange: string;                 // Target exchange name
   routingKey?: string;              // Optional static routing key
-  retryOptions?: RetryOptions;      // Custom retry logic
+  retryConfig?: RetryOptions;      // Application-level retry logic
+  batchConfig?: BatchOptions;      // Batch processing settings (default: batchSize: 100, batchTimeoutMs: 100)
 }
+```
+
+## Batching
+
+This publisher has **batching enabled by default** (100 items or 100ms). This safe default ensures efficient use of the AMQP channel while maintaining low latency.
+
+To tune batching, adjust the `batchConfig`:
+```typescript
+const publisher = new RabbitMQPublisher(bus, {
+  // ...
+  batchConfig: { 
+    batchSize: 50,
+    batchTimeoutMs: 200 
+  }
+});
 ```
 
 ## Usage
@@ -86,7 +102,7 @@ The RabbitMQ publisher implements **exponential backoff retries** to handle chan
 ```typescript
 const publisher = new RabbitMQPublisher(bus, {
   // ...
-  retryOptions: {
+  retryConfig: {
     maxAttempts: 5,
     initialDelayMs: 500
   }

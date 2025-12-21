@@ -104,8 +104,8 @@ describe("DynamoDBOutbox E2E", () => {
         });
 
         let attempts = 0;
-        const handler = async (events: any[]) => {
-            attempts += events.length;
+        const handler = async (event: any) => {
+            attempts++;
             throw new Error("Temporary failure");
         };
 
@@ -160,8 +160,8 @@ describe("DynamoDBOutbox E2E", () => {
         }));
 
         const received: any[] = [];
-        await outbox.start(async (events) => {
-            received.push(...events);
+        await outbox.start(async (event) => {
+            received.push(event);
         }, (err) => console.error("Outbox error:", err));
 
         // Wait for recovery poll
@@ -195,9 +195,9 @@ describe("DynamoDBOutbox E2E", () => {
         const processedEvents: any[] = [];
         const workers: DynamoDBOutbox[] = [];
 
-        const handler = async (events: any[]) => {
+        const handler = async (event: any) => {
             await new Promise((resolve) => setTimeout(resolve, Math.random() * 50));
-            processedEvents.push(...events);
+            received.push(event);
         };
 
         for (let i = 0; i < workerCount; i++) {

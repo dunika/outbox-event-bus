@@ -54,9 +54,7 @@ describe("RedisOutbox E2E", () => {
     // Wait for polling to pick it up
     await new Promise((resolve) => setTimeout(resolve, 500))
 
-    expect(handler).toHaveBeenCalledWith(expect.arrayContaining([
-        expect.objectContaining({ id: "e2e-1" })
-    ]))
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ id: "e2e-1" }))
 
     // Should be removed from pending and processing
     const pendingAfter = await redis.zrange("outbox:pending", 0, -1)
@@ -98,9 +96,7 @@ describe("RedisOutbox E2E", () => {
      // Wait for recovery poll
      await new Promise(resolve => setTimeout(resolve, 500))
 
-     expect(handler).toHaveBeenCalledWith(expect.arrayContaining([
-         expect.objectContaining({ id: eventId })
-     ]))
+     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ id: eventId }))
 
      await recoveryOutbox.stop()
   })
@@ -164,9 +160,9 @@ describe("RedisOutbox E2E", () => {
     const connections: Redis[] = []
     const workers: RedisOutbox[] = []
 
-    const handler = async (events: any[]) => {
+    const handler = async (event: any) => {
       await new Promise((resolve) => setTimeout(resolve, Math.random() * 50))
-      processedEvents.push(...events)
+      processedEvents.push(event)
     }
 
     for (let i = 0; i < workerCount; i++) {

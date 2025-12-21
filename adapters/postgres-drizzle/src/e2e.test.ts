@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/postgres-js"
 import { PostgresDrizzleOutbox } from "./index"
 import { outboxEvents } from "./schema"
 import { eq } from "drizzle-orm"
+import { randomUUID } from "node:crypto"
 
 const DB_URL = "postgres://test_user:test_password@localhost:5432/outbox_test"
 
@@ -118,8 +119,8 @@ describe("PostgresDrizzleOutbox E2E", () => {
 
     // 2. Start processing
     const processedEvents: any[] = []
-    const handler = async (_events: any[]) => {
-      processedEvents.push(..._events)
+    const handler = async (event: any) => {
+      processedEvents.push(event)
     }
 
     await outbox.start(handler, (err: unknown) => console.error("Outbox Error:", err))
@@ -159,7 +160,7 @@ describe("PostgresDrizzleOutbox E2E", () => {
     let attempts = 0
     const onError = vi.fn()
     
-    const handler = async (_events: any[]) => {
+    const handler = async (event: any) => {
         attempts++
         throw new Error("Processing failed")
     }
@@ -202,8 +203,8 @@ describe("PostgresDrizzleOutbox E2E", () => {
     })
 
     const processedEvents: any[] = []
-    outbox.start(async (events) => {
-      processedEvents.push(...events)
+    outbox.start(async (event) => {
+      processedEvents.push(event)
     }, (err: unknown) => console.error("Outbox Error:", err))
 
     // Wait for recovery poll
@@ -236,9 +237,9 @@ describe("PostgresDrizzleOutbox E2E", () => {
     const processedEvents: any[] = []
     const workers: PostgresDrizzleOutbox[] = []
 
-    const handler = async (events: any[]) => {
+    const handler = async (event: any) => {
       await new Promise((resolve) => setTimeout(resolve, Math.random() * 50))
-      processedEvents.push(...events)
+      processedEvents.push(event)
     }
 
     for (let i = 0; i < workerCount; i++) {
@@ -269,5 +270,68 @@ describe("PostgresDrizzleOutbox E2E", () => {
     const ids = processedEvents.map(e => e.id)
     const uniqueIds = new Set(ids)
     expect(uniqueIds.size).toBe(eventCount)
+  })
+
+  it("should handle partial batch failures (one succeeds, one fails)", async () => {
+    outbox = new PostgresDrizzleOutbox({
+        db,
+        pollIntervalMs: 100,
+        baseBackoffMs: 100,
+    })
+
+    const successId = randomUUID()
+    const failId = randomUUID()
+
+    const events = [
+      {
+        id: successId,
+        type: "partial.success",
+        payload: { fail: false },
+        occurredAt: new Date(),
+      },
+      {
+        id: failId,
+        type: "partial.fail",
+        payload: { fail: true },
+        occurredAt: new Date(),
+      }
+    ]
+
+    await outbox.publish(events)
+
+    const processedEvents: any[] = []
+    const onError = vi.fn()
+    
+    // Handler that fails only for specific event
+    const handler = async (event: any) => {
+        if (event.payload.fail) {
+            throw new Error("Intentional partial failure")
+        }
+        processedEvents.push(event)
+    }
+
+    await outbox.start(handler, onError)
+
+    // Wait for processing
+    await new Promise((resolve) => setTimeout(resolve, 3000))
+
+    await outbox.stop()
+
+    // 1. Success event should be completed (removed from outbox)
+    const successResult = await db.select().from(outboxEvents).where(eq(outboxEvents.id, successId))
+    expect(successResult).toHaveLength(0)
+
+    // 2. Failed event should be in outbox with failed status
+    const failResult = await db.select().from(outboxEvents).where(eq(outboxEvents.id, failId))
+    expect(failResult).toHaveLength(1)
+    expect(failResult[0]?.status).toBe("failed")
+    expect(failResult[0]?.retryCount).toBeGreaterThan(0)
+    
+    // 3. Handler should have successfully processed one
+    expect(processedEvents).toHaveLength(1)
+    expect(processedEvents[0].id).toBe(successId)
+    
+    // 4. Error handler should be called
+    expect(onError).toHaveBeenCalled()
   })
 })
