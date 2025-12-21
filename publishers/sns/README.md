@@ -46,7 +46,6 @@ npm install @outbox-event-bus/sns-publisher
 interface SNSPublisherConfig {
   snsClient: SNSClient;   // AWS SDK v3 SNS client
   topicArn: string;       // AWS Topic ARN
-  onError?: ErrorHandler; // Error callback
   retryOptions?: RetryOptions; // Application-level retry logic
 }
 ```
@@ -61,8 +60,7 @@ import { SNSPublisher } from '@outbox-event-bus/sns-publisher';
 
 const publisher = new SNSPublisher(bus, {
   snsClient: new SNSClient({ region: 'us-east-1' }),
-  topicArn: process.env.SNS_TOPIC_ARN!,
-  onError: (err) => console.error('SNS Publish Error:', err)
+  topicArn: process.env.SNS_TOPIC_ARN!
 });
 
 publisher.subscribe(['order.*']);
@@ -92,8 +90,7 @@ const publisher = new SNSPublisher(bus, {
 });
 ```
 
-### `onError` Callback
-Permanent errors (invalid ARN, IAM Access Denied) are passed to this handler.
+
 
 ## Troubleshooting
 

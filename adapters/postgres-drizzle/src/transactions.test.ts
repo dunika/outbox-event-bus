@@ -27,15 +27,14 @@ describe("PostgresDrizzle Outbox Transactions with AsyncLocalStorage", () => {
   // A helper that acts as a sqlExecutor, grabbing the transaction from ALS if it exists
   const sqlExecutorProxy = new Proxy(db, {
     get(target, prop, receiver) {
-      const tx = als.getStore()
-      return Reflect.get(tx ?? target, prop, receiver)
+      const transaction = als.getStore()
+      return Reflect.get(transaction ?? target, prop, receiver)
     }
   }) as unknown as Db
 
   const outbox = new PostgresDrizzleOutbox({
     db,
     getExecutor: () => als.getStore(),
-    onError: () => {}, // Expected error, no-op
     pollIntervalMs: 50,
   })
 
@@ -83,10 +82,10 @@ describe("PostgresDrizzle Outbox Transactions with AsyncLocalStorage", () => {
     const userId = "user_456"
 
     // Run business logic in a transaction
-    await db.transaction(async (tx) => {
-      await als.run(tx, async () => {
+    await db.transaction(async (transaction) => {
+      await als.run(transaction, async () => {
         // 1. Perform business operation
-        await tx.insert(users).values({ id: userId, name: "Alice" })
+        await transaction.insert(users).values({ id: userId, name: "Alice" })
 
         // 2. Emit event using the transaction from ALS via our proxy
         await eventBus.emit({
@@ -111,9 +110,9 @@ describe("PostgresDrizzle Outbox Transactions with AsyncLocalStorage", () => {
     const userId = "user_fail"
 
     try {
-      await db.transaction(async (tx) => {
-        await als.run(tx, async () => {
-          await tx.insert(users).values({ id: userId, name: "Bob" })
+      await db.transaction(async (transaction) => {
+        await als.run(transaction, async () => {
+          await transaction.insert(users).values({ id: userId, name: "Bob" })
 
           await eventBus.emit({
             id: eventId,

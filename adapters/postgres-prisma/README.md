@@ -13,8 +13,7 @@ import { PostgresPrismaOutbox } from '@outbox-event-bus/postgres-prisma-outbox';
 
 const prisma = new PrismaClient();
 const outbox = new PostgresPrismaOutbox({
-  prisma,
-  onError: (error) => console.error(error)
+  prisma
 });
 ```
 
@@ -91,12 +90,13 @@ npx prisma migrate dev --name add_outbox
 ```typescript
 interface PostgresPrismaOutboxConfig {
   prisma: PrismaClient;
+  getTransaction?: () => PrismaClient | undefined; // Optional transaction executor getter
   maxRetries?: number;              // Max retry attempts (default: 5)
   baseBackoffMs?: number;           // Base retry backoff (default: 1000ms)
   pollIntervalMs?: number;          // Polling interval (default: 1000ms)
   maxErrorBackoffMs?: number;       // Max polling error backoff (default: 30000ms)
+  processingTimeoutMs?: number;     // Processing timeout (default: 30000ms)
   batchSize?: number;               // Events per poll (default: 50)
-  onError: (error: unknown) => void; // Error handler
 }
 ```
 
@@ -111,43 +111,64 @@ import { OutboxEventBus } from 'outbox-event-bus';
 
 const prisma = new PrismaClient();
 const outbox = new PostgresPrismaOutbox({
-  prisma,
-  onError: console.error
+  prisma
 });
 
 const bus = new OutboxEventBus(outbox, console.warn, console.error);
 bus.start();
 ```
 
-### With Interactive Transactions
+### With Interactive Transactions (AsyncLocalStorage)
 
-Emit events within the same transaction as your business logic to guarantee consistency.
+For larger applications, use `AsyncLocalStorage` to manage transactions. This allows you to emit events from anywhere in your code without passing around the Prisma transaction object.
+
+```typescript
+import { PrismaClient } from '@prisma/client';
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+const prisma = new PrismaClient();
+const als = new AsyncLocalStorage<PrismaClient>();
+
+const outbox = new PostgresPrismaOutbox({
+  prisma,
+  getTransaction: () => als.getStore()
+});
+
+const bus = new OutboxEventBus(outbox, console.warn, console.error);
+
+async function createUser(userData: any) {
+  return await prisma.$transaction(async (tx) => {
+    // Run business logic within the ALS context
+    return await als.run(tx as any, async () => {
+      const user = await tx.user.create({ data: userData });
+      
+      // The bus will automatically use the transaction from ALS via getTransaction
+      await bus.emit({
+        id: crypto.randomUUID(),
+        type: 'user.created',
+        payload: user
+      });
+      
+      return user;
+    });
+  });
+}
+```
+
+### With Interactive Transactions (Explicit)
+
+If you prefer passing the transaction client explicitly, you can pass it as a second argument to `emit`.
 
 ```typescript
 await prisma.$transaction(async (tx) => {
-  // 1. Modify business data
-  const user = await tx.user.create({
-     data: { email: 'alice@example.com' }
-  });
+  const user = await tx.user.create({ data: userData });
 
-  // 2. Insert event (using the SAME transaction 'tx')
-  // Note: The adapter doesn't expose a direct 'emit' on transaction yet in this version,
-  // so you manually insert into the OutboxEvent table using the schema types.
-  
-  await tx.outboxEvent.create({
-    data: {
-      id: crypto.randomUUID(),
-      type: 'user.created',
-      payload: user,
-      occurredAt: new Date(),
-      status: 'created',
-      retryCount: 0,
-      expireInSeconds: 60
-    }
-  });
+  await bus.emit({
+    id: crypto.randomUUID(),
+    type: 'user.created',
+    payload: user
+  }, tx); // Pass the transaction client explicitly
 });
-// If transaction commits, both user and event are saved.
-// If it fails, neither is saved.
 ```
 
 ## Features

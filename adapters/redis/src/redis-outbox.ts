@@ -1,46 +1,53 @@
-import type { Redis } from "ioredis"
-import type { BusEvent, IOutbox } from "outbox-event-bus"
+import type { Redis, ChainableCommander } from "ioredis"
+import { type OutboxEvent, type IOutbox, type OutboxConfig, PollingService } from "outbox-event-bus"
 
-export interface RedisOutboxConfig {
+export interface RedisOutboxConfig extends OutboxConfig {
   redis: Redis
   keyPrefix?: string
-  batchSize?: number
-  pollIntervalMs?: number
   processingTimeoutMs?: number
+  getPipeline?: (() => ChainableCommander | undefined) | undefined
 }
 
-export class RedisOutbox implements IOutbox {
+export class RedisOutbox implements IOutbox<ChainableCommander> {
+  private readonly config: Required<RedisOutboxConfig>
   private readonly redis: Redis
-  private readonly keyPrefix: string
-  private readonly batchSize: number
-  private readonly pollIntervalMs: number
-  private readonly processingTimeoutMs: number
-  private onError?: (error: unknown) => void
+  private readonly poller: PollingService
   private readonly KEYS: {
     PENDING: string
     PROCESSING: string
     EVENT_PREFIX: string
   }
 
-  private isPolling = false
-  private pollTimeout: NodeJS.Timeout | null = null
-  private errorCount = 0
-  private readonly maxErrorBackoffMs = 30000
-
   constructor(config: RedisOutboxConfig) {
+    this.config = {
+      batchSize: config.batchSize ?? 50,
+      pollIntervalMs: config.pollIntervalMs ?? 1000,
+      maxRetries: config.maxRetries ?? 5,
+      baseBackoffMs: config.baseBackoffMs ?? 1000,
+      maxErrorBackoffMs: config.maxErrorBackoffMs ?? 30000,
+      processingTimeoutMs: config.processingTimeoutMs ?? 30000,
+      redis: config.redis,
+      keyPrefix: config.keyPrefix ?? "outbox",
+      getPipeline: config.getPipeline,
+    }
+
     this.redis = config.redis
-    this.keyPrefix = config.keyPrefix ?? "outbox"
-    this.batchSize = config.batchSize ?? 50
-    this.pollIntervalMs = config.pollIntervalMs ?? 1000
-    this.processingTimeoutMs = config.processingTimeoutMs ?? 30000
 
     this.KEYS = {
-      PENDING: `${this.keyPrefix}:pending`,
-      PROCESSING: `${this.keyPrefix}:processing`,
-      EVENT_PREFIX: `${this.keyPrefix}:event:`
+      PENDING: `${this.config.keyPrefix}:pending`,
+      PROCESSING: `${this.config.keyPrefix}:processing`,
+      EVENT_PREFIX: `${this.config.keyPrefix}:event:`
     }
 
     this.registerLuaScripts()
+
+    this.poller = new PollingService({
+      pollIntervalMs: this.config.pollIntervalMs,
+      baseBackoffMs: this.config.baseBackoffMs,
+      maxErrorBackoffMs: this.config.maxErrorBackoffMs,
+      performMaintenance: () => this.recoverStuckEvents(),
+      processBatch: (handler) => this.processBatch(handler),
+    })
   }
 
   private registerLuaScripts() {
@@ -84,66 +91,42 @@ export class RedisOutbox implements IOutbox {
     })
   }
 
-  async publish(events: BusEvent[]): Promise<void> {
+  async publish(events: OutboxEvent[], transaction?: unknown): Promise<void> {
     if (events.length === 0) return
 
-    const pipeline = this.redis.pipeline()
+    const externalExecutor = (transaction ?? this.config.getPipeline?.()) as ChainableCommander | undefined
+    const pipeline = externalExecutor ?? this.redis.pipeline()
+    
     for (const event of events) {
-      const id = event.id
+      const id = event.id!
       const key = `${this.KEYS.EVENT_PREFIX}${id}`
+      const occurredAt = event.occurredAt!
       // Use hmset for ioredis-mock compatibility (multiple hset calls don't work in pipelines)
       pipeline.hmset(key, 
-        "id", event.id,
+        "id", id,
         "type", event.type,
         "payload", JSON.stringify(event.payload),
-        "occurredAt", event.occurredAt.toISOString(),
+        "occurredAt", occurredAt.toISOString(),
         "status", "created",
         "retryCount", "0"
       )
-      pipeline.zadd(this.KEYS.PENDING, event.occurredAt.getTime(), id)
+      pipeline.zadd(this.KEYS.PENDING, occurredAt.getTime(), id)
     }
-    await pipeline.exec()
+
+    if (!externalExecutor) {
+      await pipeline.exec()
+    }
   }
 
   start(
-    handler: (events: BusEvent[]) => Promise<void>,
+    handler: (events: OutboxEvent[]) => Promise<void>,
     onError: (error: unknown) => void
   ): void {
-    this.onError = onError
-    if (this.isPolling) return
-    this.isPolling = true
-    void this.poll(handler)
+    this.poller.start(handler, onError)
   }
 
   async stop(): Promise<void> {
-    this.isPolling = false
-    if (this.pollTimeout) {
-      clearTimeout(this.pollTimeout)
-      this.pollTimeout = null
-    }
-  }
-
-  private async poll(handler: (events: BusEvent[]) => Promise<void>) {
-    if (!this.isPolling) return
-
-    try {
-      await this.recoverStuckEvents()
-      await this.processBatch(handler)
-      this.errorCount = 0
-    } catch (err) {
-      this.onError(err)
-      this.errorCount++
-    }
-
-    if (this.isPolling) {
-      const backoff = Math.min(
-        this.pollIntervalMs * Math.pow(2, this.errorCount),
-        this.maxErrorBackoffMs
-      )
-      this.pollTimeout = setTimeout(() => {
-        void this.poll(handler)
-      }, backoff)
-    }
+    await this.poller.stop()
   }
 
   private async recoverStuckEvents() {
@@ -152,12 +135,12 @@ export class RedisOutbox implements IOutbox {
     await this.redis.recoverOutboxEvents(
       this.KEYS.PROCESSING,
       this.KEYS.PENDING,
-      this.processingTimeoutMs,
+      this.config.processingTimeoutMs,
       now
     )
   }
 
-  private async processBatch(handler: (events: BusEvent[]) => Promise<void>) {
+  private async processBatch(handler: (events: OutboxEvent[]) => Promise<void>) {
     const now = Date.now()
 
     // @ts-expect-error - Custom method on redis client
@@ -165,7 +148,7 @@ export class RedisOutbox implements IOutbox {
       this.KEYS.PENDING,
       this.KEYS.PROCESSING,
       now,
-      this.batchSize
+      this.config.batchSize
     )
 
     if (!eventIds || eventIds.length === 0) return
@@ -178,7 +161,7 @@ export class RedisOutbox implements IOutbox {
 
     if (!results) return
 
-    const eventsToProcess: BusEvent[] = []
+    const eventsToProcess: OutboxEvent[] = []
     const successfulIds: string[] = []
 
     results.forEach((res, index) => {
@@ -210,7 +193,7 @@ export class RedisOutbox implements IOutbox {
       }
       await pipelineCleanup.exec()
     } catch (error) {
-      this.onError(error)
+      this.poller.onError?.(error)
 
       const pipelineFetch = this.redis.pipeline()
       for (const id of successfulIds) {
@@ -225,9 +208,8 @@ export class RedisOutbox implements IOutbox {
 
         const data = eventData as Record<string, string>
         const retryCount = Number.parseInt(data.retryCount || '0', 10) + 1
-        const maxRetries = 5
 
-        if (retryCount >= maxRetries) {
+        if (retryCount >= this.config.maxRetries) {
           pipelineRetry.zrem(this.KEYS.PROCESSING, id)
           pipelineRetry.hmset(`${this.KEYS.EVENT_PREFIX}${id}`,
             "retryCount", retryCount.toString(),
@@ -235,8 +217,7 @@ export class RedisOutbox implements IOutbox {
             "lastError", error instanceof Error ? error.message : String(error)
           )
         } else {
-          const baseBackoffMs = 1000
-          const delay = baseBackoffMs * 2 ** (retryCount - 1)
+          const delay = this.poller.calculateBackoff(retryCount)
           const nextAttemptTime = Date.now() + delay
 
           pipelineRetry.zrem(this.KEYS.PROCESSING, id)

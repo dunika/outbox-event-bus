@@ -1,17 +1,23 @@
-import type { BusEvent, AnyListener } from "./types"
+import type { BusEvent, OutboxEvent, AnyListener } from "./types"
 
-export interface IOutbox {
-  publish: (events: BusEvent[]) => Promise<void>
+export interface IOutbox<TTransaction> {
+  publish: (events: OutboxEvent[], transaction?: TTransaction) => Promise<void>
   start: (
-    handler: (events: BusEvent[]) => Promise<void>,
+    handler: (events: OutboxEvent[]) => Promise<void>,
     onError: (error: unknown) => void
   ) => void
   stop: () => Promise<void>
 }
 
-export interface IOutboxEventBus {
-  emit: <T extends string, P>(event: BusEvent<T, P>) => Promise<void>
-  emitMany: <T extends string, P>(events: BusEvent<T, P>[]) => Promise<void>
+export interface IOutboxEventBus<TTransaction> {
+  emit: <T extends string, P>(
+    event: BusEvent<T, P>,
+    transaction?: TTransaction
+  ) => Promise<void>
+  emitMany: <T extends string, P>(
+    events: BusEvent<T, P>[],
+    transaction?: TTransaction
+  ) => Promise<void>
   on: <T extends string, P = unknown>(
     eventType: T,
     handler: (event: BusEvent<T, P>) => Promise<void>
@@ -77,6 +83,6 @@ export interface PollingServiceConfig {
   pollIntervalMs: number
   baseBackoffMs: number
   maxErrorBackoffMs?: number
-  processBatch: (handler: (events: BusEvent[]) => Promise<void>) => Promise<void>
+  processBatch: (handler: (events: OutboxEvent[]) => Promise<void>) => Promise<void>
   performMaintenance?: () => Promise<void>
 }

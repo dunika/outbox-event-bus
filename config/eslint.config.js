@@ -88,6 +88,7 @@ export const config = tseslint.config(
         },
       ],
       "func-style": ["error", "declaration", { allowArrowFunctions: false }],
+      "@typescript-eslint/no-non-null-assertion": "error",
     },
   },
   {

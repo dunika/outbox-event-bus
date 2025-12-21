@@ -14,8 +14,7 @@ import { DynamoDBOutbox } from '@outbox-event-bus/dynamodb-outbox';
 const outbox = new DynamoDBOutbox({
   client: new DynamoDBClient({}),
   tableName: 'events-outbox',
-  statusIndexName: 'status-gsiSortKey-index',
-  onError: (error) => console.error(error)
+  statusIndexName: 'status-gsiSortKey-index'
 });
 ```
 
@@ -70,14 +69,14 @@ Create a DynamoDB table with the following schema:
 interface DynamoDBOutboxConfig {
   client: DynamoDBClient;           // AWS SDK v3 DynamoDB client
   tableName: string;                // DynamoDB table name
-  statusIndexName: string;          // GSI name for status queries
-  batchSize?: number;               // Events per poll (default: 10)
+  statusIndexName?: string;         // GSI name for status queries (default: 'status-gsiSortKey-index')
+  batchSize?: number;               // Events per poll (default: 50)
   pollIntervalMs?: number;          // Polling interval (default: 1000ms)
   processingTimeoutMs?: number;     // Processing timeout (default: 30000ms)
   maxErrorBackoffMs?: number;       // Max polling error backoff (default: 30000ms)
   maxRetries?: number;              // Max retry attempts (default: 5)
   baseBackoffMs?: number;           // Base retry backoff (default: 1000ms)
-  onError: (error: unknown) => void; // Error handler
+  getCollector?: () => DynamoDBTransactionCollector | undefined; // Optional transaction collector getter
 }
 ```
 
@@ -93,8 +92,7 @@ import { OutboxEventBus } from 'outbox-event-bus';
 const outbox = new DynamoDBOutbox({
   client: new DynamoDBClient({ region: 'us-east-1' }),
   tableName: 'events-outbox',
-  statusIndexName: 'status-gsiSortKey-index',
-  onError: (error) => console.error('Outbox error:', error)
+  statusIndexName: 'status-gsiSortKey-index'
 });
 
 const bus = new OutboxEventBus(
@@ -104,6 +102,83 @@ const bus = new OutboxEventBus(
 );
 
 bus.start();
+```
+
+### With Transactions (AsyncLocalStorage)
+
+Use `AsyncLocalStorage` to collect multiple DynamoDB operations and the outbox event into a single `TransactWriteCommand`. The collector is an object with a `push` method and an `items` array.
+
+```typescript
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import type { DynamoDBTransactionCollector } from '@outbox-event-bus/dynamodb-outbox';
+
+const client = new DynamoDBClient({});
+const als = new AsyncLocalStorage<DynamoDBTransactionCollector>();
+
+const outbox = new DynamoDBOutbox({
+  client,
+  tableName: 'events-outbox',
+  getCollector: () => als.getStore()
+});
+
+const bus = new OutboxEventBus(outbox, console.warn, console.error);
+
+async function createItem(item: any) {
+  const transactionItems: any[] = [];
+  const collector: DynamoDBTransactionCollector = {
+    push: (item) => transactionItems.push(item),
+    items: transactionItems
+  };
+  
+  await als.run(collector, async () => {
+    // 1. Add business logic operation to the transaction
+    transactionItems.push({
+      Put: {
+        TableName: 'BusinessTable',
+        Item: item
+      }
+    });
+
+    // 2. Emit event (automatically adds its Put operation to transactionItems)
+    await bus.emit({
+      id: crypto.randomUUID(),
+      type: 'item.created',
+      payload: item
+    });
+
+    // 3. Execute the collected transaction
+    await client.send(new TransactWriteCommand({
+      TransactItems: transactionItems
+    }));
+  });
+}
+```
+
+### With Transactions (Explicit)
+
+You can also pass the transaction collector array explicitly to `emit`.
+
+```typescript
+const transactionItems: any[] = [];
+
+// 1. Add business logic operation
+transactionItems.push({
+  Put: { TableName: 'BusinessTable', Item: item }
+});
+
+// 2. Emit event (passing the collector array explicitly)
+await bus.emit({
+  id: crypto.randomUUID(),
+  type: 'item.created',
+  payload: item
+}, transactionItems);
+
+// 3. Execute the transaction
+await client.send(new TransactWriteCommand({
+  TransactItems: transactionItems
+}));
 ```
 
 ### With LocalStack
@@ -116,8 +191,7 @@ const outbox = new DynamoDBOutbox({
     credentials: { accessKeyId: 'test', secretAccessKey: 'test' }
   }),
   tableName: 'events-outbox',
-  statusIndexName: 'status-gsiSortKey-index',
-  onError: console.error
+  statusIndexName: 'status-gsiSortKey-index'
 });
 ```
 

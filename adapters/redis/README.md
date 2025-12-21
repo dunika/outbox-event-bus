@@ -12,9 +12,7 @@ import Redis from 'ioredis';
 import { RedisOutbox } from '@outbox-event-bus/redis-outbox';
 
 const outbox = new RedisOutbox({
-  redis: new Redis(),
-  keyPrefix: 'outbox',
-  onError: (error) => console.error(error)
+  redis: new Redis()
 });
 ```
 
@@ -54,13 +52,13 @@ The adapter uses the following Redis keys:
 interface RedisOutboxConfig {
   redis: Redis;                     // ioredis client instance
   keyPrefix?: string;               // Key prefix (default: 'outbox')
-  batchSize?: number;               // Events per poll (default: 10)
+  batchSize?: number;               // Events per poll (default: 50)
   pollIntervalMs?: number;          // Polling interval (default: 1000ms)
   processingTimeoutMs?: number;     // Processing timeout (default: 30000ms)
   maxErrorBackoffMs?: number;       // Max polling error backoff (default: 30000ms)
   maxRetries?: number;              // Max retry attempts (default: 5)
   baseBackoffMs?: number;           // Base retry backoff (default: 1000ms)
-  onError: (error: unknown) => void; // Error handler
+  getPipeline?: () => ChainableCommander | undefined; // Optional transaction pipeline getter
 }
 ```
 
@@ -76,12 +74,70 @@ import { OutboxEventBus } from 'outbox-event-bus';
 const redis = new Redis();
 
 const outbox = new RedisOutbox({
-  redis,
-  onError: (error) => console.error('Outbox error:', error)
+  redis: new Redis()
 });
 
 const bus = new OutboxEventBus(outbox, console.warn, console.error);
 bus.start();
+```
+
+### With Transactions (AsyncLocalStorage)
+
+Use `AsyncLocalStorage` to manage Redis pipelines or multi-exec blocks, ensuring outbox events are atomic with your business logic.
+
+```typescript
+import Redis, { ChainableCommander } from 'ioredis';
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+const redis = new Redis();
+const als = new AsyncLocalStorage<ChainableCommander>();
+
+const outbox = new RedisOutbox({
+  redis,
+  getPipeline: () => als.getStore()
+});
+
+const bus = new OutboxEventBus(outbox, console.warn, console.error);
+
+async function processData(data: any) {
+  const multi = redis.multi();
+  
+  await als.run(multi, async () => {
+    // 1. Add business logic to the transaction
+    multi.set(`data:${data.id}`, JSON.stringify(data));
+
+    // 2. Emit event (automatically adds its commands to the 'multi' block)
+    await bus.emit({
+      id: crypto.randomUUID(),
+      type: 'data.processed',
+      payload: data
+    });
+
+    // 3. Execute all commands atomically
+    await multi.exec();
+  });
+}
+```
+
+### With Transactions (Explicit)
+
+You can also pass the Redis pipeline/multi explicitly to `emit`.
+
+```typescript
+const multi = redis.multi();
+
+// 1. Add business logic
+multi.set(`data:${data.id}`, JSON.stringify(data));
+
+// 2. Emit event (passing the multi explicitly)
+await bus.emit({
+  id: crypto.randomUUID(),
+  type: 'data.processed',
+  payload: data
+}, multi);
+
+// 3. Execute the transaction
+await multi.exec();
 ```
 
 ### With Redis Cluster
@@ -90,7 +146,7 @@ bus.start();
 import { Cluster } from 'ioredis';
 
 const redis = new Cluster([{ host: 'localhost', port: 6379 }]);
-const outbox = new RedisOutbox({ redis, onError: console.error });
+const outbox = new RedisOutbox({ redis });
 ```
 
 ## Features

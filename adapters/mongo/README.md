@@ -14,8 +14,7 @@ import { MongoOutbox } from '@outbox-event-bus/mongo-outbox';
 const outbox = new MongoOutbox({
   client: new MongoClient('mongodb://localhost:27017'),
   dbName: 'myapp',
-  collectionName: 'outbox_events',
-  onError: (error) => console.error(error)
+  collectionName: 'outbox_events'
 });
 ```
 
@@ -47,9 +46,14 @@ The adapter stores events in a dedicated collection (default: `outbox_events`).
 | `occurredAt` | Date | Timestamp of occurrence |
 | `nextRetryAt` | Date | Scheduled time for retry |
 | `retryCount` | Number | Number of retries so far |
+| `lastError` | String | Error message from last failure |
+| `startedOn` | Date | When processing started |
+| `completedOn` | Date | When processing completed |
+| `expireInSeconds` | Number | Lock duration |
+| `keepAlive` | Date | Timestamp for lock renewal |
 
 ### Indexes
-For formatting performance, we recommend creating the following indexes:
+For optimal performance, we recommend creating the following indexes:
 
 ```javascript
 // For polling pending events
@@ -72,8 +76,9 @@ interface MongoOutboxConfig {
   baseBackoffMs?: number;           // Base retry backoff (default: 1000ms)
   pollIntervalMs?: number;          // Polling interval (default: 1000ms)
   maxErrorBackoffMs?: number;       // Max polling error backoff (default: 30000ms)
+  processingTimeoutMs?: number;     // Processing timeout (default: 30000ms)
   batchSize?: number;               // Events per poll (default: 50)
-  onError: (error: unknown) => void; // Error handler
+  getSession?: () => ClientSession | undefined; // Optional session getter
 }
 ```
 
@@ -91,12 +96,70 @@ await client.connect();
 
 const outbox = new MongoOutbox({
   client,
-  dbName: 'myapp',
-  onError: console.error
+  dbName: 'myapp'
 });
 
 const bus = new OutboxEventBus(outbox, console.warn, console.error);
 bus.start();
+```
+
+### With Transactions (AsyncLocalStorage)
+
+Use `AsyncLocalStorage` to manage MongoDB `ClientSession` across your application, ensuring events are only persisted if the session transaction commits.
+
+```typescript
+import { MongoClient, ClientSession } from 'mongodb';
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+const client = new MongoClient('mongodb://localhost:27017');
+const als = new AsyncLocalStorage<ClientSession>();
+
+const outbox = new MongoOutbox({
+  client,
+  dbName: 'myapp',
+  getSession: () => als.getStore()
+});
+
+const bus = new OutboxEventBus(outbox, console.warn, console.error);
+
+async function createOrder(orderData: any) {
+  const session = client.startSession();
+  try {
+    await session.withTransaction(async () => {
+      await als.run(session, async () => {
+        // 1. Save business data
+        await client.db('myapp').collection('orders').insertOne(orderData, { session });
+
+        // 2. Emit event (automatically uses session from ALS via getSession)
+        await bus.emit({
+          id: crypto.randomUUID(),
+          type: 'order.created',
+          payload: orderData
+        });
+      });
+    });
+  } finally {
+    await session.endSession();
+  }
+}
+```
+
+### With Transactions (Explicit)
+
+You can also pass the MongoDB `ClientSession` explicitly to `emit`.
+
+```typescript
+const session = client.startSession();
+await session.withTransaction(async () => {
+  await client.db('myapp').collection('orders').insertOne(orderData, { session });
+
+  await bus.emit({
+    id: crypto.randomUUID(),
+    type: 'order.created',
+    payload: orderData
+  }, session); // Pass the session explicitly
+});
+session.endSession();
 ```
 
 ### With Replica Set

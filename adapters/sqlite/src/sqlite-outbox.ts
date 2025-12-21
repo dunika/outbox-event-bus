@@ -1,13 +1,9 @@
-import type { BusEvent, IOutbox } from "outbox-event-bus"
+import { type OutboxEvent, type IOutbox, type OutboxConfig, PollingService } from "outbox-event-bus"
 import Database from "better-sqlite3"
 
-export interface SqliteOutboxConfig {
+export interface SqliteOutboxConfig extends OutboxConfig {
   dbPath: string
-  getExecutor?: () => Database.Database | undefined
-  maxRetries?: number
-  baseBackoffMs?: number
-  pollIntervalMs?: number
-  batchSize?: number
+  getTransaction?: (() => Database.Database | undefined) | undefined
 }
 
 interface OutboxRow {
@@ -26,31 +22,34 @@ interface OutboxRow {
   expire_in_seconds: number
 }
 
-export class SqliteOutbox implements IOutbox {
+export class SqliteOutbox implements IOutbox<Database.Database> {
+  private readonly config: Required<SqliteOutboxConfig>
   private readonly db: Database.Database
-  private readonly getExecutor?: (() => Database.Database | undefined) | undefined
-  private readonly maxRetries: number
-  private readonly baseBackoffMs: number
-  private readonly pollIntervalMs: number
-  private readonly batchSize: number
-  private onError?: (error: unknown) => void
-
-  private isPolling = false
-  private pollTimer: NodeJS.Timeout | null = null
-  private errorCount = 0
-  private readonly maxErrorBackoffMs = 30000
+  private readonly poller: PollingService
 
   constructor(config: SqliteOutboxConfig) {
+    this.config = {
+      batchSize: config.batchSize ?? 50,
+      pollIntervalMs: config.pollIntervalMs ?? 1000,
+      maxRetries: config.maxRetries ?? 5,
+      baseBackoffMs: config.baseBackoffMs ?? 1000,
+      processingTimeoutMs: config.processingTimeoutMs ?? 30000,
+      maxErrorBackoffMs: config.maxErrorBackoffMs ?? 30000,
+      dbPath: config.dbPath,
+      getTransaction: config.getTransaction,
+    }
+
     this.db = new Database(config.dbPath)
     this.db.pragma("journal_mode = WAL")
     
-    this.getExecutor = config.getExecutor
-    this.maxRetries = config.maxRetries ?? 5
-    this.baseBackoffMs = config.baseBackoffMs ?? 1000
-    this.pollIntervalMs = config.pollIntervalMs ?? 1000
-    this.batchSize = config.batchSize ?? 50
-
     this.init()
+
+    this.poller = new PollingService({
+      pollIntervalMs: this.config.pollIntervalMs,
+      baseBackoffMs: this.config.baseBackoffMs,
+      maxErrorBackoffMs: this.config.maxErrorBackoffMs,
+      processBatch: (handler) => this.processBatch(handler),
+    })
   }
 
   private init() {
@@ -88,67 +87,46 @@ export class SqliteOutbox implements IOutbox {
     `)
   }
 
-  async publish(events: BusEvent[]): Promise<void> {
+  async publish(
+    events: OutboxEvent[],
+    transaction?: Database.Database,
+  ): Promise<void> {
     if (events.length === 0) return
 
-    const db = this.getExecutor?.() ?? this.db
+    const executor = transaction ?? this.config.getTransaction?.() ?? this.db
 
-    const insert = db.prepare(`
+    const insert = executor.prepare(`
       INSERT INTO outbox_events (id, type, payload, occurred_at, status)
       VALUES (?, ?, ?, ?, 'created')
     `)
 
-    db.transaction(() => {
-      for (const e of events) {
-        insert.run(e.id, e.type, JSON.stringify(e.payload), e.occurredAt.toISOString())
+    executor.transaction(() => {
+      for (const event of events) {
+        insert.run(
+          event.id,
+          event.type,
+          JSON.stringify(event.payload),
+          event.occurredAt.toISOString()
+        )
       }
     })()
   }
 
   start(
-    handler: (events: BusEvent[]) => Promise<void>,
+    handler: (events: OutboxEvent[]) => Promise<void>,
     onError: (error: unknown) => void
   ): void {
-    this.onError = onError
-    if (this.isPolling) return
-    this.isPolling = true
-    void this.poll(handler)
+    this.poller.start(handler, onError)
   }
 
   async stop(): Promise<void> {
-    this.isPolling = false
-    if (this.pollTimer) {
-      clearTimeout(this.pollTimer)
-      this.pollTimer = null
-    }
+    await this.poller.stop()
     // Wait a bit to ensure any in-flight transactions complete
     await new Promise(resolve => setTimeout(resolve, 100))
     this.db.close()
   }
 
-  private async poll(handler: (events: BusEvent[]) => Promise<void>) {
-    if (!this.isPolling) return
-
-    try {
-      await this.processBatch(handler)
-      this.errorCount = 0
-    } catch (error) {
-      this.onError?.(error)
-      this.errorCount++
-    } finally {
-      if (this.isPolling) {
-        const backoff = Math.min(
-          this.pollIntervalMs * Math.pow(2, this.errorCount),
-          this.maxErrorBackoffMs
-        )
-        this.pollTimer = setTimeout(() => {
-          void this.poll(handler)
-        }, backoff)
-      }
-    }
-  }
-
-  private async processBatch(handler: (events: BusEvent[]) => Promise<void>) {
+  private async processBatch(handler: (events: OutboxEvent[]) => Promise<void>) {
     const now = new Date().toISOString()
 
     const lockedEvents = this.db.transaction(() => {
@@ -158,7 +136,7 @@ export class SqliteOutbox implements IOutbox {
         OR (status = 'failed' AND retry_count < ? AND next_retry_at <= ?)
         OR (status = 'active' AND datetime(keep_alive, '+' || expire_in_seconds || ' seconds') < datetime(?))
         LIMIT ?
-      `).all(this.maxRetries, now, now, this.batchSize) as OutboxRow[]
+      `).all(this.config.maxRetries, now, now, this.config.batchSize) as OutboxRow[]
 
       if (rows.length === 0) return []
 
@@ -181,7 +159,7 @@ export class SqliteOutbox implements IOutbox {
 
     if (lockedEvents.length === 0) return
 
-    const busEvents: BusEvent[] = lockedEvents.map((e) => ({
+    const busEvents: OutboxEvent[] = lockedEvents.map((e) => ({
       id: e.id,
       type: e.type,
       payload: JSON.parse(e.payload),
@@ -226,7 +204,7 @@ export class SqliteOutbox implements IOutbox {
         const msNow = Date.now()
         for (const e of lockedEvents) {
           const nextRetryCount = e.retry_count + 1
-          const delay = this.baseBackoffMs * 2 ** (nextRetryCount - 1)
+          const delay = this.poller.calculateBackoff(nextRetryCount)
           const nextRetryAt = new Date(msNow + delay).toISOString()
           
           updateFailure.run(errorMessage, nextRetryAt, e.id)

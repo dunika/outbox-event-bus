@@ -46,7 +46,7 @@ npm install @outbox-event-bus/sqs-publisher
 interface SQSPublisherConfig {
   sqsClient: SQSClient;   // AWS SDK v3 SQS client
   queueUrl: string;       // Target SQS Queue URL
-  onError?: ErrorHandler; // Error callback
+  retryOptions?: RetryOptions; // Application-level retry logic
 }
 ```
 
@@ -60,8 +60,7 @@ import { SQSPublisher } from '@outbox-event-bus/sqs-publisher';
 
 const publisher = new SQSPublisher(bus, {
   sqsClient: new SQSClient({ region: 'us-east-1' }),
-  queueUrl: process.env.QUEUE_URL!,
-  onError: (err) => console.error('SQS Publish Error:', err)
+  queueUrl: process.env.QUEUE_URL!
 });
 
 publisher.subscribe(['*']);
@@ -82,8 +81,17 @@ Messages are published to SQS with:
 ### SDK Retries
 The AWS SDK handles transient errors automatically.
 
-### `onError`
-Permanent errors are passed to this handler.
+### Application-Level Retries
+Configure application-level retries for extra resiliency:
+```typescript
+const publisher = new SQSPublisher(bus, {
+  // ...
+  retryOptions: {
+    maxAttempts: 3,
+    initialDelayMs: 1000
+  }
+});
+```
 
 ## Troubleshooting
 

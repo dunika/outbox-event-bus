@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { DynamoDBClient, CreateTableCommand } from "@aws-sdk/client-dynamodb";
 import { DynamoDBOutbox } from "./index";
 import { OutboxEventBus } from "outbox-event-bus";
@@ -62,7 +62,6 @@ describe("DynamoDBOutbox E2E", () => {
             tableName,
             statusIndexName: indexName,
             pollIntervalMs: 100,
-            onError: (err) => console.error("Outbox error:", err)
         });
 
         const eventBus = new OutboxEventBus(
@@ -102,7 +101,6 @@ describe("DynamoDBOutbox E2E", () => {
             statusIndexName: indexName,
             pollIntervalMs: 100,
             baseBackoffMs: 100,
-            onError: () => {}, // Expected error, no-op
         });
 
         let attempts = 0;
@@ -122,7 +120,7 @@ describe("DynamoDBOutbox E2E", () => {
         // Wait for DynamoDB GSI to become consistent
         await new Promise(resolve => setTimeout(resolve, 800));
 
-        await outbox.start(handler);
+        await outbox.start(handler, () => {}); // Expected error, no-op
 
         // Wait for first attempt (100ms) + backoff (100ms) + second attempt (100ms)
         // 1500ms should be plenty
@@ -140,7 +138,6 @@ describe("DynamoDBOutbox E2E", () => {
             statusIndexName: indexName,
             pollIntervalMs: 100,
             processingTimeoutMs: 1000,
-            onError: (err) => console.error("Outbox error:", err)
         });
 
         const eventId = `stuck-${Date.now()}`;
@@ -165,7 +162,7 @@ describe("DynamoDBOutbox E2E", () => {
         const received: any[] = [];
         await outbox.start(async (events) => {
             received.push(...events);
-        });
+        }, (err) => console.error("Outbox error:", err));
 
         // Wait for recovery poll
         await new Promise(resolve => setTimeout(resolve, 1500));
@@ -173,5 +170,66 @@ describe("DynamoDBOutbox E2E", () => {
         expect(received.some(e => e.id === eventId)).toBe(true);
 
         await outbox.stop();
+    });
+
+    it("should handle concurrent processing safely", async () => {
+        const eventCount = 50;
+        const events = Array.from({ length: eventCount }).map((_, i) => ({
+            id: `concurrent-${i}-${Date.now()}`,
+            type: "concurrent.test",
+            payload: { index: i },
+            occurredAt: new Date()
+        }));
+
+        const outbox = new DynamoDBOutbox({
+            client,
+            tableName,
+            statusIndexName: indexName,
+            pollIntervalMs: 100,
+        });
+        await outbox.publish(events);
+        await outbox.stop();
+
+        // 2. Start multiple outbox workers
+        const workerCount = 5;
+        const processedEvents: any[] = [];
+        const workers: DynamoDBOutbox[] = [];
+
+        const handler = async (events: any[]) => {
+            await new Promise((resolve) => setTimeout(resolve, Math.random() * 50));
+            processedEvents.push(...events);
+        };
+
+        for (let i = 0; i < workerCount; i++) {
+            // Re-use client for dynamoDB local (it supports concurrent requests)
+            const worker = new DynamoDBOutbox({
+                client,
+                tableName,
+                statusIndexName: indexName,
+                pollIntervalMs: 100 + (Math.random() * 50),
+                batchSize: 5,
+            });
+            workers.push(worker);
+            worker.start(handler, (err) => console.error(`Worker ${i} Error:`, err));
+        }
+
+        // 3. Wait for processing
+        const maxWaitTime = 10000;
+        const startTime = Date.now();
+        
+        while (processedEvents.length < eventCount && (Date.now() - startTime) < maxWaitTime) {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+
+        // 4. Verify results
+        await Promise.all(workers.map(w => w.stop()));
+
+        // Check count
+        expect(processedEvents).toHaveLength(eventCount);
+
+        // Check duplicates
+        const ids = processedEvents.map(e => e.id);
+        const uniqueIds = new Set(ids);
+        expect(uniqueIds.size).toBe(eventCount);
     });
 });

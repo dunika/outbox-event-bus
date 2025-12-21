@@ -29,7 +29,7 @@ publisher.subscribe(['user.*']);
 **Consider alternatives when:**
 - You need **complex routing** (use RabbitMQ).
 - You want **managed AWS services** (use SNS/EventBridge).
-- You require **exactly-once processing** (no system is perfect, but Kafka has better supports for this).
+- You require **exactly-once processing** (no system is perfect, but Kafka has better support for this).
 
 ## Installation
 
@@ -45,7 +45,6 @@ npm install @outbox-event-bus/redis-streams-publisher ioredis
 interface RedisStreamsPublisherConfig {
   redisClient: Redis;    // ioredis client instance
   streamKey: string;     // Key of the Redis Stream
-  onError?: ErrorHandler; // Error callback
   retryOptions?: RetryOptions; // Application-level retry logic
 }
 ```
@@ -60,8 +59,7 @@ import { RedisStreamsPublisher } from '@outbox-event-bus/redis-streams-publisher
 
 const publisher = new RedisStreamsPublisher(bus, {
   redisClient: new Redis(),
-  streamKey: 'logs',
-  onError: (err) => console.error('Redis Stream Error:', err)
+  streamKey: 'logs'
 });
 
 publisher.subscribe(['*']);
@@ -96,7 +94,9 @@ const publisher = new RedisStreamsPublisher(bus, {
 });
 ```
 
-The publisher will pass any terminal Redis errors to the `onError` handler.
+
+
+The publisher will propagate any terminal Redis errors to the `OutboxEventBus` error handler.
 
 ## Troubleshooting
 

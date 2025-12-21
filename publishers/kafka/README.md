@@ -50,7 +50,6 @@ npm install @outbox-event-bus/kafka-publisher kafkajs
 interface KafkaPublisherConfig {
   producer: Producer;        // KafkaJS producer instance
   topic: string;             // Target Kafka topic
-  onError?: ErrorHandler;    // Error callback
   retryOptions?: RetryOptions; // Application-level retry logic
 }
 ```
@@ -69,8 +68,7 @@ await producer.connect();
 
 const publisher = new KafkaPublisher(bus, {
   producer,
-  topic: 'events',
-  onError: (err) => console.error('Kafka Publish Error:', err)
+  topic: 'events'
 });
 
 publisher.subscribe(['*']);

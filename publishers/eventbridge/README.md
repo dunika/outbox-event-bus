@@ -48,7 +48,6 @@ interface EventBridgePublisherConfig {
   eventBridgeClient: EventBridgeClient; // AWS SDK v3 EventBridge client
   eventBusName?: string;                // Target event bus (default: 'default')
   source: string;                       // Your application identifier
-  onError?: ErrorHandler;               // Error callback
   retryOptions?: RetryOptions;           // Application-level retry logic
 }
 ```
@@ -63,8 +62,7 @@ import { EventBridgePublisher } from '@outbox-event-bus/eventbridge-publisher';
 
 const publisher = new EventBridgePublisher(bus, {
   eventBridgeClient: new EventBridgeClient({ region: 'us-east-1' }),
-  source: 'com.mycompany.order-service',
-  onError: (error) => console.error('EventBridge Publish Error:', error)
+  source: 'com.mycompany.order-service'
 });
 
 publisher.subscribe(['order.*']);
@@ -100,11 +98,11 @@ const publisher = new EventBridgePublisher(bus, {
     initialDelayMs: 1000
   }
 });
-```
-```
 
-### `onError` Callback
-Permanent failures (permissions, invalid parameters) trigger the `onError` handler. If no handler is provided, the error will bubble up to the `OutboxEventBus`.
+
+
+### Error Propagation
+Permanent failures (permissions, invalid parameters) will bubble up to the `OutboxEventBus` error handler.
 
 ## Troubleshooting
 

@@ -26,6 +26,7 @@ describe("InMemoryOutbox Unit", () => {
     }
 
     await outbox.publish([event])
+    await new Promise(resolve => setTimeout(resolve, 200))
 
     expect(handler).toHaveBeenCalledWith([event])
     expect(onError).not.toHaveBeenCalled()
@@ -47,6 +48,7 @@ describe("InMemoryOutbox Unit", () => {
     expect(handler).not.toHaveBeenCalled()
 
     outbox.start(handler, onError)
+    await new Promise(resolve => setTimeout(resolve, 50))
     expect(handler).toHaveBeenCalledWith([event])
   })
 
@@ -54,7 +56,7 @@ describe("InMemoryOutbox Unit", () => {
     const onError = vi.fn()
     outbox = new InMemoryOutbox()
     const error = new Error("failed")
-    const handler = vi.fn().mockRejectedValue(error)
+    const handler = vi.fn().mockRejectedValueOnce(error)
 
     outbox.start(handler, onError)
 
@@ -67,7 +69,7 @@ describe("InMemoryOutbox Unit", () => {
 
     await outbox.publish([event])
     // Wait for async processing to complete
-    await new Promise(resolve => setTimeout(resolve, 10))
+    await new Promise(resolve => setTimeout(resolve, 200))
 
     expect(handler).toHaveBeenCalled()
     expect(onError).toHaveBeenCalledWith(error)

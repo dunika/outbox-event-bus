@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { PrismaClient, OutboxStatus } from "@prisma/client"
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest"
 import { OutboxEventBus } from "../../../core/src/outbox-event-bus"
-import { PostgresPrismaOutbox } from "./index"
+import { PostgresPrismaOutbox, withPrismaTransaction, getPrismaTransaction } from "./index"
 import { execSync } from "child_process"
 import { randomUUID } from "node:crypto"
 
@@ -45,7 +45,6 @@ describe("PostgresPrisma Outbox Transactions with AsyncLocalStorage", () => {
     const outbox = new PostgresPrismaOutbox({
       prisma,
       getExecutor: () => als.getStore(),
-      onError: () => {},
     })
 
     const eventBus = new OutboxEventBus(outbox, () => {}, () => {})
@@ -53,9 +52,9 @@ describe("PostgresPrisma Outbox Transactions with AsyncLocalStorage", () => {
     const eventId = randomUUID()
     
     // Using $transaction
-    await prisma.$transaction(async (tx) => {
-      await als.run(tx as any, async () => {
-        // In a real app, you'd do: await tx.user.create(...)
+    await prisma.$transaction(async (transaction) => {
+      await als.run(transaction as any, async () => {
+        // In a real app, you'd do: await transaction.user.create(...)
         
         // For this test, we'll just emit an event
         await eventBus.emit({
@@ -77,7 +76,6 @@ describe("PostgresPrisma Outbox Transactions with AsyncLocalStorage", () => {
     const outbox = new PostgresPrismaOutbox({
       prisma,
       getExecutor: () => als.getStore(),
-      onError: () => {},
     })
 
     const eventBus = new OutboxEventBus(outbox, () => {}, () => {})
@@ -85,8 +83,8 @@ describe("PostgresPrisma Outbox Transactions with AsyncLocalStorage", () => {
     const eventId = randomUUID()
 
     try {
-      await prisma.$transaction(async (tx) => {
-        await als.run(tx as any, async () => {
+      await prisma.$transaction(async (transaction) => {
+        await als.run(transaction as any, async () => {
           await eventBus.emit({
             id: eventId,
             type: "TEST_ROLLBACK",

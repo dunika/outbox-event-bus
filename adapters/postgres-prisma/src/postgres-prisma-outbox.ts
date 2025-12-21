@@ -1,42 +1,40 @@
 import { PrismaClient, OutboxStatus, type OutboxEvent } from "@prisma/client"
-import type { BusEvent, IOutbox } from "outbox-event-bus"
+import { type OutboxEvent as BusOutboxEvent, type IOutbox, type OutboxConfig, type ResolvedOutboxConfig, PollingService } from "outbox-event-bus"
 
-export interface PostgresPrismaOutboxConfig {
+export interface PostgresPrismaOutboxConfig extends OutboxConfig {
   prisma: PrismaClient
-  getExecutor?: () => PrismaClient | undefined
-  maxRetries?: number
-  baseBackoffMs?: number
-  pollIntervalMs?: number
-  batchSize?: number
+  getTransaction?: (() => PrismaClient | undefined) | undefined
 }
 
-export class PostgresPrismaOutbox implements IOutbox {
-  private readonly prisma: PrismaClient
-  private readonly getExecutor?: (() => PrismaClient | undefined) | undefined
-  private readonly maxRetries: number
-  private readonly baseBackoffMs: number
-  private readonly batchSize: number
-  private readonly pollIntervalMs: number
-  private onError?: (error: unknown) => void
-
-  private isPolling = false
-  private pollTimer: NodeJS.Timeout | null = null
-  private errorCount = 0
-  private readonly maxErrorBackoffMs = 30000
+export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
+  private readonly config: Required<PostgresPrismaOutboxConfig>
+  private readonly poller: PollingService
 
   constructor(config: PostgresPrismaOutboxConfig) {
-    this.prisma = config.prisma
-    this.getExecutor = config.getExecutor
-    this.maxRetries = config.maxRetries ?? 5
-    this.baseBackoffMs = config.baseBackoffMs ?? 1000
-    this.pollIntervalMs = config.pollIntervalMs ?? 1000
-    this.batchSize = config.batchSize ?? 50
+    this.config = {
+      prisma: config.prisma,
+      batchSize: config.batchSize ?? 50,
+      pollIntervalMs: config.pollIntervalMs ?? 1000,
+      maxRetries: config.maxRetries ?? 5,
+      baseBackoffMs: config.baseBackoffMs ?? 1000,
+      processingTimeoutMs: config.processingTimeoutMs ?? 30000,
+      maxErrorBackoffMs: config.maxErrorBackoffMs ?? 30000,
+      getTransaction: config.getTransaction,
+    }
+
+    this.poller = new PollingService({
+      pollIntervalMs: this.config.pollIntervalMs,
+      baseBackoffMs: this.config.baseBackoffMs,
+      maxErrorBackoffMs: this.config.maxErrorBackoffMs,
+      processBatch: (handler) => this.processBatch(handler),
+    })
   }
 
   async publish(
-    events: BusEvent[],
+    events: BusOutboxEvent[],
+    transaction?: PrismaClient,
   ): Promise<void> {
-    const executor = this.getExecutor?.() ?? this.prisma
+    const executor = transaction ?? this.config.getTransaction?.() ?? this.config.prisma
 
     await executor.outboxEvent.createMany({
       data: events.map((e) => ({
@@ -50,57 +48,27 @@ export class PostgresPrismaOutbox implements IOutbox {
   }
 
   start(
-    handler: (events: BusEvent[]) => Promise<void>,
+    handler: (events: BusOutboxEvent[]) => Promise<void>,
     onError: (error: unknown) => void
   ): void {
-    this.onError = onError
-    if (this.isPolling) return
-    this.isPolling = true
-    void this.poll(handler)
+    this.poller.start(handler, onError)
   }
 
   async stop(): Promise<void> {
-    this.isPolling = false
-    if (this.pollTimer) {
-      clearTimeout(this.pollTimer)
-      this.pollTimer = null
-    }
+    await this.poller.stop()
   }
 
-  private async poll(handler: (events: BusEvent[]) => Promise<void>) {
-    if (!this.isPolling) return
-
-    try {
-      await this.processBatch(handler)
-      this.errorCount = 0 // Reset on success
-    } catch (error) {
-      this.onError?.(error)
-      this.errorCount++
-    } finally {
-      if (this.isPolling) {
-        const backoff = Math.min(
-          this.pollIntervalMs * Math.pow(2, this.errorCount),
-          this.maxErrorBackoffMs
-        )
-        this.pollTimer = setTimeout(() => {
-          void this.poll(handler)
-        }, backoff)
-      }
-    }
-  }
-
-  private async processBatch(handler: (events: BusEvent[]) => Promise<void>) {
-    // We use a transaction to lock rows and process them
-    await this.prisma.$transaction(async (tx) => {
+  private async processBatch(handler: (events: BusOutboxEvent[]) => Promise<void>) {
+    await this.config.prisma.$transaction(async (transaction) => {
       const now = new Date()
 
       // Use raw query to support SKIP LOCKED which is not available in standard Prisma API
-      const events = await tx.$queryRaw<OutboxEvent[]>`
+      const events = await transaction.$queryRaw<OutboxEvent[]>`
         SELECT * FROM "outbox_events"
         WHERE "status" = 'created'::outbox_status
-           OR ("status" = 'failed'::outbox_status AND "retry_count" < ${this.maxRetries} AND "next_retry_at" < ${now})
+           OR ("status" = 'failed'::outbox_status AND "retry_count" < ${this.config.maxRetries} AND "next_retry_at" < ${now})
            OR ("status" = 'active'::outbox_status AND "keep_alive" < ${now}::timestamp - make_interval(secs => "expire_in_seconds"))
-        LIMIT ${this.batchSize}
+        LIMIT ${this.config.batchSize}
         FOR UPDATE SKIP LOCKED
       `
       if (events.length === 0) return
@@ -108,7 +76,7 @@ export class PostgresPrismaOutbox implements IOutbox {
       const eventIds = events.map((e) => e.id)
 
       // Mark as active
-      await tx.outboxEvent.updateMany({
+      await transaction.outboxEvent.updateMany({
         where: { id: { in: eventIds } },
         data: {
           status: OutboxStatus.active,
@@ -126,48 +94,56 @@ export class PostgresPrismaOutbox implements IOutbox {
 
       try {
         await handler(busEvents)
-
-        // Archive successfully processed events
-        await tx.outboxEventArchive.createMany({
-          data: events.map((e: any) => ({
-            id: e.id,
-            type: e.type,
-            payload: e.payload,
-            occurredAt: e.occurred_at,
-            status: OutboxStatus.completed,
-            retryCount: e.retry_count,
-            createdOn: e.created_on,
-            startedOn: now,
-            completedOn: new Date(),
-          })),
-        })
-
-        // Delete from main table
-        await tx.outboxEvent.deleteMany({
-          where: { id: { in: eventIds } },
-        })
+        await this.handleJobSuccess(transaction, events, eventIds, now)
       } catch (e: unknown) {
-        this.onError(e)
-        const msNow = Date.now()
-        
-        // Handle failure for each event
-        await Promise.all(
-          events.map((event: any) => {
-            const retryCount = event.retry_count + 1
-            const delay = this.baseBackoffMs * 2 ** (retryCount - 1)
-
-            return tx.outboxEvent.update({
-              where: { id: event.id },
-              data: {
-                status: OutboxStatus.failed,
-                retryCount,
-                lastError: e instanceof Error ? e.message : String(e),
-                nextRetryAt: new Date(msNow + delay),
-              },
-            })
-          })
-        )
+        this.poller.onError?.(e)
+        await this.handleJobFailure(transaction, events, e)
       }
     })
   }
+
+  private async handleJobSuccess(transaction: unknown, events: OutboxEvent[], eventIds: string[], now: Date) {
+    // Archive successfully processed events
+    await (transaction as any).outboxEventArchive.createMany({
+      data: events.map((e: any) => ({
+        id: e.id,
+        type: e.type,
+        payload: e.payload,
+        occurredAt: e.occurred_at,
+        status: OutboxStatus.completed,
+        retryCount: e.retry_count,
+        createdOn: e.created_on,
+        startedOn: now,
+        completedOn: new Date(),
+      })),
+    })
+
+    // Delete from main table
+    await (transaction as any).outboxEvent.deleteMany({
+      where: { id: { in: eventIds } },
+    })
+  }
+
+  private async handleJobFailure(transaction: unknown, events: OutboxEvent[], error: unknown) {
+    const msNow = Date.now()
+    
+    // Handle failure for each event
+    await Promise.all(
+      events.map((event: any) => {
+        const retryCount = event.retry_count + 1
+        const delay = this.poller.calculateBackoff(retryCount)
+
+        return (transaction as any).outboxEvent.update({
+          where: { id: event.id },
+          data: {
+            status: OutboxStatus.failed,
+            retryCount,
+            lastError: error instanceof Error ? error.message : String(error),
+            nextRetryAt: new Date(msNow + delay),
+          },
+        })
+      })
+    )
+  }
+
 }

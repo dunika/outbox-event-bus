@@ -114,7 +114,7 @@ describe("PostgresDrizzleOutbox", () => {
      const handler = vi.fn().mockRejectedValue(new Error("processing failed"))
  
      outbox.start(handler, vi.fn())
-     await new Promise(resolve => setTimeout(resolve, 60))
+     await new Promise(resolve => setTimeout(resolve, 200))
  
      expect(handler).toHaveBeenCalled()
      

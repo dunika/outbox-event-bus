@@ -1,14 +1,14 @@
 import { and, eq, inArray, lt, or, sql } from "drizzle-orm"
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js"
-import { type BusEvent, type IOutbox, type OutboxConfig, type ResolvedOutboxConfig, PollingService } from "outbox-event-bus"
+import { type OutboxEvent, type IOutbox, type OutboxConfig, type ResolvedOutboxConfig, PollingService } from "outbox-event-bus"
 import { outboxEvents, outboxEventsArchive } from "./schema"
 
 export interface PostgresDrizzleOutboxConfig extends OutboxConfig {
   db: PostgresJsDatabase<Record<string, unknown>>
-  getExecutor?: (() => PostgresJsDatabase<Record<string, unknown>> | undefined) | undefined
+  getTransaction?: (() => PostgresJsDatabase<Record<string, unknown>> | undefined) | undefined
 }
 
-export class PostgresDrizzleOutbox implements IOutbox {
+export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<string, unknown>>> {
   private readonly config: Required<PostgresDrizzleOutboxConfig>
   private readonly poller: PollingService
 
@@ -21,7 +21,7 @@ export class PostgresDrizzleOutbox implements IOutbox {
       processingTimeoutMs: config.processingTimeoutMs ?? 30000,
       maxErrorBackoffMs: config.maxErrorBackoffMs ?? 30000,
       db: config.db,
-      getExecutor: config.getExecutor,
+      getTransaction: config.getTransaction,
     }
 
     this.poller = new PollingService(
@@ -35,23 +35,24 @@ export class PostgresDrizzleOutbox implements IOutbox {
   }
 
   async publish(
-    events: BusEvent[],
+    events: OutboxEvent[],
+    transaction?: PostgresJsDatabase<Record<string, unknown>>,
   ): Promise<void> {
-    const executor = this.config.getExecutor?.() ?? this.config.db
+    const executor = transaction ?? this.config.getTransaction?.() ?? this.config.db
 
     await executor.insert(outboxEvents).values(
       events.map((e) => ({
         id: e.id,
         type: e.type,
         payload: e.payload,
-        occurredAt: e.occurredAt ?? new Date(),
+        occurredAt: e.occurredAt,
         status: "created" as const,
       }))
     )
   }
 
   start(
-    handler: (events: BusEvent[]) => Promise<void>,
+    handler: (events: OutboxEvent[]) => Promise<void>,
     onError: (error: unknown) => void
   ): void {
     this.poller.start(handler, onError)
@@ -61,11 +62,11 @@ export class PostgresDrizzleOutbox implements IOutbox {
     await this.poller.stop()
   }
 
-  private async processBatch(handler: (events: BusEvent[]) => Promise<void>) {
-    await this.config.db.transaction(async (tx) => {
+  private async processBatch(handler: (events: OutboxEvent[]) => Promise<void>) {
+    await this.config.db.transaction(async (transaction) => {
       const now = new Date()
 
-      const events = await tx
+      const events = await transaction
         .select()
         .from(outboxEvents)
         .where(
@@ -92,7 +93,7 @@ export class PostgresDrizzleOutbox implements IOutbox {
 
       const eventIds = events.map((e) => e.id)
 
-      await tx
+      await transaction
         .update(outboxEvents)
         .set({
           status: "active",
@@ -110,41 +111,58 @@ export class PostgresDrizzleOutbox implements IOutbox {
 
       try {
         await handler(busEvents)
-
-        await tx.insert(outboxEventsArchive).values(
-          events.map((e) => ({
-            id: e.id,
-            type: e.type,
-            payload: e.payload,
-            occurredAt: e.occurredAt,
-            status: "completed" as const,
-            retryCount: e.retryCount,
-            createdOn: e.createdOn,
-            startedOn: now,
-            completedOn: new Date(),
-          }))
-        )
-
-        await tx.delete(outboxEvents).where(inArray(outboxEvents.id, eventIds))
+        await this.handleJobSuccess(transaction, events, eventIds, now)
       } catch (e: unknown) {
-        const msNow = Date.now()
-        await Promise.all(
-          events.map((event) => {
-            const retryCount = event.retryCount + 1
-            const delay = this.poller.calculateBackoff(retryCount)
-
-            return tx
-              .update(outboxEvents)
-              .set({
-                status: "failed",
-                retryCount,
-                lastError: e instanceof Error ? e.message : String(e),
-                nextRetryAt: new Date(msNow + delay),
-              })
-              .where(eq(outboxEvents.id, event.id))
-          })
-        )
+        this.poller.onError?.(e)
+        await this.handleJobFailure(transaction, events, e)
       }
     })
+  }
+
+  private async handleJobSuccess(
+    transaction: PostgresJsDatabase<Record<string, unknown>>,
+    events: any[],
+    eventIds: string[],
+    now: Date
+  ) {
+    await transaction.insert(outboxEventsArchive).values(
+      events.map((e: any) => ({
+        id: e.id,
+        type: e.type,
+        payload: e.payload,
+        occurredAt: e.occurredAt,
+        status: "completed" as const,
+        retryCount: e.retryCount,
+        createdOn: e.createdOn,
+        startedOn: now,
+        completedOn: new Date(),
+      }))
+    )
+
+    await transaction.delete(outboxEvents).where(inArray(outboxEvents.id, eventIds))
+  }
+
+  private async handleJobFailure(
+    transaction: PostgresJsDatabase<Record<string, unknown>>,
+    events: any[],
+    error: unknown
+  ) {
+    const msNow = Date.now()
+    await Promise.all(
+      events.map((event: any) => {
+        const retryCount = event.retryCount + 1
+        const delay = this.poller.calculateBackoff(retryCount)
+
+        return transaction
+          .update(outboxEvents)
+          .set({
+            status: "failed",
+            retryCount,
+            lastError: error instanceof Error ? error.message : String(error),
+            nextRetryAt: new Date(msNow + delay),
+          })
+          .where(eq(outboxEvents.id, event.id))
+      })
+    )
   }
 }

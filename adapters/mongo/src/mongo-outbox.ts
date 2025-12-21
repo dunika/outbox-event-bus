@@ -1,10 +1,11 @@
-import { ObjectId, type Collection, type MongoClient } from "mongodb"
-import { type BusEvent, type IOutbox, type OutboxConfig, type ResolvedOutboxConfig, PollingService } from "outbox-event-bus"
+import { ObjectId, type Collection, type MongoClient, type ClientSession } from "mongodb"
+import { type OutboxEvent, type IOutbox, type OutboxConfig, type ResolvedOutboxConfig, PollingService } from "outbox-event-bus"
 
 export interface MongoOutboxConfig extends OutboxConfig {
   client: MongoClient
   dbName: string
   collectionName?: string
+  getSession?: (() => ClientSession | undefined) | undefined
 }
 
 interface OutboxDocument {
@@ -23,7 +24,7 @@ interface OutboxDocument {
   keepAlive: Date
 }
 
-export class MongoOutbox implements IOutbox {
+export class MongoOutbox implements IOutbox<ClientSession> {
   private readonly config: Required<MongoOutboxConfig>
   private readonly collection: Collection<OutboxDocument>
   private readonly poller: PollingService
@@ -39,6 +40,7 @@ export class MongoOutbox implements IOutbox {
       collectionName: config.collectionName ?? "outbox_events",
       client: config.client,
       dbName: config.dbName,
+      getSession: config.getSession,
     }
     
     this.collection = config.client
@@ -55,28 +57,31 @@ export class MongoOutbox implements IOutbox {
     )
   }
 
-  async publish(events: BusEvent[]): Promise<void> {
+  async publish(events: OutboxEvent[], transaction?: ClientSession): Promise<void> {
     if (events.length === 0) return
 
-    const now = new Date()
     const documents: OutboxDocument[] = events.map((e) => ({
       _id: new ObjectId(),
       eventId: e.id,
       type: e.type,
       payload: e.payload,
-      occurredAt: e.occurredAt ?? now,
+      occurredAt: e.occurredAt,
       status: "created",
       retryCount: 0,
-      nextRetryAt: now,
+      nextRetryAt: e.occurredAt,
       expireInSeconds: 60,
-      keepAlive: now,
+      keepAlive: e.occurredAt,
     }))
 
-    await this.collection.insertMany(documents)
+    const session = transaction ?? this.config.getSession?.()
+
+    await this.collection.insertMany(documents, { 
+      ...(session ? { session } : {})
+    })
   }
 
   start(
-    handler: (events: BusEvent[]) => Promise<void>,
+    handler: (events: OutboxEvent[]) => Promise<void>,
     onError: (error: unknown) => void
   ): void {
     this.poller.start(handler, onError)
@@ -86,7 +91,7 @@ export class MongoOutbox implements IOutbox {
     await this.poller.stop()
   }
 
-  private async processBatch(handler: (events: BusEvent[]) => Promise<void>) {
+  private async processBatch(handler: (events: OutboxEvent[]) => Promise<void>) {
     const now = new Date()
 
     const lockedEvents: OutboxDocument[] = []
@@ -102,8 +107,17 @@ export class MongoOutbox implements IOutbox {
               nextRetryAt: { $lt: now },
             },
             {
-              status: "active",
-              keepAlive: { $lt: now },
+              $expr: {
+                $lt: [
+                  "$keepAlive",
+                  {
+                    $subtract: [
+                      now,
+                      { $multiply: ["$expireInSeconds", 1000] }
+                    ]
+                  }
+                ]
+              }
             },
           ],
         },
@@ -123,7 +137,7 @@ export class MongoOutbox implements IOutbox {
 
     if (lockedEvents.length === 0) return
 
-    const busEvents: BusEvent[] = lockedEvents.map((e) => ({
+    const busEvents: OutboxEvent[] = lockedEvents.map((e) => ({
       id: e.eventId,
       type: e.type,
       payload: e.payload,

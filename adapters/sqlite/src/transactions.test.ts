@@ -1,15 +1,13 @@
-import { AsyncLocalStorage } from "node:async_hooks"
 import Database from "better-sqlite3"
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest"
 import { OutboxEventBus } from "../../../core/src/outbox-event-bus"
-import { SqliteOutbox } from "./index"
+import { SqliteOutbox, withSqliteTransaction, getSqliteTransaction } from "./index"
 import { unlinkSync, existsSync } from "fs"
 
 const DB_PATH = "./test-transactions.db"
 
 describe("SqliteOutbox Transactions with AsyncLocalStorage", () => {
   let db: Database.Database
-  const als = new AsyncLocalStorage<Database.Database>()
 
   beforeAll(() => {
     if (existsSync(DB_PATH)) {
@@ -28,15 +26,13 @@ describe("SqliteOutbox Transactions with AsyncLocalStorage", () => {
   })
 
   beforeEach(() => {
-    // We don't need to manually clear outbox_events if SqliteOutbox init() is called 
-    // but building the outbox will call init() which creates the tables.
+    // Tables are created by init() in constructor
   })
 
   it("should commit both business data and outbox event in a transaction", async () => {
     const outbox = new SqliteOutbox({
       dbPath: DB_PATH,
-      getExecutor: () => als.getStore(),
-      onError: () => {},
+      getTransaction: getSqliteTransaction(),
     })
 
     const eventBus = new OutboxEventBus(outbox, () => {}, () => {})
@@ -47,23 +43,18 @@ describe("SqliteOutbox Transactions with AsyncLocalStorage", () => {
     const eventId = "event-commit"
     const userId = "user-commit"
 
-    // Use better-sqlite3 transaction
-    const tx = db.transaction(() => {
+    // Use withSqliteTransaction helper
+    await withSqliteTransaction(db, async () => {
       // 1. Business logic
       db.prepare("INSERT INTO users (id, name) VALUES (?, ?)").run(userId, "Alice")
 
       // 2. Emit event
-      eventBus.emit({
+      await eventBus.emit({
         id: eventId,
         type: "USER_CREATED",
         payload: { userId },
         occurredAt: new Date(),
       })
-    })
-
-    // Run in ALS context
-    await als.run(db, async () => {
-        tx()
     })
 
     // Verify
@@ -77,8 +68,7 @@ describe("SqliteOutbox Transactions with AsyncLocalStorage", () => {
   it("should rollback both business data and outbox event on failure", async () => {
     const outbox = new SqliteOutbox({
       dbPath: DB_PATH,
-      getExecutor: () => als.getStore(),
-      onError: () => {},
+      getTransaction: getSqliteTransaction(),
     })
 
     const eventBus = new OutboxEventBus(outbox, () => {}, () => {})
@@ -86,23 +76,87 @@ describe("SqliteOutbox Transactions with AsyncLocalStorage", () => {
     const eventId = "event-rollback"
     const userId = "user-rollback"
 
-    const tx = db.transaction(() => {
-      db.prepare("INSERT INTO users (id, name) VALUES (?, ?)").run(userId, "Bob")
+    try {
+      await withSqliteTransaction(db, async () => {
+        db.prepare("INSERT INTO users (id, name) VALUES (?, ?)").run(userId, "Bob")
+
+        await eventBus.emit({
+          id: eventId,
+          type: "USER_CREATED",
+          payload: { userId },
+          occurredAt: new Date(),
+        })
+
+        throw new Error("Forced rollback")
+      })
+    } catch (err) {
+      // Expected
+    }
+
+    // Verify
+    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId)
+    expect(user).toBeUndefined()
+
+    const event = db.prepare("SELECT * FROM outbox_events WHERE id = ?").get(eventId)
+    expect(event).toBeUndefined()
+  })
+
+  it("should work with explicit transaction parameter", async () => {
+    const outbox = new SqliteOutbox({
+      dbPath: DB_PATH,
+    })
+
+    const eventBus = new OutboxEventBus(outbox, () => {}, () => {})
+
+    const eventId = "event-explicit"
+    const userId = "user-explicit"
+
+    const transaction = db.transaction(() => {
+      db.prepare("INSERT INTO users (id, name) VALUES (?, ?)").run(userId, "Charlie")
 
       eventBus.emit({
         id: eventId,
         type: "USER_CREATED",
         payload: { userId },
         occurredAt: new Date(),
-      })
+      }, db) // Pass db explicitly
+    })
+
+    transaction()
+
+    // Verify
+    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId)
+    expect(user).toBeDefined()
+
+    const event = db.prepare("SELECT * FROM outbox_events WHERE id = ?").get(eventId)
+    expect(event).toBeDefined()
+  })
+
+  it("should rollback with explicit transaction parameter on failure", async () => {
+    const outbox = new SqliteOutbox({
+      dbPath: DB_PATH,
+    })
+
+    const eventBus = new OutboxEventBus(outbox, () => {}, () => {})
+
+    const eventId = "event-explicit-rollback"
+    const userId = "user-explicit-rollback"
+
+    const transaction = db.transaction(() => {
+      db.prepare("INSERT INTO users (id, name) VALUES (?, ?)").run(userId, "Dave")
+
+      eventBus.emit({
+        id: eventId,
+        type: "USER_CREATED",
+        payload: { userId },
+        occurredAt: new Date(),
+      }, db)
 
       throw new Error("Forced rollback")
     })
 
     try {
-      await als.run(db, async () => {
-          tx()
-      })
+      transaction()
     } catch (err) {
       // Expected
     }

@@ -16,8 +16,7 @@ const client = postgres(process.env.DATABASE_URL!);
 const db = drizzle(client);
 
 const outbox = new PostgresDrizzleOutbox({
-  db,
-  onError: (error) => console.error(error)
+  db
 });
 ```
 
@@ -79,13 +78,13 @@ CREATE INDEX idx_outbox_events_keepalive ON outbox_events (status, keep_alive);
 ```typescript
 interface PostgresDrizzleOutboxConfig {
   db: PostgresJsDatabase<Record<string, unknown>>;
-  getExecutor?: () => PostgresJsDatabase<Record<string, unknown>> | undefined;
+  getTransaction?: () => PostgresJsDatabase<Record<string, unknown>> | undefined;
   maxRetries?: number;              // Max retry attempts (default: 5)
   baseBackoffMs?: number;           // Base retry backoff (default: 1000ms)
   maxErrorBackoffMs?: number;       // Max polling error backoff (default: 30000ms)
+  processingTimeoutMs?: number;     // Processing timeout (default: 30000ms)
   pollIntervalMs?: number;          // Polling interval (default: 1000ms)
   batchSize?: number;               // Events per poll (default: 50)
-  onError: (error: unknown) => void; // Error handler
 }
 ```
 
@@ -103,38 +102,63 @@ const client = postgres(process.env.DATABASE_URL!);
 const db = drizzle(client);
 
 const outbox = new PostgresDrizzleOutbox({
-  db,
-  onError: console.error
+  db
 });
 
 const bus = new OutboxEventBus(outbox, console.warn, console.error);
 bus.start();
 ```
 
-### With Transactions
+### With Transactions (AsyncLocalStorage)
 
-The `getExecutor` option allows you to integrate with transactions, ensuring events are only processed if the transaction commits.
+The `getTransaction` option allows you to integrate with transactions using `AsyncLocalStorage`, ensuring events are only emitted if the transaction commits.
 
 ```typescript
-import { AsyncLocalStorage } from 'async_hooks';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 
-const txStorage = new AsyncLocalStorage<PostgresJsDatabase>();
+const als = new AsyncLocalStorage<PostgresJsDatabase<Record<string, unknown>>>();
 
 const outbox = new PostgresDrizzleOutbox({
   db,
-  getExecutor: () => txStorage.getStore(),
-  onError: console.error
+  getTransaction: () => als.getStore()
 });
 
+const bus = new OutboxEventBus(outbox, console.warn, console.error);
+
 // In your service
-async function createUser(user) {
-  await db.transaction(async (tx) => {
-    txStorage.run(tx, async () => {
+async function createUser(user: any) {
+  return await db.transaction(async (tx) => {
+    return await als.run(tx, async () => {
       await tx.insert(users).values(user);
-      await bus.emit({ type: 'user.created', payload: user });
+      
+      // The bus will automatically use the transaction from ALS via getTransaction
+      await bus.emit({ 
+        id: crypto.randomUUID(),
+        type: 'user.created', 
+        payload: user 
+      });
+      
+      return user;
     });
   });
 }
+```
+
+### With Transactions (Explicit)
+
+You can also pass the transaction database instance explicitly to `emit`.
+
+```typescript
+await db.transaction(async (tx) => {
+  await tx.insert(users).values(user);
+
+  await bus.emit({ 
+    id: crypto.randomUUID(),
+    type: 'user.created', 
+    payload: user 
+  }, tx); // Pass the transaction instance explicitly
+});
 ```
 
 ## Features

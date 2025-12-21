@@ -47,6 +47,7 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
 
       const event = createTestEvent()
       await eventBus.emit(event)
+      await vi.advanceTimersByTimeAsync(20)
 
       expect(handler).toHaveBeenCalledTimes(1)
       expect(handler).toHaveBeenCalledWith(event)
@@ -63,6 +64,7 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
 
       const event = createTestEvent()
       await eventBus.emit(event)
+      await vi.advanceTimersByTimeAsync(20)
 
       expect(handler1).toHaveBeenCalledTimes(1)
       expect(handler1).toHaveBeenCalledWith(event)
@@ -80,6 +82,7 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
       const event1 = createTestEvent()
       const event2 = createTestEvent()
       await eventBus.emitMany([event1, event2])
+      await vi.advanceTimersByTimeAsync(20)
 
       expect(handler).toHaveBeenCalledTimes(2)
       expect(handler).toHaveBeenCalledWith(event1)
@@ -103,11 +106,12 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
           name: "Test User",
         },
       })
+      await vi.advanceTimersByTimeAsync(20)
 
       expect(handler).toHaveBeenCalledTimes(1)
-      const receivedEvent = handler.mock.calls[0][0]
-      expect(receivedEvent.occurredAt).toBeInstanceOf(Date)
-      expect(receivedEvent.id).toBe("1")
+      const receivedEvent = handler.mock.calls[0]?.[0]
+      expect(receivedEvent?.occurredAt).toBeInstanceOf(Date)
+      expect(receivedEvent?.id).toBe("1")
     })
   })
 
@@ -133,6 +137,7 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
       }
 
       await bus.emit(event1)
+      await vi.advanceTimersByTimeAsync(20)
       expect(handler).toHaveBeenCalledTimes(1)
 
       const event2: BusEvent<string, unknown> = {
@@ -143,6 +148,7 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
       }
 
       await bus.emit(event2)
+      await vi.advanceTimersByTimeAsync(20)
       expect(handler).toHaveBeenCalledTimes(1)
     })
 
@@ -261,7 +267,7 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
       expect(handlerStarted).toBe(true)
       expect(handlerFinished).toBe(false)
 
-      finishHandler!()
+      finishHandler?.()
       // We need to wait for the microtask queue to process the resolution
       await Promise.resolve()
       // Or simple process pending promises
@@ -303,7 +309,7 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
       expect(handlerSpy).toHaveBeenCalled()
 
       // Allow handler to finish
-      resolveHandler!()
+      resolveHandler?.()
 
       // Now stop should complete
       await stopPromise
@@ -372,7 +378,7 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
       expect(processedEvents).toHaveLength(0)
 
       // Finish work
-      resolveWork!()
+      resolveWork?.()
 
       await stopPromise
 

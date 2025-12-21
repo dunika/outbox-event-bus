@@ -5,18 +5,24 @@ import {
   DynamoDBDocumentClient, 
   UpdateCommand, 
   QueryCommand as DocQueryCommand,
-  BatchWriteCommand
+  TransactWriteCommand
 } from "@aws-sdk/lib-dynamodb";
-import { type BusEvent, type IOutbox, type OutboxConfig, type ResolvedOutboxConfig, PollingService } from "outbox-event-bus";
+import { type OutboxEvent, type IOutbox, type OutboxConfig, type ResolvedOutboxConfig, PollingService } from "outbox-event-bus";
+
+export type DynamoDBTransactionCollector = {
+  push: (item: any) => void;
+  items?: any[];
+};
 
 export interface DynamoDBOutboxConfig extends OutboxConfig {
   client: DynamoDBClient;
   tableName: string;
   statusIndexName?: string;
   processingTimeoutMs?: number; // Time before a PROCESSING event is considered stuck
+  getCollector?: (() => DynamoDBTransactionCollector | undefined) | undefined;
 }
 
-export class DynamoDBOutbox implements IOutbox {
+export class DynamoDBOutbox implements IOutbox<DynamoDBTransactionCollector> {
   private readonly config: Required<DynamoDBOutboxConfig>
   private readonly docClient: DynamoDBDocumentClient;
   private readonly poller: PollingService;
@@ -32,6 +38,7 @@ export class DynamoDBOutbox implements IOutbox {
       tableName: config.tableName,
       statusIndexName: config.statusIndexName ?? "status-index",
       client: config.client,
+      getCollector: config.getCollector,
     }
 
     this.docClient = DynamoDBDocumentClient.from(config.client, {
@@ -49,41 +56,51 @@ export class DynamoDBOutbox implements IOutbox {
     )
   }
 
-  async publish(events: BusEvent[]): Promise<void> {
-    const chunks = [];
-    for (let i = 0; i < events.length; i += 25) {
-      chunks.push(events.slice(i, i + 25));
+  async publish(events: OutboxEvent[], transaction?: DynamoDBTransactionCollector): Promise<void> {
+    if (events.length === 0) return;
+    
+    if (events.length > 100) {
+      throw new Error("DynamoDB Outbox: Cannot publish more than 100 events in a single transaction (DynamoDB limit).");
     }
 
-    for (const chunk of chunks) {
-      const now = new Date();
-      const putRequests = chunk.map(event => {
-        const occurredAt = event.occurredAt ?? now;
-        return {
-          PutRequest: {
-            Item: {
-              id: event.id,
-              type: event.type,
-              payload: event.payload,
-              occurredAt: occurredAt.toISOString(),
-              status: "PENDING",
-              retryCount: 0,
-              nextAttempt: occurredAt.getTime()
-            }
-          }
-        };
-      });
+    const collector = transaction ?? this.config.getCollector?.();
 
-      await this.docClient.send(new BatchWriteCommand({
-        RequestItems: {
-          [this.config.tableName]: putRequests
+    const items = events.map(event => {
+      return {
+        Put: {
+          TableName: this.config.tableName,
+          Item: {
+            id: event.id,
+            type: event.type,
+            payload: event.payload,
+            occurredAt: event.occurredAt.toISOString(),
+            status: "PENDING",
+            retryCount: 0,
+            gsiSortKey: event.occurredAt.getTime()
+          }
         }
+      };
+    });
+
+    if (collector) {
+      const itemsInCollector = collector.items?.length ?? 0;
+      
+      if (itemsInCollector + items.length > 100) {
+        throw new Error(`DynamoDB Outbox: Cannot add ${items.length} events because the transaction already has ${itemsInCollector} items (DynamoDB limit is 100).`);
+      }
+
+      for (const item of items) {
+        collector.push(item);
+      }
+    } else {
+      await this.docClient.send(new TransactWriteCommand({
+        TransactItems: items
       }));
     }
   }
 
   start(
-    handler: (events: BusEvent[]) => Promise<void>,
+    handler: (events: OutboxEvent[]) => Promise<void>,
     onError: (error: unknown) => void
   ): void {
     this.poller.start(handler, onError);
@@ -129,7 +146,7 @@ export class DynamoDBOutbox implements IOutbox {
     }
   }
 
-  private async processBatch(handler: (events: BusEvent[]) => Promise<void>) {
+  private async processBatch(handler: (events: OutboxEvent[]) => Promise<void>) {
     const now = Date.now()
 
     const result = await this.docClient.send(new DocQueryCommand({
@@ -148,7 +165,7 @@ export class DynamoDBOutbox implements IOutbox {
 
     if (!result.Items || result.Items.length === 0) return
 
-    const eventsToProcess: BusEvent[] = []
+    const eventsToProcess: OutboxEvent[] = []
     const successfulClaims: Record<string, unknown>[] = []
 
     for (const item of result.Items) {
@@ -188,18 +205,20 @@ export class DynamoDBOutbox implements IOutbox {
     try {
       await handler(eventsToProcess)
 
-      for (const event of eventsToProcess) {
-        await this.docClient.send(new UpdateCommand({
-          TableName: this.config.tableName,
-          Key: { id: event.id },
-          UpdateExpression: "SET #status = :completed, completedOn = :now REMOVE gsiSortKey",
-          ExpressionAttributeNames: { "#status": "status" },
-          ExpressionAttributeValues: {
-            ":completed": "COMPLETED",
-            ":now": Date.now()
-          }
-        }))
-      }
+      await Promise.all(
+        eventsToProcess.map(event => 
+          this.docClient.send(new UpdateCommand({
+            TableName: this.config.tableName,
+            Key: { id: event.id },
+            UpdateExpression: "SET #status = :completed, completedOn = :now REMOVE gsiSortKey",
+            ExpressionAttributeNames: { "#status": "status" },
+            ExpressionAttributeValues: {
+              ":completed": "COMPLETED",
+              ":now": Date.now()
+            }
+          }))
+        )
+      )
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error)
 

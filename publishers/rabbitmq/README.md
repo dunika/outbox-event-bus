@@ -47,7 +47,6 @@ interface RabbitMQPublisherConfig {
   channel: Channel;                 // amqplib Channel instance
   exchange: string;                 // Target exchange name
   routingKey?: string;              // Optional static routing key
-  onError?: ErrorHandler;           // Error callback
   retryOptions?: RetryOptions;      // Custom retry logic
 }
 ```
@@ -61,8 +60,7 @@ import { RabbitMQPublisher } from '@outbox-event-bus/rabbitmq-publisher';
 
 const publisher = new RabbitMQPublisher(bus, {
   channel: myChannel,
-  exchange: 'app-events',
-  onError: (err) => console.error('RabbitMQ Publish Error:', err)
+  exchange: 'app-events'
 });
 
 publisher.subscribe(['*']);
@@ -82,8 +80,8 @@ Messages are published as JSON buffers:
 
 ## Error Handling
 
-### Built-in Retries
-Unlike AWS publishers, the RabbitMQ publisher implements **exponential backoff retries** internally to handle channel buffer saturation or temporary connection drops.
+### Application-Level Retries
+The RabbitMQ publisher implements **exponential backoff retries** to handle channel buffer saturation or temporary connection drops.
 
 ```typescript
 const publisher = new RabbitMQPublisher(bus, {

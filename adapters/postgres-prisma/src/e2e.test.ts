@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll, afterAll } from "vitest"
+import { describe, expect, it, beforeAll, afterAll, vi } from "vitest"
 import { PrismaClient, OutboxStatus } from "@prisma/client"
 import { PostgresPrismaOutbox } from "./index"
 import { execSync } from "child_process"
@@ -46,7 +46,6 @@ describe("PostgresPrismaOutbox E2E", () => {
     outbox = new PostgresPrismaOutbox({
       prisma,
       pollIntervalMs: 100,
-      onError: (err: unknown) => console.error("Outbox Error:", err),
     })
 
     const eventId = randomUUID()
@@ -71,7 +70,7 @@ describe("PostgresPrismaOutbox E2E", () => {
     const processedEvents: any[] = []
     await outbox.start(async (events: any[]) => {
       processedEvents.push(...events)
-    })
+    }, (err: unknown) => console.error("Outbox Error:", err))
 
     // Wait for poll
     await new Promise((resolve) => setTimeout(resolve, 2000))
@@ -95,7 +94,6 @@ describe("PostgresPrismaOutbox E2E", () => {
       prisma,
       pollIntervalMs: 100,
       baseBackoffMs: 100,
-      onError: () => {}, // Expected
     })
 
     const eventId = randomUUID()
@@ -109,10 +107,12 @@ describe("PostgresPrismaOutbox E2E", () => {
     await outbox.publish([event])
 
     let attempts = 0
+    const onError = vi.fn()
+    
     await outbox.start(async () => {
       attempts++
       throw new Error("Processing failed")
-    })
+    }, onError)
 
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
@@ -123,13 +123,13 @@ describe("PostgresPrismaOutbox E2E", () => {
     expect(saved?.status).toBe(OutboxStatus.failed)
     expect(saved?.retryCount).toBeGreaterThan(0)
     expect(attempts).toBeGreaterThan(1)
+    expect(onError).toHaveBeenCalled()
   })
 
   it("should recover from stuck events", async () => {
     outbox = new PostgresPrismaOutbox({
       prisma,
       pollIntervalMs: 100,
-      onError: (err) => console.error("Outbox Error:", err),
     })
 
     const eventId = randomUUID()
@@ -153,7 +153,7 @@ describe("PostgresPrismaOutbox E2E", () => {
     const processedEvents: any[] = []
     outbox.start(async (events) => {
       processedEvents.push(...events)
-    })
+    }, (err) => console.error("Outbox Error:", err))
 
     // Wait for recovery poll
     await new Promise((resolve) => setTimeout(resolve, 2000))
@@ -161,5 +161,64 @@ describe("PostgresPrismaOutbox E2E", () => {
     expect(processedEvents.some(e => e.id === eventId)).toBe(true)
 
     await outbox.stop()
+  })
+
+  it("should handle concurrent processing safely", async () => {
+    // 1. Publish many events
+    const eventCount = 50
+    const events = Array.from({ length: eventCount }).map((_, i) => ({
+      id: randomUUID(),
+      type: "concurrent.test",
+      payload: { index: i },
+      occurredAt: new Date(),
+    }))
+
+    outbox = new PostgresPrismaOutbox({
+        prisma,
+        pollIntervalMs: 100, // This instance is just for publishing
+    })
+    await outbox.publish(events)
+    await outbox.stop() // Stop this instance immediately
+
+    // 2. Start multiple outbox workers
+    const workerCount = 5
+    const processedEvents: any[] = []
+    const workers: PostgresPrismaOutbox[] = []
+
+    // Shared handler that pushes to processedEvents
+    const handler = async (events: any[]) => {
+      // Simulate some work
+      await new Promise((resolve) => setTimeout(resolve, Math.random() * 50))
+      processedEvents.push(...events)
+    }
+
+    for (let i = 0; i < workerCount; i++) {
+      const worker = new PostgresPrismaOutbox({
+        prisma,
+        pollIntervalMs: 100 + (Math.random() * 50), // Jitter
+        batchSize: 5, // Small batch size to encourage contention
+      })
+      workers.push(worker)
+      worker.start(handler, (err) => console.error(`Worker ${i} Error:`, err))
+    }
+
+    // 3. Wait for processing
+    const maxWaitTime = 10000
+    const startTime = Date.now()
+    
+    while (processedEvents.length < eventCount && (Date.now() - startTime) < maxWaitTime) {
+        await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+
+    // 4. Verify results
+    await Promise.all(workers.map(w => w.stop()))
+
+    // Check count
+    expect(processedEvents).toHaveLength(eventCount)
+
+    // Check duplicates
+    const ids = processedEvents.map(e => e.id)
+    const uniqueIds = new Set(ids)
+    expect(uniqueIds.size).toBe(eventCount)
   })
 })

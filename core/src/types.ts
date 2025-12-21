@@ -1,8 +1,16 @@
 export type BusEvent<T extends string = string, P = unknown> = {
-  id: string
+  id?: string
   type: T
   payload: P
   occurredAt?: Date
+  metadata?: Record<string, unknown>
+}
+
+export type OutboxEvent<T extends string = string, P = unknown> = {
+  id: string
+  type: T
+  payload: P
+  occurredAt: Date
   metadata?: Record<string, unknown>
 }
 

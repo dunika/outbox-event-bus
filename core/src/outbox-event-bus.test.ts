@@ -13,7 +13,7 @@ describe("OutboxEventBus", () => {
   beforeEach(() => {
     outbox = {
       publish: vi.fn().mockResolvedValue(undefined),
-      start: vi.fn((handler, onError) => {
+      start: vi.fn((handler) => {
         outboxHandler = handler
       }),
       stop: vi.fn().mockResolvedValue(undefined),
@@ -32,10 +32,13 @@ describe("OutboxEventBus", () => {
     }
 
     await eventBus.emit(event)
-    expect(outbox.publish).toHaveBeenCalledWith([event])
+    expect(outbox.publish).toHaveBeenCalledWith([expect.objectContaining(event)], undefined)
 
     await eventBus.emitMany([event, event])
-    expect(outbox.publish).toHaveBeenCalledWith([event, event])
+    expect(outbox.publish).toHaveBeenCalledWith(
+      [expect.objectContaining(event), expect.objectContaining(event)],
+      undefined
+    )
   })
 
   it("should start and stop the outbox", async () => {
@@ -60,6 +63,21 @@ describe("OutboxEventBus", () => {
     expect(publishedEvents[0].occurredAt).toBeInstanceOf(Date)
     expect(publishedEvents[0].id).toBe("1")
     expect(publishedEvents[0].type).toBe("test-event")
+  })
+
+  it("should automatically generate id when not provided", async () => {
+    const eventWithoutId: Omit<BusEvent, "id"> = {
+      type: "test-event",
+      payload: {},
+    }
+
+    await eventBus.emit(eventWithoutId as BusEvent)
+
+    const publishedEvents = (outbox.publish as any).mock.calls[0][0]
+    expect(publishedEvents).toHaveLength(1)
+    expect(publishedEvents[0].id).toBeDefined()
+    expect(typeof publishedEvents[0].id).toBe("string")
+    expect(publishedEvents[0].id).toHaveLength(36) // UUID length
   })
 
   it("should preserve custom occurredAt when provided", async () => {

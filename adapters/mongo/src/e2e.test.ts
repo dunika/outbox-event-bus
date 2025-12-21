@@ -134,7 +134,6 @@ describe("MongoOutbox E2E", () => {
         client,
         dbName: DB_NAME,
         pollIntervalMs: 100,
-        onError: (err) => console.error("Outbox Error:", err),
     })
 
     const eventId = "507f1f77bcf86cd799439013"
@@ -155,11 +154,74 @@ describe("MongoOutbox E2E", () => {
     const processedEvents: any[] = []
     outbox.start(async (events) => {
         processedEvents.push(...events)
-    })
+    }, (err) => console.error("Outbox Error:", err))
 
     // Wait for recovery poll
     await new Promise((resolve) => setTimeout(resolve, 1500))
 
     expect(processedEvents.some(e => e.id === eventId)).toBe(true)
+  })
+
+  it("should handle concurrent processing safely", async () => {
+    const eventCount = 50
+    const events = Array.from({ length: eventCount }).map((_, i) => ({
+      id: "507f1f77bcf86cd799439" + (100 + i).toString(), // Valid ObjectId-ish
+      type: "concurrent.test",
+      payload: { index: i },
+      occurredAt: new Date(),
+    }))
+
+    outbox = new MongoOutbox({
+        client,
+        dbName: DB_NAME,
+        pollIntervalMs: 100,
+    })
+    await outbox.publish(events)
+    await outbox.stop()
+
+    const workerCount = 5
+    const processedEvents: any[] = []
+    const workers: MongoOutbox[] = []
+
+    const handler = async (events: any[]) => {
+      await new Promise((resolve) => setTimeout(resolve, Math.random() * 50))
+      processedEvents.push(...events)
+    }
+
+    const clientsToClose: MongoClient[] = []
+    
+    for (let i = 0; i < workerCount; i++) {
+        // New client for each worker to simulate separate processes
+        const workerClient = new MongoClient(MONGO_URL)
+        await workerClient.connect()
+        clientsToClose.push(workerClient)
+        
+        const worker = new MongoOutbox({
+            client: workerClient,
+            dbName: DB_NAME,
+            pollIntervalMs: 100 + (Math.random() * 50),
+            batchSize: 5,
+        })
+        workers.push(worker)
+        worker.start(handler, (err) => console.error(`Worker ${i} Error:`, err))
+    }
+
+    const maxWaitTime = 10000
+    const startTime = Date.now()
+    
+    while (processedEvents.length < eventCount && (Date.now() - startTime) < maxWaitTime) {
+        await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+
+    await Promise.all(workers.map(w => w.stop()))
+    await Promise.all(clientsToClose.map(c => c.close()))
+    
+    // Check count
+    expect(processedEvents).toHaveLength(eventCount)
+
+    // Check duplicates
+    const ids = processedEvents.map(e => e.id)
+    const uniqueIds = new Set(ids)
+    expect(uniqueIds.size).toBe(eventCount)
   })
 })

@@ -1,36 +1,33 @@
 import type { IOutbox, IOutboxEventBus } from "./interfaces"
-import type { BusEvent, EventHandler, AnyListener, ErrorHandler } from "./types"
+import type { BusEvent, OutboxEvent, EventHandler, AnyListener, ErrorHandler } from "./types"
 
 const DEFAULT_WAIT_TIMEOUT_MS = 5000
 
-export class OutboxEventBus implements IOutboxEventBus {
+export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransaction> {
   private readonly handlers = new Map<string, EventHandler<string, unknown>[]>()
   private maxListeners = 10
 
   constructor(
-    private readonly outbox: IOutbox,
+    private readonly outbox: IOutbox<TTransaction>,
     private readonly onMaxListeners: (
-      bus: OutboxEventBus,
+      bus: OutboxEventBus<TTransaction>,
       eventType: string,
       count: number
     ) => void,
     private readonly onError: ErrorHandler
   ) {}
 
-  async emit<T extends string, P>(event: BusEvent<T, P>): Promise<void> {
-    const eventWithTimestamp = {
-      ...event,
-      occurredAt: event.occurredAt ?? new Date(),
-    }
-    await this.outbox.publish([eventWithTimestamp])
+  async emit<T extends string, P>(event: BusEvent<T, P>, transaction?: TTransaction): Promise<void> {
+    await this.emitMany([event], transaction)
   }
 
-  async emitMany<T extends string, P>(events: BusEvent<T, P>[]): Promise<void> {
-    const eventsWithTimestamps = events.map((event) => ({
+  async emitMany<T extends string, P>(events: BusEvent<T, P>[], transaction?: TTransaction): Promise<void> {
+    const eventsWithDefaults = events.map((event) => ({
       ...event,
+      id: event.id ?? crypto.randomUUID(),
       occurredAt: event.occurredAt ?? new Date(),
-    }))
-    await this.outbox.publish(eventsWithTimestamps)
+    })) as OutboxEvent[]
+    await this.outbox.publish(eventsWithDefaults, transaction)
   }
 
   on<T extends string, P = unknown>(eventType: T, handler: EventHandler<T, P>): this {
@@ -195,19 +192,15 @@ export class OutboxEventBus implements IOutboxEventBus {
     return this
   }
 
-  private async processEvent(event: BusEvent): Promise<void> {
+  private async processEvent(event: OutboxEvent): Promise<void> {
     const handlers = this.handlers.get(event.type)
     if (!handlers?.length) return
 
     // Use a shallow copy so that mutations (remove/add) during handler
     // execution do not affect this loop
-    const promises = [...handlers].map(async (handler) => {
-      try {
-        await handler(event)
-      } catch (err) {
-        this.onError(err)
-      }
-    })
+    const promises = [...handlers].map((handler) =>
+      handler(event).catch((err) => this.onError(err))
+    )
 
     await Promise.all(promises)
   }

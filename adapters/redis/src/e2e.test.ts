@@ -25,7 +25,6 @@ describe("RedisOutbox E2E", () => {
       redis,
       pollIntervalMs: 50,
       processingTimeoutMs: 1000,
-      onError,
     })
   })
 
@@ -50,7 +49,7 @@ describe("RedisOutbox E2E", () => {
     expect(pending[0]).toBe("e2e-1")
 
     const handler = vi.fn().mockResolvedValue(undefined)
-    await outbox.start(handler)
+    await outbox.start(handler, onError)
 
     // Wait for polling to pick it up
     await new Promise((resolve) => setTimeout(resolve, 500))
@@ -92,10 +91,9 @@ describe("RedisOutbox E2E", () => {
          redis,
          pollIntervalMs: 50,
          processingTimeoutMs: 1000, // 1s timeout
-         onError,
      })
      
-     await recoveryOutbox.start(handler)
+     await recoveryOutbox.start(handler, onError)
 
      // Wait for recovery poll
      await new Promise(resolve => setTimeout(resolve, 500))
@@ -119,12 +117,14 @@ describe("RedisOutbox E2E", () => {
     await outbox.publish([event])
 
     let attempts = 0
+    const onError = vi.fn()
+
     const handler = vi.fn().mockImplementation(async () => {
         attempts++
         throw new Error("Temporary failure")
     })
 
-    await outbox.start(handler)
+    await outbox.start(handler, onError)
 
     // Wait for a few polls (pollInterval is 50ms)
     // First attempt: ~50ms
@@ -132,6 +132,7 @@ describe("RedisOutbox E2E", () => {
     await new Promise(resolve => setTimeout(resolve, 1500))
 
     expect(attempts).toBeGreaterThan(1)
+    expect(onError).toHaveBeenCalled()
 
     // Check Redis for retry state
     const eventData = await redis.hgetall(`outbox:event:${eventId}`)
@@ -139,4 +140,65 @@ describe("RedisOutbox E2E", () => {
     expect(eventData.lastError).toBe("Temporary failure")
   })
 
+  it("should handle concurrent processing safely", async () => {
+    const eventCount = 50
+    const events = Array.from({ length: eventCount }).map((_, i) => ({
+      id: `concurrent-${i}`,
+      type: "concurrent.test",
+      payload: { index: i },
+      occurredAt: new Date(),
+    }))
+
+    outbox = new RedisOutbox({
+        redis,
+        pollIntervalMs: 100,
+    })
+    await outbox.publish(events)
+    await outbox.stop()
+
+    const workerCount = 5
+    const processedEvents: any[] = []
+    
+    // We need multiple redis connections for workers to simulate real concurrency
+    // because RedisOutbox takes a Redis instance.
+    const connections: Redis[] = []
+    const workers: RedisOutbox[] = []
+
+    const handler = async (events: any[]) => {
+      await new Promise((resolve) => setTimeout(resolve, Math.random() * 50))
+      processedEvents.push(...events)
+    }
+
+    for (let i = 0; i < workerCount; i++) {
+        const conn = new Redis({
+            port: 6379,
+            host: "localhost",
+        })
+        connections.push(conn)
+
+        const worker = new RedisOutbox({
+            redis: conn,
+            pollIntervalMs: 100 + (Math.random() * 50),
+            batchSize: 5,
+        })
+        workers.push(worker)
+        worker.start(handler, (err) => console.error(`Worker ${i} Error:`, err))
+    }
+
+    const maxWaitTime = 10000
+    const startTime = Date.now()
+    
+    while (processedEvents.length < eventCount && (Date.now() - startTime) < maxWaitTime) {
+        await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+
+    await Promise.all(workers.map(w => w.stop()))
+    await Promise.all(connections.map(c => c.quit()))
+    
+    expect(processedEvents).toHaveLength(eventCount)
+
+    const ids = processedEvents.map(e => e.id)
+    const uniqueIds = new Set(ids)
+    expect(uniqueIds.size).toBe(eventCount)
+  })
 })
