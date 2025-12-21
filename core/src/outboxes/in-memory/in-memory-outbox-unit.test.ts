@@ -69,7 +69,6 @@ describe("InMemoryOutbox Unit", () => {
     }
 
     await outbox.publish([event])
-    // Wait for async processing to complete
     await new Promise((resolve) => setTimeout(resolve, 200))
 
     expect(handler).toHaveBeenCalled()

@@ -48,7 +48,6 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
     expect(result).toBeDefined()
     expect(result.status).toBe("created")
 
-    // 2. Start processing
     const processedEvents: any[] = []
     const handler = async (event: any) => {
       processedEvents.push(event)
@@ -56,10 +55,8 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
 
     outbox.start(handler, (err) => console.error("Outbox Error:", err))
 
-    // Wait for polling
     await new Promise((resolve) => setTimeout(resolve, 1000))
 
-    // Verify handler was called
     expect(processedEvents).toHaveLength(1)
     expect(processedEvents[0].id).toBe(eventId)
 
@@ -100,9 +97,8 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
       throw new Error("Processing failed")
     }
 
-    outbox.start(handler, () => {}) // Expected error, no-op
+    outbox.start(handler, () => {})
 
-    // Wait for multiple attempts
     await new Promise((resolve) => setTimeout(resolve, 1500))
 
     await outbox.stop()
@@ -164,7 +160,6 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
     expect(retried.retry_count).toBe(0)
     expect(retried.last_error).toBeNull()
 
-    // 5. Verify it gets processed
     const processed: any[] = []
     outbox.start(
       async (e) => {
@@ -190,8 +185,6 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
     const eventId = "event-stuck"
     const now = new Date()
 
-    // Manually insert a "stuck" event (status active, timed out)
-    // Default expire_in_seconds is 300
     db.prepare(`
       INSERT INTO outbox_events (id, type, payload, occurred_at, status, retry_count, keep_alive, expire_in_seconds)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -213,7 +206,6 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
 
     outbox.start(handler, (err) => console.error("Outbox Error:", err))
 
-    // Wait for recovery poll
     await new Promise((resolve) => setTimeout(resolve, 1500))
 
     expect(processedEvents.some((e) => e.id === eventId)).toBe(true)
@@ -222,7 +214,6 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
   })
 
   it("should handle concurrent processing safely", async () => {
-    // 1. Publish many events
     const eventCount = 50
     const events = Array.from({ length: eventCount }).map((_, i) => ({
       id: `concurrent-${i}`,
@@ -233,12 +224,11 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
 
     const outboxPublisher = new SqliteBetterSqlite3Outbox({
       dbPath: DB_PATH,
-      pollIntervalMs: 100, // This instance is just for publishing
+      pollIntervalMs: 100,
     })
     await outboxPublisher.publish(events)
     await outboxPublisher.stop()
 
-    // 2. Start multiple outbox workers
     const workerCount = 5
     const processedEvents: any[] = []
     const workers: SqliteBetterSqlite3Outbox[] = []
@@ -254,7 +244,7 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
       // Here we test safe locking if implemented or transaction safety.
       // Even with 1 connection, if the logic isn't atomic, we might get duplicates if polling overlaps.
       const worker = new SqliteBetterSqlite3Outbox({
-        dbPath: DB_PATH, // Same DB file
+        dbPath: DB_PATH,
         pollIntervalMs: 100 + Math.random() * 50,
         batchSize: 5,
       })
@@ -273,10 +263,7 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
     // 4. Verify results
     await Promise.all(workers.map((w) => w.stop()))
 
-    // Check count
     expect(processedEvents).toHaveLength(eventCount)
-
-    // Check duplicates
     const ids = processedEvents.map((e) => e.id)
     const uniqueIds = new Set(ids)
     expect(uniqueIds.size).toBe(eventCount)

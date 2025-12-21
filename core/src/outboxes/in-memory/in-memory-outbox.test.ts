@@ -254,11 +254,7 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
       const publishPromise = bus.emit(event)
 
       // With Outbox pattern, publish returns immediately after enqueue.
-      // Processing happens asynchronously.
-
-      await publishPromise
-
-      // Wait for processing to pick up
+      await new Promise((resolve) => setTimeout(resolve, 100))
       await vi.advanceTimersByTimeAsync(10)
 
       expect(handlerStarted).toBe(true)
@@ -313,17 +309,12 @@ describe("OutboxEventBus with InMemoryOutbox", () => {
       expect(params.stopped).toBe(true)
     })
 
-    it("should allow re-registering after restart", async () => {
+    it("should allow re-registration after restart", async () => {
       const bus = createEventBus()
       bus.start()
 
-      // In STRICT mode, multiple register calls throw.
-      // This test was originally checking that restart doesn't break multi-registration.
-      // Now it should just check that restart clears registrations so we can re-register.
-
-      bus.on("usersService.create", async () => {})
-      // await bus.on("usersService.create", async () => {}) // This would now fail
-      // await bus.on("usersService.create", async () => {}) // This would now fail
+      const handler = vi.fn().mockResolvedValue(undefined)
+      bus.on("usersService.create", handler)
 
       await bus.stop()
 

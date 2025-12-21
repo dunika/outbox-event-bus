@@ -51,8 +51,7 @@ describe("RedisIoRedisOutbox E2E", () => {
     const handler = vi.fn().mockResolvedValue(undefined)
     await outbox.start(handler, onError)
 
-    // Wait for polling to pick it up
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 300))
 
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ id: "e2e-1" }))
 
@@ -91,9 +90,8 @@ describe("RedisIoRedisOutbox E2E", () => {
       processingTimeoutMs: 1000, // 1s timeout
     })
 
-    await recoveryOutbox.start(handler, onError)
+    await recoveryOutbox.start(handler, (err) => console.error("Outbox Error:", err))
 
-    // Wait for recovery poll
     await new Promise((resolve) => setTimeout(resolve, 500))
 
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ id: eventId }))
@@ -122,16 +120,17 @@ describe("RedisIoRedisOutbox E2E", () => {
 
     await outbox.start(handler, onError)
 
-    // Wait for a few polls (pollInterval is 50ms)
     // First attempt: ~50ms
     // Second attempt: +1000ms delay = ~1050ms
     await new Promise((resolve) => setTimeout(resolve, 1500))
 
     expect(attempts).toBeGreaterThan(1)
+    expect(attempts).toBeGreaterThanOrEqual(2)
     expect(onError).toHaveBeenCalled()
 
     // Check Redis for retry state
     const eventData = await redis.hgetall(`outbox:event:${eventId}`)
+    const retryCount = await redis.hget(`outbox:event:${eventId}`, "retryCount")
     expect(Number.parseInt(eventData.retryCount ?? "0", 10)).toBeGreaterThan(0)
     expect(eventData.lastError).toBe("Temporary failure")
   })

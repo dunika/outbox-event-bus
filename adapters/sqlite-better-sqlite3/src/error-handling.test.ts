@@ -37,13 +37,11 @@ describe("Error Handling", () => {
       throw error
     })
 
-    // Emit an event
     await bus.emit({
       type: eventType,
       payload: { data: "test" },
     })
 
-    // Wait for processing
     await new Promise((resolve) => setTimeout(resolve, 100))
 
     expect(onError).toHaveBeenCalled()
@@ -74,7 +72,6 @@ describe("Error Handling", () => {
     })
     console.log("Events after emit:", db.prepare("SELECT * FROM outbox_events").all())
 
-    // Wait for first failure
     await new Promise((resolve) => setTimeout(resolve, 100))
 
     expect(onError).toHaveBeenCalledTimes(1)
@@ -84,7 +81,6 @@ describe("Error Handling", () => {
     console.log("Events after update:", db.prepare("SELECT * FROM outbox_events").all())
     console.log("Archive after update:", db.prepare("SELECT * FROM outbox_events_archive").all())
 
-    // Wait for second failure
     await new Promise((resolve) => setTimeout(resolve, 100))
 
     expect(onError).toHaveBeenCalledTimes(2)
@@ -114,10 +110,8 @@ describe("Error Handling", () => {
       payload: { data: "test" },
     })
 
-    // First attempt (failure 1)
     await new Promise((resolve) => setTimeout(resolve, 100))
 
-    // With maxRetries: 1, the first failure (retryCount = 1) is already >= maxRetries
     expect(onError).toHaveBeenCalled()
     const error = onError.mock.calls[0]?.[0]
     expect(error).toBeInstanceOf(MaxRetriesExceededError)

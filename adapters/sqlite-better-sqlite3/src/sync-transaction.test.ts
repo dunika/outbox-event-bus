@@ -9,11 +9,8 @@ const DB_PATH = "./test-sync-transactions.db"
 describe("SqliteBetterSqlite3Outbox Synchronous Transactions", () => {
   let db: Database.Database
 
-  beforeAll(() => {
-    if (existsSync(DB_PATH)) {
-      unlinkSync(DB_PATH)
-    }
-    db = new Database(DB_PATH)
+  beforeEach(() => {
+    db = new Database(":memory:")
     // Create business table
     db.exec("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT)")
   })

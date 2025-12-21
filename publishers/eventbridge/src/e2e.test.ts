@@ -38,7 +38,6 @@ describe("EventBridgePublisher E2E (with InMemoryOutbox)", () => {
     await bus.emit(event)
 
     // 3. Verify
-    // Wait for the asynchronous processing in InMemoryOutbox
     for (let i = 0; i < 10; i++) {
       if (mockEventBridgeClient.send.mock.calls.length > 0) break
       await new Promise((resolve) => setTimeout(resolve, 50))

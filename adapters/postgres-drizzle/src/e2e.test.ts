@@ -98,7 +98,7 @@ describe("PostgresDrizzleOutbox E2E", () => {
     // Initialize outbox
     outbox = new PostgresDrizzleOutbox({
       db,
-      pollIntervalMs: 100, // fast polling for test
+      pollIntervalMs: 100,
     })
 
     const eventId = crypto.randomUUID()
@@ -109,15 +109,12 @@ describe("PostgresDrizzleOutbox E2E", () => {
       occurredAt: new Date(),
     }
 
-    // 1. Publish event
     await outbox.publish([event])
 
-    // Verify it's in the DB with 'created' status
     const result = await db.select().from(outboxEvents).where(eq(outboxEvents.id, eventId))
     expect(result).toHaveLength(1)
     expect(result[0]?.status).toBe("created")
 
-    // 2. Start processing
     const processedEvents: any[] = []
     const handler = async (event: any) => {
       processedEvents.push(event)
@@ -125,14 +122,11 @@ describe("PostgresDrizzleOutbox E2E", () => {
 
     await outbox.start(handler, (err: unknown) => console.error("Outbox Error:", err))
 
-    // Wait for polling
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
-    // Verify handler was called
     expect(processedEvents).toHaveLength(1)
     expect(processedEvents[0].id).toBe(eventId)
 
-    // Verify it's removed from outbox table (since it completes successfully)
     const resultAfter = await db.select().from(outboxEvents).where(eq(outboxEvents.id, eventId))
     expect(resultAfter).toHaveLength(0)
 
@@ -193,7 +187,6 @@ describe("PostgresDrizzleOutbox E2E", () => {
       occurredAt: new Date(),
     }
 
-    // 1. Insert directly as failed
     await db.insert(outboxEvents).values({
       id: eventId,
       type: event.type,
@@ -207,7 +200,6 @@ describe("PostgresDrizzleOutbox E2E", () => {
     const inserted = await db.select().from(outboxEvents).where(eq(outboxEvents.id, eventId))
     console.log("DRIZZLE TEST DEBUG: Inserted row:", inserted)
 
-    // 2. Get failed events
     const failed = await outbox.getFailedEvents()
     const targetEvent = failed.find((e) => e.id === eventId)
 
@@ -217,13 +209,11 @@ describe("PostgresDrizzleOutbox E2E", () => {
     expect(targetEvent!.retryCount).toBe(5)
     await outbox.retryEvents([eventId])
 
-    // 4. Verify status reset
     const retried = await db.select().from(outboxEvents).where(eq(outboxEvents.id, eventId))
     expect(retried[0]?.status).toBe("created")
     expect(retried[0]?.retryCount).toBe(0)
     expect(retried[0]?.lastError).toBeNull()
 
-    // 5. Verify it gets processed
     const processed: any[] = []
     outbox.start(
       async (e) => {
@@ -248,7 +238,6 @@ describe("PostgresDrizzleOutbox E2E", () => {
     const eventId = crypto.randomUUID()
     const now = new Date()
 
-    // Manually insert a "stuck" event (status active, timed out)
     await db.insert(outboxEvents).values({
       id: eventId,
       type: "stuck.event",
@@ -269,7 +258,6 @@ describe("PostgresDrizzleOutbox E2E", () => {
       (err: unknown) => console.error("Outbox Error:", err)
     )
 
-    // Wait for recovery poll
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
     expect(processedEvents.some((e) => e.id === eventId)).toBe(true)
@@ -278,7 +266,6 @@ describe("PostgresDrizzleOutbox E2E", () => {
   })
 
   it("should handle concurrent processing safely", async () => {
-    // 1. Publish many events
     const eventCount = 50
     const events = Array.from({ length: eventCount }).map((_, i) => ({
       id: crypto.randomUUID(),
@@ -294,7 +281,6 @@ describe("PostgresDrizzleOutbox E2E", () => {
     await outbox.publish(events)
     await outbox.stop()
 
-    // 2. Start multiple outbox workers
     const workerCount = 5
     const processedEvents: any[] = []
     const workers: PostgresDrizzleOutbox[] = []
@@ -314,7 +300,6 @@ describe("PostgresDrizzleOutbox E2E", () => {
       worker.start(handler, (err) => console.error(`Worker ${i} Error:`, err))
     }
 
-    // 3. Wait for processing
     const maxWaitTime = 10000
     const startTime = Date.now()
 
@@ -322,13 +307,9 @@ describe("PostgresDrizzleOutbox E2E", () => {
       await new Promise((resolve) => setTimeout(resolve, 200))
     }
 
-    // 4. Verify results
     await Promise.all(workers.map((w) => w.stop()))
 
-    // Check count
     expect(processedEvents).toHaveLength(eventCount)
-
-    // Check duplicates
     const ids = processedEvents.map((e) => e.id)
     const uniqueIds = new Set(ids)
     expect(uniqueIds.size).toBe(eventCount)
@@ -364,7 +345,6 @@ describe("PostgresDrizzleOutbox E2E", () => {
     const processedEvents: any[] = []
     const onError = vi.fn()
 
-    // Handler that fails only for specific event
     const handler = async (event: any) => {
       if (event.payload.fail) {
         throw new Error("Intentional partial failure")
@@ -374,12 +354,10 @@ describe("PostgresDrizzleOutbox E2E", () => {
 
     await outbox.start(handler, onError)
 
-    // Wait for processing
     await new Promise((resolve) => setTimeout(resolve, 3000))
 
     await outbox.stop()
 
-    // 1. Success event should be completed (removed from outbox)
     const successResult = await db.select().from(outboxEvents).where(eq(outboxEvents.id, successId))
     expect(successResult).toHaveLength(0)
 

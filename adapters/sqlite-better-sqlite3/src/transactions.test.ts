@@ -45,7 +45,6 @@ describe("SqliteBetterSqlite3Outbox Transactions with AsyncLocalStorage", () => 
       () => {}
     )
 
-    // Create a dummy business table
     db.exec("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT)")
 
     const eventId = "event-commit"

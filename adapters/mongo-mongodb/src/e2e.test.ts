@@ -46,7 +46,6 @@ describe("MongoMongodbOutbox E2E", () => {
   })
 
   it("should process events end-to-end", async () => {
-    // Initialize outbox
     outbox = new MongoMongodbOutbox({
       client,
       dbName: DB_NAME,
@@ -78,7 +77,6 @@ describe("MongoMongodbOutbox E2E", () => {
 
     await outbox.start(handler, () => {})
 
-    // Wait for polling
     await new Promise((resolve) => setTimeout(resolve, 800))
 
     // Verify handler was called
@@ -116,7 +114,6 @@ describe("MongoMongodbOutbox E2E", () => {
 
     await outbox.start(handler, () => {})
 
-    // Wait for multiple attempts
     await new Promise((resolve) => setTimeout(resolve, 1500))
 
     const db = client.db(DB_NAME)
@@ -157,8 +154,8 @@ describe("MongoMongodbOutbox E2E", () => {
     // 2. Get failed events
     const failed = await outbox.getFailedEvents()
     expect(failed).toHaveLength(1)
-    expect(failed[0].id).toBe(eventId)
-    expect(failed[0].error).toBe("Manual failure")
+    expect(failed[0]!.id).toBe(eventId)
+    expect(failed[0]!.error).toBe("Manual failure")
 
     // 3. Retry
     await outbox.retryEvents([eventId])
@@ -216,7 +213,6 @@ describe("MongoMongodbOutbox E2E", () => {
       (err) => console.error("Outbox Error:", err)
     )
 
-    // Wait for recovery poll
     await new Promise((resolve) => setTimeout(resolve, 1500))
 
     expect(processedEvents.some((e) => e.id === eventId)).toBe(true)
@@ -276,10 +272,7 @@ describe("MongoMongodbOutbox E2E", () => {
     await Promise.all(workers.map((w) => w.stop()))
     await Promise.all(clientsToClose.map((c) => c.close()))
 
-    // Check count
     expect(processedEvents).toHaveLength(eventCount)
-
-    // Check duplicates
     const ids = processedEvents.map((e) => e.id)
     const uniqueIds = new Set(ids)
     expect(uniqueIds.size).toBe(eventCount)

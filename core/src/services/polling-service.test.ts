@@ -24,7 +24,6 @@ describe("PollingService", () => {
 
     service.start(async () => {}, onError)
 
-    // Wait for first poll
     await new Promise((resolve) => setTimeout(resolve, 50))
     await service.stop()
 
@@ -45,7 +44,6 @@ describe("PollingService", () => {
 
     service.start(async () => {}, onError)
 
-    // Wait for first poll
     await new Promise((resolve) => setTimeout(resolve, 50))
     await service.stop()
 
@@ -67,7 +65,6 @@ describe("PollingService", () => {
 
     service.start(async () => {}, onError)
 
-    // Wait for first poll
     await new Promise((resolve) => setTimeout(resolve, 50))
     await service.stop()
 

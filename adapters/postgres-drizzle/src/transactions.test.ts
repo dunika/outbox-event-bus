@@ -81,7 +81,6 @@ describe("PostgresDrizzle Outbox Transactions with AsyncLocalStorage", () => {
     const eventId = "3ed0f0a5-f4e1-4c7b-b5d1-1234567890ab"
     const userId = "user_456"
 
-    // Run business logic in a transaction
     await db.transaction(async (transaction) => {
       await als.run(transaction, async () => {
         // 1. Perform business operation

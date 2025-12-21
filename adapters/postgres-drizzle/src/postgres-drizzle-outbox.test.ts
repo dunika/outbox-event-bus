@@ -17,10 +17,8 @@ describe("PostgresDrizzleOutbox", () => {
   let queryBuilder: any
 
   beforeEach(() => {
-    // Reset mocks
     vi.clearAllMocks()
 
-    // Create a chainable query builder mock
     queryBuilder = {
       values: vi.fn().mockReturnThis(),
       from: vi.fn().mockReturnThis(),
@@ -77,25 +75,21 @@ describe("PostgresDrizzleOutbox", () => {
       },
     ]
 
-    // Mock select return
     queryBuilder.for.mockResolvedValueOnce(testEvents)
-    // Mock subsequent empty polls
     queryBuilder.for.mockResolvedValue([])
 
     const handler = vi.fn().mockResolvedValue(undefined)
+    const onError = vi.fn()
 
-    // Start polling
-    outbox.start(handler, vi.fn())
+    outbox.start(handler, onError)
 
-    // Wait for a bit (slightly more than poll interval)
-    await new Promise((resolve) => setTimeout(resolve, 60))
+    await new Promise((resolve) => setTimeout(resolve, 150))
 
     expect(handler).toHaveBeenCalled()
-    expect(mockDb.update).toHaveBeenCalled() // Should update status to active
+    expect(mockDb.update).toHaveBeenCalled()
     expect(queryBuilder.set).toHaveBeenCalledWith(expect.objectContaining({ status: "active" }))
 
-    // Should archive and delete
-    expect(mockDb.insert).toHaveBeenCalledWith(expect.anything()) // checking archive table
+    expect(mockDb.insert).toHaveBeenCalledWith(expect.anything())
     expect(mockDb.delete).toHaveBeenCalledWith(outboxEvents)
   })
 
@@ -112,11 +106,11 @@ describe("PostgresDrizzleOutbox", () => {
       },
     ]
 
-    // Mock select return
     queryBuilder.for.mockResolvedValueOnce(testEvents)
     queryBuilder.for.mockResolvedValue([])
 
-    // Handler fails
+    const eventId = "fail-me"
+    let attempts = 0
     const handler = vi.fn().mockRejectedValue(new Error("processing failed"))
 
     outbox.start(handler, vi.fn())

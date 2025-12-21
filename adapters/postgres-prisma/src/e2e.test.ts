@@ -13,27 +13,10 @@ describe("PostgresPrismaOutbox E2E", () => {
   beforeAll(async () => {
     process.env.DATABASE_URL = DATABASE_URL
 
-    // Run db push to setup schema
-    try {
-      // Need to retry a few times as DB might be starting up even with --wait
-      let retries = 5
-      while (retries > 0) {
-        try {
-          execSync(`npx prisma db push --accept-data-loss --url "${DATABASE_URL}"`, {
-            stdio: "inherit",
-            env: process.env,
-          })
-          break
-        } catch (e) {
-          retries--
-          if (retries === 0) throw e
-          await new Promise((r) => setTimeout(r, 1000))
-        }
-      }
-    } catch (e) {
-      console.error("Failed to push db schema", e)
-      throw e
-    }
+    await execSync(`npx prisma db push --accept-data-loss --url "${DATABASE_URL}"`, {
+      stdio: "inherit",
+      env: process.env,
+    })
 
     // @ts-expect-error
     const { Pool } = await import("pg")
@@ -230,11 +213,10 @@ describe("PostgresPrismaOutbox E2E", () => {
       async (event) => {
         processedEvents.push(event)
       },
-      (err) => console.error("Outbox Error:", err)
+      (err) => console.error("Outbox error:", err)
     )
 
-    // Wait for recovery poll
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    await new Promise((resolve) => setTimeout(resolve, 1500))
 
     expect(processedEvents.some((e) => e.id === eventId)).toBe(true)
 
@@ -291,10 +273,7 @@ describe("PostgresPrismaOutbox E2E", () => {
     // 4. Verify results
     await Promise.all(workers.map((w) => w.stop()))
 
-    // Check count
     expect(processedEvents).toHaveLength(eventCount)
-
-    // Check duplicates
     const ids = processedEvents.map((e) => e.id)
     const uniqueIds = new Set(ids)
     expect(uniqueIds.size).toBe(eventCount)

@@ -83,7 +83,6 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
       occurredAt: new Date(),
     })
 
-    // Wait for polling
     await new Promise((resolve) => setTimeout(resolve, 1500))
 
     expect(received).toHaveLength(1)
@@ -190,9 +189,7 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
       await eventBus.start()
 
       await new Promise((resolve) => setTimeout(resolve, 3000))
-      // sub.unsubscribe(); // Not returned by subscribe
 
-      // Check for duplicates
       const uniqueProcessed = [...new Set(processed.map((p) => p.id))]
 
       expect(uniqueProcessed).toContain(eventId)
@@ -240,7 +237,6 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
       (err) => console.error("Outbox error:", err)
     )
 
-    // Wait for recovery poll
     await new Promise((resolve) => setTimeout(resolve, 1500))
 
     expect(received.some((e) => e.id === eventId)).toBe(true)
@@ -297,13 +293,9 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
       await new Promise((resolve) => setTimeout(resolve, 200))
     }
 
-    // 4. Verify results
     await Promise.all(workers.map((w) => w.stop()))
 
-    // Check count
     expect(processedEvents).toHaveLength(eventCount)
-
-    // Check duplicates
     const ids = processedEvents.map((e) => e.id)
     const uniqueIds = new Set(ids)
     expect(uniqueIds.size).toBe(eventCount)

@@ -145,7 +145,6 @@ describe("OutboxEventBus", () => {
       occurredAt: new Date(),
     }
 
-    // First emission
     await outboxHandler(event)
     expect(handler).toHaveBeenCalledTimes(1)
 
@@ -237,11 +236,9 @@ describe("OutboxEventBus", () => {
 
       expect(eventBus.getSubscriptionCount()).toBe(1)
 
-      // Remove specific event listeners
       eventBus.removeAllListeners("test-event")
       expect(eventBus.listenerCount("test-event")).toBe(0)
 
-      // Remove all listeners
       eventBus.on("test-event", handler)
       eventBus.removeAllListeners()
       expect(eventBus.getSubscriptionCount()).toBe(0)
@@ -251,7 +248,6 @@ describe("OutboxEventBus", () => {
       eventBus.start()
       const eventType = "wait-test"
 
-      // Start waiting
       const waitPromise = eventBus.waitFor(eventType, 100)
 
       // Publish should return immediately

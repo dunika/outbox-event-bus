@@ -15,7 +15,6 @@ describe("PostgresPrisma Outbox Transactions with AsyncLocalStorage", () => {
   beforeAll(async () => {
     process.env.DATABASE_URL = DATABASE_URL
 
-    // Run db push to setup schema
     try {
       execSync("npx prisma db push --accept-data-loss", {
         stdio: "inherit",

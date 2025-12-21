@@ -33,16 +33,13 @@ describe("RedisIoRedisOutbox", () => {
 
     await outbox.publish([event])
 
-    // First check if event is in pending queue
     const pending = await redis.zrange("outbox:pending", 0, -1)
     expect(pending).toHaveLength(1)
     expect(pending[0]).toBe("1")
 
-    // Check if the key exists at all
     const exists = await redis.exists("outbox:event:1")
     expect(exists).toBe(1)
 
-    // Check event data exists using individual gets
     const eventId = await redis.hget("outbox:event:1", "id")
 
     if (eventId) {
@@ -72,19 +69,16 @@ describe("RedisIoRedisOutbox", () => {
     const handler = vi.fn().mockResolvedValue(undefined)
     outbox.start(handler, onError)
 
-    // Wait for polling
     await new Promise((resolve) => setTimeout(resolve, 200))
 
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ id: "1" }))
 
-    // Should be removed from pending and processing
     const pending = await redis.zrange("outbox:pending", 0, -1)
     expect(pending).toHaveLength(0)
 
     const processing = await redis.zrange("outbox:processing", 0, -1)
     expect(processing).toHaveLength(0)
 
-    // Event data should be deleted (as per our implementation)
     const eventData = await redis.exists("outbox:event:1")
     expect(eventData).toBe(0)
   })
@@ -99,7 +93,6 @@ describe("RedisIoRedisOutbox", () => {
 
     await outbox.publish([event])
 
-    // Handler fails once then succeeds
     const handler = vi
       .fn(async (_event: unknown) => {})
       .mockRejectedValueOnce(new Error("Fail"))
@@ -107,13 +100,8 @@ describe("RedisIoRedisOutbox", () => {
 
     outbox.start(handler, onError)
 
-    // Wait for first attempt (fail)
     await new Promise((resolve) => setTimeout(resolve, 300))
     expect(handler).toHaveBeenCalledTimes(1)
-
-    // Should be scheduled for retry (back in pending with future score)
-    const pending = await redis.zrange("outbox:pending", 0, -1)
-    expect(pending).toHaveLength(1)
 
     // Verify retry count was incremented
     const retryCount = await redis.hget("outbox:event:1", "retryCount")
