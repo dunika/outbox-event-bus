@@ -1,5 +1,13 @@
 # @outbox-event-bus/sqlite-better-sqlite3-outbox
 
+## 1.0.3
+
+### Patch Changes
+
+- Update docs
+- Updated dependencies
+  - outbox-event-bus@1.0.3
+
 ## 1.0.2
 
 ### Patch Changes

@@ -12,7 +12,7 @@
 >
 > Transactional outbox pattern made simple. Persist events atomically with your data. Guaranteed delivery with your database.
 
-**The Problem**: You save data to your database and attempt to emit a relevant event. If your process crashes or the network fails before the event is sent, your system becomes inconsistent.
+**The Problem**: You save data to your database and attempt to emit a relevant event. If your process crashes or the network fails before the event is sent, your system becomes inconsistent. Partial success is total failure.
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/dunika/outbox-event-bus/main/docs/images/problem.png" alt="The Dual Write Problem" width="600">
@@ -20,7 +20,7 @@
 
 <br>
 
-**The Solution**: `outbox-event-bus` stores events in your database *within the same transaction* as your data. A background worker then reliably delivers them.
+**The Solution**: `outbox-event-bus` stores events in your database *within the same transaction* as your data. A background worker then reliably delivers them. Both write operations commit and rollback together. Failed events are persisted and retried.
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/dunika/outbox-event-bus/main/docs/images/solution.png" alt="The Outbox Solution" width="600">

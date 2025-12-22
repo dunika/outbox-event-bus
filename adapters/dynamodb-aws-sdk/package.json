@@ -1,6 +1,6 @@
 {
   "name": "@outbox-event-bus/dynamodb-aws-sdk-outbox",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": false,
   "license": "MIT",
   "repository": {
