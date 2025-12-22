@@ -1,6 +1,6 @@
 {
   "name": "outbox-event-bus",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -33,7 +33,7 @@
   ],
   "scripts": {
     "build": "tsdown",
-    "prepublishOnly": "rm -rf ./docs ./README.md && cp ../README.md ./README.md && cp -r ../docs ./docs",
+    "prepublishOnly": "rm -rf ./docs ./README.md && cp ../../README.md ./README.md && cp -r ../../docs ./docs",
     "lint": "eslint .",
     "test": "vitest run",
     "format": "biome check --write .",

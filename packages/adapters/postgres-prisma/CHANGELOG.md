@@ -1,5 +1,16 @@
 # @outbox-event-bus/postgres-prisma-outbox
 
+## 1.1.0
+
+### Minor Changes
+
+- Add middleware and move to /packages folder
+
+### Patch Changes
+
+- Updated dependencies
+  - outbox-event-bus@1.1.0
+
 ## 1.0.3
 
 ### Patch Changes
