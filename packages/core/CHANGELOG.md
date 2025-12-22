@@ -1,5 +1,11 @@
 # outbox-event-bus
 
+## 1.1.2
+
+### Patch Changes
+
+- docs
+
 ## 1.1.1
 
 ### Patch Changes

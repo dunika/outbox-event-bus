@@ -1,5 +1,13 @@
 # @outbox-event-bus/redis-streams-publisher
 
+## 1.1.2
+
+### Patch Changes
+
+- docs
+- Updated dependencies
+  - outbox-event-bus@1.1.2
+
 ## 1.1.1
 
 ### Patch Changes
