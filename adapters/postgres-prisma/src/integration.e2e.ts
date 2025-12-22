@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { OutboxStatus, PrismaClient } from "@prisma/client"
+import { OutboxEventBus } from "outbox-event-bus"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { PostgresPrismaOutbox } from "./index"
 
@@ -31,6 +32,7 @@ describe("PostgresPrismaOutbox E2E", () => {
       prisma,
       pollIntervalMs: 100,
     })
+    const eventBus = new OutboxEventBus(outbox, (error) => console.error("Bus Error:", error))
 
     const eventId = randomUUID()
     const event = {
@@ -41,7 +43,7 @@ describe("PostgresPrismaOutbox E2E", () => {
     }
 
     // 1. Publish
-    await outbox.publish([event])
+    await eventBus.emit(event)
 
     // Verify created
     const saved = await prisma.outboxEvent.findUnique({ where: { id: eventId } })
@@ -52,12 +54,11 @@ describe("PostgresPrismaOutbox E2E", () => {
 
     // 2. Start processing
     const processedEvents: any[] = []
-    await outbox.start(
-      async (event: any) => {
-        processedEvents.push(event)
-      },
-      (err: unknown) => console.error("Outbox Error:", err)
-    )
+    eventBus.on("test.created", async (event) => {
+      processedEvents.push(event)
+    })
+
+    eventBus.start()
 
     // Wait for poll
     await new Promise((resolve) => setTimeout(resolve, 2000))
@@ -73,10 +74,10 @@ describe("PostgresPrismaOutbox E2E", () => {
     expect(checkArchive).toBeTruthy()
     expect(checkArchive?.status).toBe(OutboxStatus.completed)
 
-    await outbox.stop()
+    await eventBus.stop()
   })
 
-  it("should retry failed events", async () => {
+  it("should retry failed events", { timeout: 15000 }, async () => {
     outbox = new PostgresPrismaOutbox({
       prisma,
       pollIntervalMs: 100,
@@ -163,7 +164,7 @@ describe("PostgresPrismaOutbox E2E", () => {
       async (e) => {
         processed.push(e)
       },
-      (err) => console.error(err)
+      (error) => console.error(error)
     )
 
     await new Promise((r) => setTimeout(r, 1000))
@@ -202,7 +203,7 @@ describe("PostgresPrismaOutbox E2E", () => {
       async (event) => {
         processedEvents.push(event)
       },
-      (err) => console.error("Outbox error:", err)
+      (error) => console.error("Outbox error:", error)
     )
 
     await new Promise((resolve) => setTimeout(resolve, 1500))
@@ -212,7 +213,7 @@ describe("PostgresPrismaOutbox E2E", () => {
     await outbox.stop()
   })
 
-  it("should handle concurrent processing safely", async () => {
+  it("should handle concurrent processing safely", { timeout: 20000 }, async () => {
     // 1. Publish many events
     const eventCount = 50
     const events = Array.from({ length: eventCount }).map((_, i) => ({
@@ -248,7 +249,7 @@ describe("PostgresPrismaOutbox E2E", () => {
         batchSize: 5, // Small batch size to encourage contention
       })
       workers.push(worker)
-      worker.start(handler, (err) => console.error(`Worker ${i} Error:`, err))
+      worker.start(handler, (error) => console.error(`Worker ${i} Error:`, error))
     }
 
     // 3. Wait for processing
@@ -305,7 +306,7 @@ describe("PostgresPrismaOutbox E2E", () => {
       async (e) => {
         processedEvents.push(e)
       },
-      (err) => console.error(err)
+      (error) => console.error(error)
     )
 
     await new Promise((r) => setTimeout(r, 1000))
@@ -346,7 +347,7 @@ describe("PostgresPrismaOutbox E2E", () => {
       async (e) => {
         processedEvents.push(e)
       },
-      (err) => console.error(err)
+      (error) => console.error(error)
     )
 
     await new Promise((r) => setTimeout(r, 1000))

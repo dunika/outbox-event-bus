@@ -1,5 +1,4 @@
 import { AsyncLocalStorage } from "node:async_hooks"
-import { execSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { PrismaPg } from "@prisma/adapter-pg"
 import { OutboxStatus, PrismaClient } from "@prisma/client"

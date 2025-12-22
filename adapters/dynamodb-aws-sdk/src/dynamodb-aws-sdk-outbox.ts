@@ -271,13 +271,13 @@ export class DynamoDBAwsSdkOutbox implements IOutbox<DynamoDBAwsSdkTransactionCo
     const now = Date.now()
 
     const updateExpression = isFinalFailure
-      ? "SET #status = :status, retryCount = :rc, lastError = :err, nextRetryAt = :now REMOVE gsiSortKey"
-      : "SET #status = :status, retryCount = :rc, lastError = :err, gsiSortKey = :nextAttempt"
+      ? "SET #status = :status, retryCount = :rc, lastError = :error, nextRetryAt = :now REMOVE gsiSortKey"
+      : "SET #status = :status, retryCount = :rc, lastError = :error, gsiSortKey = :nextAttempt"
 
     const expressionAttributeValues: Record<string, any> = {
       ":status": status,
       ":rc": retryCount,
-      ":err": errorMsg,
+      ":error": errorMsg,
     }
 
     if (isFinalFailure) {

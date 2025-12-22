@@ -97,6 +97,23 @@ describe("OutboxEventBus", () => {
     expect(publishedEvents[0].occurredAt).toBe(customDate)
   })
 
+  it("should generate defaults when properties are explicitly undefined", async () => {
+    // This test reproduces a bug where spread operators overwrite defaults with undefined
+    const eventWithExplicitUndefined = {
+      id: undefined,
+      occurredAt: undefined,
+      type: "explicit-undefined-test",
+      payload: {},
+    } as unknown as BusEvent
+
+    await eventBus.emit(eventWithExplicitUndefined)
+
+    const publishedEvents = (outbox.publish as any).mock.calls[0][0]
+    expect(publishedEvents).toHaveLength(1)
+    expect(publishedEvents[0].id).toBeDefined()
+    expect(publishedEvents[0].occurredAt).toBeInstanceOf(Date)
+  })
+
   it("should dispatch events to subscribers", async () => {
     eventBus.start()
     const handler = vi.fn().mockResolvedValue(undefined)
@@ -211,9 +228,13 @@ describe("OutboxEventBus", () => {
     // Expect the promise to reject because one handler failed
     await expect(outboxHandler(event)).rejects.toThrow("oops")
 
-    expect(errorHandler).toHaveBeenCalled()
-    expect(errorHandler).toHaveBeenCalled()
+    expect(errorHandler).toHaveBeenCalledTimes(1)
     // onError is no longer called by processEvent directly, it relies on the adapter/caller to handle the error
+  })
+
+  it("should handle emitMany with empty array", async () => {
+    await eventBus.emitMany([])
+    expect(outbox.publish).not.toHaveBeenCalled()
   })
 
   describe("1:1 Command Bus Features", () => {
@@ -290,6 +311,72 @@ describe("OutboxEventBus", () => {
       expect(listener).toBe(handler)
     })
 
+    it("should return undefined for non-existent listener", async () => {
+      const listener = eventBus.getListener("non-existent")
+      expect(listener).toBeUndefined()
+    })
+
+    it("should return all event names", async () => {
+      eventBus.on("event1", vi.fn())
+      eventBus.on("event2", vi.fn())
+      eventBus.on("event3", vi.fn())
+
+      const names = eventBus.eventNames()
+      expect(names).toEqual(["event1", "event2", "event3"])
+    })
+
+    it("should return empty array when no listeners", async () => {
+      const names = eventBus.eventNames()
+      expect(names).toEqual([])
+    })
+
+    it("should subscribe to multiple event types with one handler", async () => {
+      eventBus.start()
+      const handler = vi.fn().mockResolvedValue(undefined)
+
+      eventBus.subscribe(["event1", "event2", "event3"], handler)
+
+      expect(eventBus.listenerCount("event1")).toBe(1)
+      expect(eventBus.listenerCount("event2")).toBe(1)
+      expect(eventBus.listenerCount("event3")).toBe(1)
+
+      const event1: BusEvent = {
+        id: "1",
+        type: "event1",
+        payload: {},
+        occurredAt: new Date(),
+      }
+
+      const event2: BusEvent = {
+        id: "2",
+        type: "event2",
+        payload: {},
+        occurredAt: new Date(),
+      }
+
+      await outboxHandler(event1)
+      await outboxHandler(event2)
+
+      expect(handler).toHaveBeenCalledTimes(2)
+      expect(handler).toHaveBeenCalledWith(event1)
+      expect(handler).toHaveBeenCalledWith(event2)
+    })
+
+    it("should throw DuplicateListenerError when subscribing to already registered event", async () => {
+      eventBus.on("event1", vi.fn())
+
+      expect(() => {
+        eventBus.subscribe(["event1", "event2"], vi.fn())
+      }).toThrow(DuplicateListenerError)
+    })
+
+    it("should handle subscribe with empty array", async () => {
+      const handler = vi.fn()
+      eventBus.subscribe([], handler)
+
+      expect(eventBus.getSubscriptionCount()).toBe(0)
+    })
+
     it("should throw UnsupportedOperationError when outbox does not support management", async () => {
       const basicOutbox: any = {
         publish: vi.fn(),
@@ -300,6 +387,18 @@ describe("OutboxEventBus", () => {
 
       await expect(bus.getFailedEvents()).rejects.toThrow(UnsupportedOperationError)
       await expect(bus.retryEvents(["1"])).rejects.toThrow(UnsupportedOperationError)
+    })
+
+    it("should support initialization with a config object", async () => {
+      const bus = new OutboxEventBus(outbox, {
+        onError,
+        middlewareConcurrency: 5,
+      })
+
+      // We can't easily check private properties, but we can verify it doesn't throw
+      // and behaves correctly.
+      bus.start()
+      expect(outbox.start).toHaveBeenCalledWith(expect.any(Function), onError)
     })
   })
 })

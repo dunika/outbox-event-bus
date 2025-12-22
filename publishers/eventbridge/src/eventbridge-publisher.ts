@@ -9,7 +9,7 @@ export interface EventBridgePublisherConfig extends PublisherConfig {
   source: string
 }
 
-const AWS_BATCH_LIMIT = 10 // EventBridge PutEvents has a limit of 10 entries per request
+const AWS_BATCH_LIMIT = 10
 
 export class EventBridgePublisher<TTransaction = unknown> implements IPublisher {
   private readonly eventBridgeClient: EventBridgeClient

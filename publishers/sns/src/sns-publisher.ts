@@ -31,7 +31,7 @@ export class SNSPublisher<TTransaction = unknown> implements IPublisher {
       await this.snsClient.send(
         new PublishBatchCommand({
           TopicArn: this.topicArn,
-          PublishBatchRequestEntries: events.map((event, index) => ({
+          PublishBatchRequestEntries: events.map((event) => ({
             Id: event.id,
             Message: JSON.stringify(event),
             MessageAttributes: {

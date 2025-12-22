@@ -6,12 +6,8 @@ import { EventBridgePublisher } from "./eventbridge-publisher"
 describe("EventBridgePublisher E2E (with InMemoryOutbox)", () => {
   it("should process event from outbox to Event Bridge", async () => {
     // 1. Setup
-    const outbox = new InMemoryOutbox({ onError: (err) => console.error(err) })
-    const bus = new OutboxEventBus(
-      outbox,
-      () => {},
-      (err) => console.error(err)
-    )
+    const outbox = new InMemoryOutbox()
+    const bus = new OutboxEventBus(outbox, (error) => console.error(error))
 
     const mockEventBridgeClient = {
       send: vi.fn().mockResolvedValue({}),

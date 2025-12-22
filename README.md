@@ -37,16 +37,12 @@ import { OutboxEventBus } from 'outbox-event-bus';
 import { PostgresDrizzleOutbox } from '@outbox-event-bus/postgres-drizzle-outbox';
 import { SQSPublisher } from '@outbox-event-bus/sqs-publisher';
 
-// 1. Setup
+// Setup
 const outbox = new PostgresDrizzleOutbox({ db });
 const bus = new OutboxEventBus(outbox, (error: OutboxError) => console.error(error));
 
-// Forward messages to SQS
-const sqsClient = new SQSClient({ region: 'us-east-1' });
-const publisher = new SQSPublisher(bus, { queueUrl: '...', sqsClient });
-publisher.subscribe(['sync-to-sqs']);
 
-// 2. Register Handlers
+// Register Handlers
 bus.on('user.created', async (event) => {
   // Fan Out as needed
   await bus.emitMany([
@@ -59,11 +55,21 @@ bus.on('send.welcome', async (event) => {
   await emailService.sendWelcome(event.payload.email);
 });
 
+// Middleware 
+bus.use(async (ctx, next) => {
+  console.log('Processing:', ctx.event.type);
+  await next();
+});
 
-// 3. Start the Bus
+// Forward messages to SQS
+const sqsClient = new SQSClient({ region: 'us-east-1' });
+const publisher = new SQSPublisher(bus, { queueUrl: '...', sqsClient });
+publisher.subscribe(['sync-to-sqs']);
+
+// Start the Bus
 bus.start();
 
-// 4. Emit Transactionally
+// Emit Transactionally
 await db.transaction(async (transaction) => {
   const [user] = await transaction.insert(users).values(newUser).returning();
   
@@ -79,12 +85,14 @@ await db.transaction(async (transaction) => {
 - **Guaranteed Delivery**: At-least-once semantics with exponential backoff and dead letter handling.
 - **Safe Retries**: Strict 1:1 command bus pattern prevents duplicate side-effects.
 - **Built-in Publishers**: Comes with optional publishers for SQS, SNS, Kafka, RabbitMQ, Redis Streams, and EventBridge
+- **Middleware Support**: Intercept and process events with custom middleware for cross-cutting concerns like logging, observability, and enrichment.
 - **Typed Error Handling**: Comprehensive typed errors for precise control over failure scenarios and recovery strategies.
 - **TypeScript First**: Full type safety with generics for events, payloads, and transactions.
 
 ## Contents
 
 - [Concepts](#concepts)
+- [Middleware](#middleware)
 - [How-To Guides](#how-to-guides)
 - [API Reference](./docs/API_REFERENCE.md)
 - [Adapters & Publishers](#adapters--publishers)
@@ -159,6 +167,59 @@ WHERE status = 'active'
 ```
 
 > **Note:** Non-SQL adapters (DynamoDB, Redis, Mongo) implement equivalent recovery mechanisms using their native features (TTL, Sorted Sets, etc).
+
+## Middleware
+
+`outbox-event-bus` supports middleware to intercept and process events during the **Emit** and **Consume** phases. This is useful for logging, observability, modifying events, or enforcing policies.
+
+### Usage
+
+Use the `bus.use()` method to register middleware. Middleware is executed in the order it is registered (onion model).
+
+```typescript
+import { Middleware } from 'outbox-event-bus';
+
+// Define middleware
+const loggingMiddleware: Middleware = async (ctx, next) => {
+  console.log(`[${ctx.phase}] Processing event: ${ctx.event.type}`);
+  const start = Date.now();
+  
+  await next();
+  
+  const duration = Date.now() - start;
+  console.log(`[${ctx.phase}] Completed in ${duration}ms`);
+};
+
+// Register middleware
+bus.use(loggingMiddleware);
+```
+
+### Middleware Phases
+
+- **Emit Phase** (`phase: 'emit'`): Runs when `bus.emit()` or `bus.emitMany()` is called, *before* events are persisted to the database.
+  - Useful for: Validation, adding metadata (correlation IDs), encryption.
+  - **Note**: Modifying `ctx.event` affects what IS stored in the database.
+  - You can filter events by not calling `next()` (or throwing an error).
+
+- **Consume Phase** (`phase: 'consume'`): Runs when a worker picks up an event, *before* the handler is invoked.
+  - Useful for: Logging, setting up AsyncLocalStorage, error reporting contexts (Sentry, etc.), decryption.
+
+### Modifying Events
+
+You can modify events in transit.
+
+```typescript
+const correlationMiddleware: Middleware = async (ctx, next) => {
+  if (ctx.phase === 'emit') {
+    // Add correlation ID if missing
+    ctx.event.metadata = { 
+      ...ctx.event.metadata, 
+      correlationId: ctx.event.metadata?.correlationId || crypto.randomUUID() 
+    };
+  }
+  await next();
+};
+```
 
 ## How-To Guides
 
@@ -285,16 +346,15 @@ The library provides typed errors to help you handle specific failure scenarios 
 ```typescript
 import { OutboxEventBus, MaxRetriesExceededError } from 'outbox-event-bus';
 
+// Simple initialization with error handler
 const bus = new OutboxEventBus(outbox, (error: OutboxError) => {
-  // error is always an OutboxError instance
-  const event = error.context?.event;
-  
-  if (error instanceof MaxRetriesExceededError) {
-    console.error(`Event ${event?.id} permanently failed after ${error.retryCount} attempts`);
-    console.error('Original error:', error.cause);
-  } else {
-    console.error(`Event ${event?.id} failed:`, error.message);
-  }
+  console.error('Bus error:', error);
+});
+
+// Advanced initialization with config object
+const bus = new OutboxEventBus(outbox, {
+  onError: (error: OutboxError) => console.error(error),
+  middlewareConcurrency: 20 // Custom concurrency for middleware
 });
 ```
 
@@ -302,49 +362,109 @@ For a complete list and usage examples, see the [API Reference](./docs/API_REFER
 
 ### Monitoring & Debugging
 
-**Problem:** How do I monitor event processing errors in production?
+**Problem:** How do I monitor event processing errors, metrics, and traces in production?
 
-**Solution:** Use the `onError` callback for infrastructure errors and query the outbox table for failed events (DLQ).
+**Solution:** Use the `onError` callback for errors, and **Middleware** for metrics and tracing.
 
-> **Note:** The `onError` callback captures unexpected errors (e.g., database connection loss, handler crashes). Events that simply fail processing and are retried are not considered "errors" until they exceed max retries, at which point they are marked as `failed` in the database.
+#### 1. Error Monitoring (Sentry/Loggers)
+
+The `onError` callback captures unexpected errors and permanent failures.
 
 ```typescript
 const bus = new OutboxEventBus(outbox, (error: OutboxError) => {
   const event = error.context?.event;
   
-  // Send to monitoring service
-  logger.error('Event processing failed', {
-    eventId: event?.id,
-    eventType: event?.type,
-    errorMessage: error.message,
-    errorName: error.name
-  });
-  
-  // Send to error tracking
+  // Send to error tracking (e.g. Sentry)
   if (error instanceof MaxRetriesExceededError) {
     Sentry.captureException(error, {
-      tags: { 
-        eventType: event?.type,
-        retryCount: error.retryCount 
-      },
+      tags: { eventType: event?.type, retryCount: error.retryCount },
       extra: error.context
     });
   }
 });
 ```
 
-**Query failed events:**
+#### 2. Metrics (Prometheus Example)
+
+Use middleware to track event counts and processing duration.
+
 ```typescript
-// Get failed events (if supported by adapter)
+import { Counter, Histogram } from 'prom-client';
+
+const eventCounter = new Counter({
+  name: 'outbox_events_total',
+  help: 'Total events processed',
+  labelNames: ['type', 'phase', 'status']
+});
+
+const processingDuration = new Histogram({
+  name: 'outbox_event_duration_seconds',
+  help: 'Event processing duration',
+  labelNames: ['type']
+});
+
+bus.use(async (ctx, next) => {
+  const start = Date.now();
+  try {
+    await next();
+    eventCounter.inc({ type: ctx.event.type, phase: ctx.phase, status: 'success' });
+  } catch (err) {
+    eventCounter.inc({ type: ctx.event.type, phase: ctx.phase, status: 'error' });
+    throw err;
+  } finally {
+    if (ctx.phase === 'consume') {
+      processingDuration.observe({ type: ctx.event.type }, (Date.now() - start) / 1000);
+    }
+  }
+});
+```
+
+#### 3. Tracing (OpenTelemetry Example)
+
+Use middleware to start spans for distributed tracing.
+
+```typescript
+import { trace } from '@opentelemetry/api';
+
+const tracer = trace.getTracer('outbox-event-bus');
+
+bus.use(async (ctx, next) => {
+  if (ctx.phase === 'consume') {
+    return tracer.startActiveSpan(`consume ${ctx.event.type}`, async (span) => {
+      span.setAttributes({
+        'messaging.system': 'outbox',
+        'messaging.destination': ctx.event.type,
+        'messaging.message_id': ctx.event.id
+      });
+
+      try {
+        await next();
+        span.setStatus({ code: 1 }); // OK
+      } catch (err) {
+        span.recordException(err as Error);
+        span.setStatus({ code: 2 }); // ERROR
+        throw err;
+      } finally {
+        span.end();
+      }
+    });
+  }
+  await next();
+});
+```
+
+#### 4. Dead Letter Queue (DLQ)
+
+Query the database for events that failed after all retries.
+
+```typescript
+// Get failed events
 const failedEvents = await bus.getFailedEvents();
 ```
 
 Or via SQL:
 ```sql
-SELECT * FROM outbox_events 
-WHERE status = 'failed' 
-ORDER BY created_on DESC 
-LIMIT 10;
+SELECT * FROM outbox_events WHERE status = 'failed';
 ```
 
 ### Handling Failures
@@ -463,6 +583,8 @@ These send your events to the world.
 4. **Processing Latency**: Time from event creation to successful delivery
 5. **Queue Depth**: Number of pending events in the outbox
 
+> **Tip:** Use [Middleware](#middleware) to automatically capture these metrics without cluttering your business logic. See the [Monitoring & Debugging](#monitoring--debugging) section for Prometheus and OpenTelemetry examples.
+
 
 ### Scaling
 
@@ -502,14 +624,25 @@ Essential when forwarding events to external systems (SQS, Kafka) or to protect 
 ```typescript
 import { encrypt, decrypt } from './crypto';
 
-await bus.emit({
-  type: 'user.created',
-  payload: encrypt(user) // Encrypt before saving
+// Encryption Middleware
+bus.use(async (ctx, next) => {
+  if (ctx.phase === 'emit') {
+    ctx.event.payload = encrypt(ctx.event.payload);
+  }
+  
+  await next();
+  
+  if (ctx.phase === 'consume') {
+    ctx.event.payload = decrypt(ctx.event.payload);
+  }
 });
 
+// Usage (Transparent encryption/decryption)
+await bus.emit({ type: 'user.created', payload: user });
+
 bus.on('user.created', async (event) => {
-  const user = decrypt(event.payload); // Decrypt in handler
-  await emailService.send(user.email);
+  // event.payload is automatically decrypted
+  await emailService.send(event.payload.email);
 });
 ```
 

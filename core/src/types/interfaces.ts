@@ -1,3 +1,4 @@
+import type { Middleware } from "./middleware"
 import type { AnyListener, BusEvent, BusEventInput, ErrorHandler, FailedBusEvent } from "./types"
 
 export interface IOutbox<TTransaction> {
@@ -9,6 +10,7 @@ export interface IOutbox<TTransaction> {
 }
 
 export interface IOutboxEventBus<TTransaction> {
+  use: (...middlewares: Middleware<TTransaction>[]) => this
   emit: <T extends string, P>(
     event: BusEventInput<T, P>,
     transaction?: TTransaction

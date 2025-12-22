@@ -86,7 +86,6 @@ export class RedisIoRedisOutbox implements IOutbox<ChainableCommander> {
 
     for (const event of events) {
       const key = `${this.KEYS.EVENT_PREFIX}${event.id}`
-      // Use hset for compatibility
       pipeline.hset(
         key,
         RedisFields.ID,
@@ -123,8 +122,8 @@ export class RedisIoRedisOutbox implements IOutbox<ChainableCommander> {
     const failedEvents: FailedBusEvent[] = []
     if (results) {
       for (const res of results) {
-        const [err, data] = res
-        if (!err && data && Object.keys(data).length > 0) {
+        const [error, data] = res
+        if (!error && data && Object.keys(data).length > 0) {
           const message = data as Record<string, string>
           const event: FailedBusEvent = {
             id: message.id || "",
@@ -134,9 +133,6 @@ export class RedisIoRedisOutbox implements IOutbox<ChainableCommander> {
             retryCount: Number.parseInt(message.retryCount || "0", 10),
           }
           if (message.lastError) event.error = message.lastError
-          // Redis stores string, so we don't have start/end times unless we added them.
-          // We can assume ZSCORE matches failure time roughly or add failureAt field.
-          // For now, minimal implementation.
           failedEvents.push(event)
         }
       }
@@ -176,7 +172,6 @@ export class RedisIoRedisOutbox implements IOutbox<ChainableCommander> {
 
   private async recoverStuckEvents() {
     const now = Date.now()
-    // Custom Lua script handles recovery logic atomically
     // @ts-expect-error - recoverOutboxEvents is a custom command defined via defineCommand
     await this.redis.recoverOutboxEvents(
       this.KEYS.PROCESSING,
@@ -189,7 +184,6 @@ export class RedisIoRedisOutbox implements IOutbox<ChainableCommander> {
   private async processBatch(handler: (event: BusEvent) => Promise<void>) {
     const now = Date.now()
 
-    // Custom Lua script atomically moves events from PENDING to PROCESSING
     // @ts-expect-error - pollOutboxEvents is a custom command defined via defineCommand
     const eventIds: string[] = await this.redis.pollOutboxEvents(
       this.KEYS.PENDING,
@@ -218,8 +212,8 @@ export class RedisIoRedisOutbox implements IOutbox<ChainableCommander> {
       const id = eventIds[index]
       if (!res || !id) continue
 
-      const [err, messageRaw] = res
-      if (err || !messageRaw || Object.keys(messageRaw).length === 0) continue
+      const [error, messageRaw] = res
+      if (error || !messageRaw || Object.keys(messageRaw).length === 0) continue
 
       const message = messageRaw as Record<string, unknown>
 

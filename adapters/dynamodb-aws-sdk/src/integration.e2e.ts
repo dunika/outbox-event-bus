@@ -46,9 +46,9 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
           })
         )
         break
-      } catch (err: any) {
-        if (err.name === "ResourceInUseException") break
-        if (i === maxRetries - 1) throw err
+      } catch (error: any) {
+        if (error.name === "ResourceInUseException") break
+        if (i === maxRetries - 1) throw error
         await new Promise((res) => setTimeout(res, delay))
       }
     }
@@ -94,7 +94,7 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
       pollIntervalMs: 100,
     })
 
-    const eventBus = new OutboxEventBus(outbox, (err) => console.error("Bus error:", err))
+    const eventBus = new OutboxEventBus(outbox, (error) => console.error("Bus error:", error))
 
     const received: any[] = []
     eventBus.subscribe(["test.event"], async (event) => {
@@ -204,7 +204,7 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
 
       await outbox.retryEvents([eventId])
 
-      const eventBus = new OutboxEventBus(outbox, (err) => console.error("Bus error:", err))
+      const eventBus = new OutboxEventBus(outbox, (error) => console.error("Bus error:", error))
 
       const processed: any[] = []
       const _sub = eventBus.subscribe(["manual.retry"], async (event) => {
@@ -258,7 +258,7 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
       async (event) => {
         received.push(event)
       },
-      (err) => console.error("Outbox error:", err)
+      (error) => console.error("Outbox error:", error)
     )
 
     await new Promise((resolve) => setTimeout(resolve, 1500))
@@ -316,7 +316,7 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
         batchSize: 5,
       })
       workers.push(worker)
-      worker.start(handler, (err) => console.error(`Worker ${i} Error:`, err))
+      worker.start(handler, (error) => console.error(`Worker ${i} Error:`, error))
     }
 
     const maxWaitTime = 15000
@@ -391,7 +391,7 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
       async (e) => {
         processedEvents.push(e)
       },
-      (err) => console.error(err)
+      (error) => console.error(error)
     )
 
     await new Promise((r) => setTimeout(r, 1000))
@@ -453,7 +453,7 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
       async (e) => {
         processedEvents.push(e)
       },
-      (err) => console.error(err)
+      (error) => console.error(error)
     )
 
     await new Promise((r) => setTimeout(r, 1500))

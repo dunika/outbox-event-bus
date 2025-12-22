@@ -30,7 +30,7 @@ describe("SqliteBetterSqlite3Outbox Synchronous Transactions", () => {
       db,
       getTransaction: () => db, // <--- CRITICAL: Use the same DB instance
     })
-    const bus = new OutboxEventBus(outbox, (err) => console.error(err))
+    const bus = new OutboxEventBus(outbox, (error) => console.error(error))
 
     const userId = "user-1"
     const eventId = "event-1"
@@ -64,7 +64,7 @@ describe("SqliteBetterSqlite3Outbox Synchronous Transactions", () => {
       db,
       getTransaction: () => db,
     })
-    const bus = new OutboxEventBus(outbox, (err) => console.error(err))
+    const bus = new OutboxEventBus(outbox, (error) => console.error(error))
 
     const userId = "user-2"
     const eventId = "event-2"
@@ -97,7 +97,7 @@ describe("SqliteBetterSqlite3Outbox Synchronous Transactions", () => {
       dbPath: DB_PATH,
       getTransaction: () => db,
     })
-    const _bus = new OutboxEventBus(outbox, (err) => console.error(err))
+    const _bus = new OutboxEventBus(outbox, (error) => console.error(error))
 
     const userId = "user-async"
 

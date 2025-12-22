@@ -6,12 +6,8 @@ import { SQSPublisher } from "./sqs-publisher"
 describe("SQSPublisher E2E (with InMemoryOutbox)", () => {
   it("should process event from outbox to SQS", async () => {
     // 1. Setup
-    const outbox = new InMemoryOutbox({ onError: (err) => console.error(err) })
-    const bus = new OutboxEventBus(
-      outbox,
-      () => {},
-      (err) => console.error(err)
-    )
+    const outbox = new InMemoryOutbox()
+    const bus = new OutboxEventBus(outbox, (error) => console.error(error))
 
     const mockSqsClient = {
       send: vi.fn().mockResolvedValue({}),

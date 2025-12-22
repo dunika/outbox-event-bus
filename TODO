@@ -1,6 +1,14 @@
-Custom errors and codes
+
+ensure docs witll work when published
+remove word publisher from image
+publshing
 
 
-getFailedEvents - document
+todo - result-try readme and docs
 
-rename /Users/dunika/workspace/outbox-event-bus/adapters to there lib nams 
+
+
+
+middleare
+
+@outbox-event-bus/saga

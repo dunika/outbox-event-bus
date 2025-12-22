@@ -7,7 +7,7 @@ export interface BatcherConfig<T> {
 interface QueuedItem<T> {
   item: T
   resolve: () => void
-  reject: (err: unknown) => void
+  reject: (error: unknown) => void
 }
 
 export class Batcher<T> {

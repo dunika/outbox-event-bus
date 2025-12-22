@@ -9,17 +9,39 @@ The main orchestrator for event emission and handling. The API is inspired by [t
 #### Constructor
 
 ```typescript
+// Option 1: Direct error handler
 new OutboxEventBus<TTransaction = unknown>(
   outbox: IOutbox<TTransaction>,
   onError: ErrorHandler
+)
+
+// Option 2: Config object
+new OutboxEventBus<TTransaction = unknown>(
+  outbox: IOutbox<TTransaction>,
+  config: OutboxBusConfig
 )
 ```
 
 **Parameters:**
 - `outbox`: Storage adapter implementing `IOutbox` interface
-- `onError`: Required error handler for processing failures. Receives `OutboxError` with event bundled in `error.context?.event` for event-related errors.
+- `onError`: Error handler function (Option 1)
+- `config`: Configuration object (Option 2)
+
+**OutboxBusConfig:**
+```typescript
+import type { OutboxBusConfig } from 'outbox-event-bus';
+```
+- `onError`: Required error handler for processing failures.
+- `middlewareConcurrency`: Optional. Max concurrent middleware executions during `emitMany` (default: 10).
 
 #### Methods
+
+##### `use()`
+Registers middleware to be executed during event emission and consumption.
+
+```typescript
+bus.use(...middlewares: Middleware<TTransaction>[]): this
+```
 
 ##### `start()`
 Starts the background worker that polls and processes events.
@@ -88,6 +110,16 @@ bus.off(
 
 > [!TIP]
 > `off()` and `removeListener()` are equivalent methods. Similarly, `on()` and `addListener()` are equivalent. Use whichever naming convention you prefer.
+
+##### `once()`
+Registers a one-time handler for a specific event type. The handler will be removed after it is invoked once.
+
+```typescript
+bus.once(
+  eventType: string,
+  handler: (event: BusEvent) => Promise<void>
+): this
+```
 
 ##### `removeAllListeners()`
 Removes all registered handlers.
@@ -182,6 +214,7 @@ Public interface for the event bus, useful for dependency injection.
 
 ```typescript
 interface IOutboxEventBus<TTransaction> {
+  use(...middlewares: Middleware<TTransaction>[]): this;
   emit<T extends string, P>(
     event: BusEventInput<T, P>,
     transaction?: TTransaction
@@ -227,6 +260,16 @@ interface IOutboxEventBus<TTransaction> {
   ): Promise<BusEvent<T, P>>;
   getFailedEvents(): Promise<FailedBusEvent[]>;
   retryEvents(eventIds: string[]): Promise<void>;
+}
+```
+
+### IPublisher Interface
+
+Interface for external event publishers (e.g., SQS, Kafka).
+
+```typescript
+interface IPublisher {
+  subscribe(eventTypes: string[]): void;
 }
 ```
 
@@ -279,6 +322,46 @@ const EventStatus = {
   FAILED: 'failed',
   COMPLETED: 'completed',
 } as const;
+```
+
+## Middleware Types
+
+### `Middleware`
+A function that intercepts event processing.
+
+```typescript
+type Middleware<TTransaction = unknown> = (
+  ctx: MiddlewareContext<TTransaction>,
+  next: Next
+) => Promise<void>;
+```
+
+### `MiddlewareContext`
+Context passed to middleware.
+
+```typescript
+type MiddlewareContext<TTransaction = unknown> =
+  | EmitMiddlewareContext<TTransaction>
+  | ConsumeMiddlewareContext<TTransaction>;
+
+type EmitMiddlewareContext<TTransaction = unknown> = {
+  phase: 'emit';
+  event: BusEvent;
+  transaction?: TTransaction | undefined;
+}
+
+type ConsumeMiddlewareContext<TTransaction = unknown> = {
+  phase: 'consume';
+  event: BusEvent;
+  transaction?: TTransaction | undefined;
+}
+```
+
+### `Next`
+Function to call the next middleware or the actual handler.
+
+```typescript
+type Next = () => Promise<void>;
 ```
 
 ## Adapters

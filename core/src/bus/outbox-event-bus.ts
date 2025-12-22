@@ -1,6 +1,11 @@
 import { DuplicateListenerError, TimeoutError, UnsupportedOperationError } from "../errors/errors"
 import type { IOutbox, IOutboxEventBus } from "../types/interfaces"
 import type {
+  ConsumeMiddlewareContext,
+  EmitMiddlewareContext,
+  Middleware,
+} from "../types/middleware"
+import type {
   AnyListener,
   BusEvent,
   BusEventInput,
@@ -8,6 +13,8 @@ import type {
   EventHandler,
   FailedBusEvent,
 } from "../types/types"
+import { executeMiddleware } from "../utils/middleware-utils"
+import { promiseMap } from "../utils/promise-utils"
 import { createTimedPromise } from "../utils/time-utils"
 
 const DEFAULT_WAIT_TIMEOUT_MS = 5000
@@ -16,13 +23,34 @@ type WrappedEventHandler<T extends string = string, P = unknown> = EventHandler<
   _original?: EventHandler<T, P>
 }
 
+export type OutboxBusConfig = {
+  onError: ErrorHandler
+  middlewareConcurrency?: number
+}
+
 export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransaction> {
   private readonly handlers = new Map<string, EventHandler<string, unknown>>()
+  private readonly middlewares: Middleware<TTransaction>[] = []
+  private readonly onError: ErrorHandler
+  private readonly middlewareConcurrency: number
 
   constructor(
     private readonly outbox: IOutbox<TTransaction>,
-    private readonly onError: ErrorHandler
-  ) {}
+    onErrorOrConfig: ErrorHandler | OutboxBusConfig
+  ) {
+    if (typeof onErrorOrConfig === "function") {
+      this.onError = onErrorOrConfig
+      this.middlewareConcurrency = 10
+    } else {
+      this.onError = onErrorOrConfig.onError
+      this.middlewareConcurrency = Math.max(1, onErrorOrConfig.middlewareConcurrency ?? 10)
+    }
+  }
+
+  use(...middlewares: Middleware<TTransaction>[]): this {
+    this.middlewares.push(...middlewares)
+    return this
+  }
 
   async emit<T extends string, P>(
     event: BusEventInput<T, P>,
@@ -37,13 +65,51 @@ export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransactio
   ): Promise<void> {
     if (events.length === 0) return
 
-    const now = new Date()
-    const eventsWithDefaults = events.map((event) => ({
-      id: event.id ?? crypto.randomUUID(),
-      occurredAt: event.occurredAt ?? now,
+    const eventsWithDefaults = this.prepareEvents(events)
+
+    const middlewareSnapshot = [...this.middlewares]
+    if (middlewareSnapshot.length === 0) {
+      await this.outbox.publish(eventsWithDefaults, transaction)
+      return
+    }
+
+    const results = await promiseMap(
+      eventsWithDefaults,
+      (event) => this.runEmitMiddleware(event, middlewareSnapshot, transaction),
+      this.middlewareConcurrency
+    )
+
+    const eventsToPublish = results.filter((e): e is BusEvent => !!e)
+    if (eventsToPublish.length > 0) {
+      await this.outbox.publish(eventsToPublish, transaction)
+    }
+  }
+
+  private prepareEvents<T extends string, P>(events: BusEventInput<T, P>[]): BusEvent[] {
+    return events.map((event) => ({
       ...event,
+      id: event.id ?? crypto.randomUUID(),
+      occurredAt: event.occurredAt ?? new Date(),
     })) as BusEvent[]
-    await this.outbox.publish(eventsWithDefaults, transaction)
+  }
+
+  private async runEmitMiddleware(
+    event: BusEvent,
+    middlewares: Middleware<TTransaction>[],
+    transaction?: TTransaction
+  ): Promise<BusEvent | null> {
+    let shouldPublish = false
+    const ctx: EmitMiddlewareContext<TTransaction> = {
+      event,
+      phase: "emit",
+      transaction,
+    }
+
+    await executeMiddleware(middlewares, ctx, async () => {
+      shouldPublish = true
+    })
+
+    return shouldPublish ? ctx.event : null
   }
 
   on<T extends string, P = unknown>(eventType: T, handler: EventHandler<T, P>): this {
@@ -159,9 +225,22 @@ export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransactio
   }
 
   private processEvent = async (event: BusEvent): Promise<void> => {
-    const handler = this.handlers.get(event.type)
-    if (!handler) return
+    const middlewareSnapshot = [...this.middlewares]
 
-    await handler(event)
+    if (middlewareSnapshot.length === 0) {
+      const handler = this.handlers.get(event.type)
+      if (handler) {
+        await handler(event)
+      }
+      return
+    }
+
+    const ctx: ConsumeMiddlewareContext<TTransaction> = { event, phase: "consume" }
+    await executeMiddleware(middlewareSnapshot, ctx, async () => {
+      const handler = this.handlers.get(ctx.event.type)
+      if (handler) {
+        await handler(ctx.event)
+      }
+    })
   }
 }

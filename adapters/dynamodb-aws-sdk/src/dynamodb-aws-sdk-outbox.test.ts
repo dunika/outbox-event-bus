@@ -60,7 +60,7 @@ describe("DynamoDBAwsSdkOutbox Unit Tests", () => {
 
     outbox.start(
       async () => {},
-      (err) => console.error(err)
+      (error) => console.error(error)
     )
 
     // Wait for one poll cycle
@@ -91,7 +91,7 @@ describe("DynamoDBAwsSdkOutbox Unit Tests", () => {
       async () => {
         throw new Error("Failed")
       },
-      (err) => console.error(err)
+      (error) => console.error(error)
     )
 
     await new Promise((res) => setTimeout(res, 200))

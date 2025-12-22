@@ -150,7 +150,7 @@ describe("MongoMongodbOutbox E2E", () => {
       async (e) => {
         processed.push(e)
       },
-      (err) => console.error(err)
+      (error) => console.error(error)
     )
 
     await new Promise((r) => setTimeout(r, 1000))
@@ -187,7 +187,7 @@ describe("MongoMongodbOutbox E2E", () => {
       async (event) => {
         processedEvents.push(event)
       },
-      (err) => console.error("Outbox Error:", err)
+      (error) => console.error("Outbox Error:", error)
     )
 
     await new Promise((resolve) => setTimeout(resolve, 1500))
@@ -235,7 +235,7 @@ describe("MongoMongodbOutbox E2E", () => {
         batchSize: 5,
       })
       workers.push(worker)
-      worker.start(handler, (err) => console.error(`Worker ${i} Error:`, err))
+      worker.start(handler, (error) => console.error(`Worker ${i} Error:`, error))
     }
 
     const maxWaitTime = 10000

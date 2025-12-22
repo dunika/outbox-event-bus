@@ -51,7 +51,7 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
       processedEvents.push(event)
     }
 
-    outbox.start(handler, (err) => console.error("Outbox Error:", err))
+    outbox.start(handler, (error) => console.error("Outbox Error:", error))
 
     await new Promise((resolve) => setTimeout(resolve, 1000))
 
@@ -134,7 +134,7 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
       "Manual failure"
     )
 
-    const inserted = db.prepare("SELECT * FROM outbox_events WHERE id = ?").get(eventId)
+    const _inserted = db.prepare("SELECT * FROM outbox_events WHERE id = ?").get(eventId)
 
     const failed = await outbox.getFailedEvents()
     const targetEvent = failed.find((e) => e.id === eventId)
@@ -157,7 +157,7 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
       async (e) => {
         processed.push(e)
       },
-      (err) => console.error(err)
+      (error) => console.error(error)
     )
 
     await new Promise((r) => setTimeout(r, 1000))
@@ -196,7 +196,7 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
       processedEvents.push(event)
     }
 
-    outbox.start(handler, (err) => console.error("Outbox Error:", err))
+    outbox.start(handler, (error) => console.error("Outbox Error:", error))
 
     await new Promise((resolve) => setTimeout(resolve, 1500))
 
@@ -238,7 +238,7 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
         batchSize: 5,
       })
       workers.push(worker)
-      worker.start(handler, (err) => console.error(`Worker ${i} Error:`, err))
+      worker.start(handler, (error) => console.error(`Worker ${i} Error:`, error))
     }
 
     const maxWaitTime = 10000

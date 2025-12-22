@@ -90,7 +90,7 @@ describe("RedisIoRedisOutbox E2E", () => {
       processingTimeoutMs: 1000, // 1s timeout
     })
 
-    await recoveryOutbox.start(handler, (err) => console.error("Outbox Error:", err))
+    await recoveryOutbox.start(handler, (error) => console.error("Outbox Error:", error))
 
     await new Promise((resolve) => setTimeout(resolve, 500))
 
@@ -130,7 +130,7 @@ describe("RedisIoRedisOutbox E2E", () => {
 
     // Check Redis for retry state
     const eventData = await redis.hgetall(`outbox:event:${eventId}`)
-    const retryCount = await redis.hget(`outbox:event:${eventId}`, "retryCount")
+    const _retryCount = await redis.hget(`outbox:event:${eventId}`, "retryCount")
     expect(Number.parseInt(eventData.retryCount ?? "0", 10)).toBeGreaterThan(0)
     expect(eventData.lastError).toBe("Temporary failure")
   })
@@ -230,7 +230,7 @@ describe("RedisIoRedisOutbox E2E", () => {
         batchSize: 5,
       })
       workers.push(worker)
-      worker.start(handler, (err) => console.error(`Worker ${i} Error:`, err))
+      worker.start(handler, (error) => console.error(`Worker ${i} Error:`, error))
     }
 
     const maxWaitTime = 10000

@@ -42,7 +42,7 @@ describe("PostgresDrizzle Outbox Transactions with AsyncLocalStorage", () => {
   const eventBus = new OutboxEventBus(
     outbox,
     (_bus, type, count) => console.warn(`Max listeners for ${type}: ${count}`),
-    (err) => console.error("Bus error:", err)
+    (error) => console.error("Bus error:", error)
   )
 
   beforeAll(async () => {
