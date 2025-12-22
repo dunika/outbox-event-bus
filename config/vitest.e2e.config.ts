@@ -14,6 +14,7 @@ export default mergeConfig(
   defineConfig({
     test: {
       include: ["**/*.e2e.ts"],
+      fileParallelism: false,
     },
   })
 )

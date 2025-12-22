@@ -220,6 +220,9 @@ interface MongoMongodbOutboxConfig {
 }
 ```
 
+> [!NOTE]
+> All adapters inherit base configuration options from `OutboxConfig`. See the [API Reference](https://github.com/dunika/outbox-event-bus/blob/main/docs/API_REFERENCE.md#base-outbox-configuration) for details on inherited options.
+
 | Property | Type | Required | Default | Description |
 |----------|------|----------|---------|-------------|
 | `client` | `MongoClient` | ✅ | - | MongoDB client instance |
@@ -278,43 +281,6 @@ If you are using a custom collection, it **must** support documents with the fol
 
 > [!TIP]
 > Ensure you have an index on `{ status: 1, nextRetryAt: 1 }` and `{ status: 1, keepAlive: 1 }` for optimal polling performance.
-
----
-
-## Document Schema
-
-The adapter stores events in a dedicated collection with the following schema:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `_id` | `ObjectId` | MongoDB document ID |
-| `eventId` | `string` | Unique event identifier |
-| `type` | `string` | Event type |
-| `payload` | `object` | Event payload (supports nested documents) |
-| `status` | `string` | `created`, `active`, `failed`, or `completed` |
-| `occurredAt` | `Date` | Timestamp of occurrence |
-| `nextRetryAt` | `Date \| null` | Scheduled time for retry |
-| `retryCount` | `number` | Number of retries so far |
-| `lastError` | `string` | Error message from last failure (optional) |
-| `startedOn` | `Date` | When processing started (optional) |
-| `completedOn` | `Date` | When processing completed (optional) |
-| `expireInSeconds` | `number` | Lock duration (default: 60) |
-| `keepAlive` | `Date` | Timestamp for lock renewal |
-
-### Recommended Indexes
-
-For optimal performance, create the following indexes:
-
-```javascript
-// For polling pending events
-db.outbox_events.createIndex({ status: 1, nextRetryAt: 1 });
-
-// For recovering stuck events
-db.outbox_events.createIndex({ status: 1, keepAlive: 1 });
-
-// For querying by eventId
-db.outbox_events.createIndex({ eventId: 1 }, { unique: true });
-```
 
 ---
 

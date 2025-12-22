@@ -44,7 +44,8 @@ The script will:
 2. **Build** all packages (`pnpm -r build`)
 3. **Lint** all packages (`pnpm -r lint`)
 4. **Test** all packages (`pnpm -r test`)
-5. **Publish** using Changesets (`pnpm release`)
+5. **E2E Test** all packages (`pnpm -r test:e2e`)
+6. **Publish** using Changesets (`pnpm release`)
 
 **Two-Factor Authentication (2FA)**
 
@@ -52,6 +53,29 @@ Since this project uses Changesets for publishing, the underlying `npm publish` 
 
 > [!NOTE]
 > If you don't have 2FA enabled yet, run `npm profile enable-2fa auth-and-writes` to set it up.
+
+## CI/CD Setup
+
+The project is configured to use **npm Trusted Publishing** for secure, passwordless publishing via GitHub Actions.
+
+> **Important**: You must publish the packages **manually** at least once before you can configure Trusted Publishing. Use the [Local Publishing](#local-publishing) steps below for the initial release.
+
+1. **Configure Trusted Publishing on npm**:
+   - Log in to [npmjs.com](https://www.npmjs.com/)
+   - Navigate to your package settings (e.g., `https://www.npmjs.com/package/@outbox-event-bus/core/access`)
+   - Go to **Publishing Access**
+   - Click **Connect GitHub**
+   - Select this repository: `dunika/outbox-event-bus`
+   - Workflow filename: `release.yml`
+   - Environment: Leave empty (unless you configured one in GitHub)
+   - *Repeat this for each package in the monorepo.*
+
+2. **Check Permissions**:
+   - Go to **Settings** > **Actions** > **General**
+   - Ensure **Workflow permissions** is set to **Read and write permissions**
+     - This is required for the Changesets action to push version commits and tags back to the repo.
+
+> **Note**: The `release.yml` workflow is already configured with `permissions: id-token: write` to support Trusted Publishing.
 
 ## CI/CD Publishing
 

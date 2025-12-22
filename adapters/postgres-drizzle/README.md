@@ -77,7 +77,7 @@ CREATE TABLE outbox_events (
   created_on TIMESTAMP NOT NULL DEFAULT NOW(),
   started_on TIMESTAMP,
   keep_alive TIMESTAMP,
-  expire_in_seconds INTEGER NOT NULL DEFAULT 30
+  expire_in_seconds INTEGER NOT NULL DEFAULT 300
 );
 
 CREATE TABLE outbox_events_archive (
@@ -289,12 +289,13 @@ const outbox = new PostgresDrizzleOutbox({
 ```typescript
 import { OutboxEventBus, MaxRetriesExceededError } from 'outbox-event-bus';
 
-const bus = new OutboxEventBus(outbox, (error, event) => {
+const bus = new OutboxEventBus(outbox, (error: OutboxError) => {
   // Log to monitoring service
+  const event = error.context?.event;
   logger.error('Event processing failed', {
     eventId: event?.id,
     eventType: event?.type,
-    retryCount: event?.retryCount,
+    retryCount: error.context?.retryCount,
     error: error.message
   });
   

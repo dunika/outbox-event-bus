@@ -64,7 +64,7 @@ interface SQSPublisherConfig {
 - `sqsClient`: An instance of the AWS SDK `SQSClient`.
 - `queueUrl`: The URL of the SQS queue.
 - `processingConfig`: (Optional) Settings for accumulation and batching.
-    - `bufferSize`: Number of events to accumulation in memory before publishing. Default: `50`.
+    - `bufferSize`: Number of events to accumulate in memory before publishing. Default: `50`.
     - `bufferTimeoutMs`: Maximum time to wait for a buffer to fill before flushing. Default: `100ms`.
     - `concurrency`: Maximum number of concurrent batch requests to SQS. Default: `5`.
 - `retryConfig`: (Optional) Custom retry settings for publishing failures.

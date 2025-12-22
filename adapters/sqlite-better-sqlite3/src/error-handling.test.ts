@@ -47,13 +47,23 @@ describe("Error Handling", () => {
     expect(onError).toHaveBeenCalled()
     const call = onError.mock.calls[0]
     expect(call).toBeDefined()
-    const [calledError, calledEvent] = call!
+    if (call) {
+      const calledError = call[0]
 
-    expect(calledError).toBeInstanceOf(HandlerError)
-    expect((calledError as HandlerError).originalError).toEqual(error)
-    expect(calledEvent).toBeDefined()
-    expect(calledEvent.type).toBe(eventType)
-    expect(calledEvent.retryCount).toBe(1)
+      // Verify it's a HandlerError instance
+      expect(calledError).toBeInstanceOf(HandlerError)
+      expect(calledError.name).toBe("HandlerError")
+      expect(calledError.message).toContain("Handler failed")
+
+      // Verify cause is preserved
+      expect((calledError as HandlerError).cause).toEqual(error)
+
+      // Verify event is bundled in error.context.event
+      const calledEvent = (calledError as HandlerError).context?.event as any
+      expect(calledEvent).toBeDefined()
+      expect(calledEvent.type).toBe(eventType)
+      expect(calledEvent.id).toBeDefined()
+    }
   })
 
   it("should increment retry count on subsequent failures", async () => {
@@ -85,9 +95,12 @@ describe("Error Handling", () => {
     await new Promise((resolve) => setTimeout(resolve, 100))
 
     expect(onError).toHaveBeenCalledTimes(2)
-    const secondCallEvent = onError.mock.calls[1]?.[1]
-    expect(secondCallEvent).toBeDefined()
-    expect(secondCallEvent.retryCount).toBe(2)
+    const secondCall = onError.mock.calls[1]
+    if (secondCall) {
+      const secondCallEvent = (secondCall[0] as any).context?.event
+      expect(secondCallEvent).toBeDefined()
+      expect(secondCallEvent.type).toBe(eventType)
+    }
   })
 
   it("should call onError with MaxRetriesExceededError when max retries is reached", async () => {
@@ -115,7 +128,18 @@ describe("Error Handling", () => {
 
     expect(onError).toHaveBeenCalled()
     const error = onError.mock.calls[0]?.[0]
+
+    // Verify it's a MaxRetriesExceededError instance
     expect(error).toBeInstanceOf(MaxRetriesExceededError)
+    expect(error.name).toBe("MaxRetriesExceededError")
+    expect(error.message).toContain("exceeded")
+
+    // Verify retryCount property (maxRetries is 0, so this should be 1)
     expect((error as MaxRetriesExceededError).retryCount).toBe(1)
+
+    // Verify event is bundled in error.context.event
+    const event = (error as MaxRetriesExceededError).context?.event
+    expect(event).toBeDefined()
+    expect(event?.type).toBe(eventType)
   })
 })

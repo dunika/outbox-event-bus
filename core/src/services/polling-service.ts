@@ -59,8 +59,8 @@ export class PollingService {
   private handlePollError(error: unknown): void {
     const errorToReport =
       error instanceof OutboxError
-        ? error
-        : new OperationalError("Polling cycle failed", { originalError: error })
+        ? (error as OutboxError)
+        : new OperationalError("Polling cycle failed", { cause: error })
 
     this.onError?.(errorToReport)
     this.errorCount++

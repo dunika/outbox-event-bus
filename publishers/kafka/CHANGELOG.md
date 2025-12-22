@@ -1,0 +1,12 @@
+# @outbox-event-bus/kafka-publisher
+
+## 1.0.0
+
+### Major Changes
+
+- Initial release 1.0.0
+
+### Patch Changes
+
+- Updated dependencies
+  - outbox-event-bus@1.0.0

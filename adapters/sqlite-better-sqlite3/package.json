@@ -1,6 +1,6 @@
 {
   "name": "@outbox-event-bus/sqlite-better-sqlite3-outbox",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "private": false,
   "license": "MIT",
   "repository": {

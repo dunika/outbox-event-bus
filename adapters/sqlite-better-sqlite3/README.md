@@ -493,7 +493,8 @@ outbox.start(
     console.log('Processing:', event);
     // Your event handling logic
   },
-  (error, event) => {
+  (error: OutboxError) => {
+    const event = error.context?.event;
     console.error('Failed to process event:', error, event);
   }
 );

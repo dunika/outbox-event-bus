@@ -67,7 +67,7 @@ interface EventBridgePublisherConfig {
 - `source`: The source identifier for your events.
 - `eventBusName`: (Optional) The name of the event bus. Default: `'default'`.
 - `processingConfig`: (Optional) Settings for accumulation and batching.
-    - `bufferSize`: Number of events to accumulation in memory before publishing. Default: `50`.
+    - `bufferSize`: Number of events to accumulate in memory before publishing. Default: `50`.
     - `bufferTimeoutMs`: Maximum time to wait for a buffer to fill before flushing. Default: `100ms`.
     - `concurrency`: Maximum number of concurrent batch requests to EventBridge. Default: `5`.
 - `retryConfig`: (Optional) Custom retry settings for publishing failures.

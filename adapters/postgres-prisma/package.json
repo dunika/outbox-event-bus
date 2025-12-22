@@ -1,6 +1,6 @@
 {
   "name": "@outbox-event-bus/postgres-prisma-outbox",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "private": false,
   "license": "MIT",
   "repository": {
@@ -34,7 +34,7 @@
   "scripts": {
     "build": "prisma generate && tsdown",
     "test": "prisma generate && vitest run --passWithNoTests",
-    "test:e2e": "prisma generate && docker-compose up -d --wait && npx prisma db push --accept-data-loss && vitest run -c vitest.e2e.config.ts; status=$?; docker-compose down; exit $status"
+    "test:e2e": "export DATABASE_URL=postgresql://test_user:test_password@localhost:5434/outbox_test && docker-compose up -d --wait && prisma db push --accept-data-loss && vitest run -c vitest.e2e.config.ts; status=$?; docker-compose down -v; exit $status"
   },
   "dependencies": {
     "outbox-event-bus": "workspace:*"

@@ -64,7 +64,7 @@ interface SNSPublisherConfig {
 - `snsClient`: An instance of the AWS SDK `SNSClient`.
 - `topicArn`: The ARN of the SNS topic.
 - `processingConfig`: (Optional) Settings for accumulation and batching.
-    - `bufferSize`: Number of events to accumulation in memory before publishing. Default: `50`.
+    - `bufferSize`: Number of events to accumulate in memory before publishing. Default: `50`.
     - `bufferTimeoutMs`: Maximum time to wait for a buffer to fill before flushing. Default: `100ms`.
     - `concurrency`: Maximum number of concurrent batch requests to SNS. Default: `5`.
 - `retryConfig`: (Optional) Custom retry settings for publishing failures.

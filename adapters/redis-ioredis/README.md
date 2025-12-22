@@ -195,6 +195,9 @@ interface RedisIoRedisOutboxConfig {
 }
 ```
 
+> [!NOTE]
+> All adapters inherit base configuration options from `OutboxConfig`. See the [API Reference](https://github.com/dunika/outbox-event-bus/blob/main/docs/API_REFERENCE.md#base-outbox-configuration) for details on inherited options.
+
 | Parameter | Type | Default | Description |
 |:---|:---|:---|:---|
 | `redis` | `Redis` | `undefined` | Required `ioredis` client instance. |
@@ -362,7 +365,10 @@ Start the polling service to process events. The handler will be called for each
 ```typescript
 outbox.start(
   async (event) => console.log('Processing:', event),
-  (error, event) => console.error('Error:', error, event)
+  (error: OutboxError) => {
+    const event = error.context?.event;
+    console.error('Error:', error, event);
+  }
 );
 ```
 

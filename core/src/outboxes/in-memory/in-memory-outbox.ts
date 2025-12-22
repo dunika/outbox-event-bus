@@ -1,3 +1,4 @@
+import { reportEventError } from "../../errors/error-reporting"
 import { MaxRetriesExceededError } from "../../errors/errors"
 import { PollingService } from "../../services/polling-service"
 import type { IOutbox } from "../../types/interfaces"
@@ -83,9 +84,14 @@ export class InMemoryOutbox implements IOutbox<unknown> {
           this.retryCounts.delete(event.id)
         }
       } catch (error) {
+        const currentRetries = event.id ? (this.retryCounts.get(event.id) ?? 0) : 0
+        const nextRetryCount = currentRetries + 1
+
         if (this.shouldRetry(event)) {
           failedEvents.push(event)
-          this.onError?.(error, event)
+          if (this.maxRetries !== undefined) {
+            reportEventError(this.onError, error, event, nextRetryCount, this.maxRetries)
+          }
         } else {
           this.moveToDLQ(event, error)
         }
@@ -115,7 +121,8 @@ export class InMemoryOutbox implements IOutbox<unknown> {
       this.retryCounts.delete(event.id)
     }
 
-    this.onError?.(new MaxRetriesExceededError(error, retryCount + 1), event)
+    const failedEvent: FailedBusEvent = { ...event, retryCount: retryCount + 1 }
+    this.onError?.(new MaxRetriesExceededError(error, failedEvent))
     this.deadLetterQueue.push(event)
   }
 }

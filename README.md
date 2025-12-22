@@ -34,7 +34,7 @@ import { SQSPublisher } from '@outbox-event-bus/sqs-publisher';
 
 // 1. Setup
 const outbox = new PostgresDrizzleOutbox({ db });
-const bus = new OutboxEventBus(outbox, (err) => console.error(err));
+const bus = new OutboxEventBus(outbox, (error: OutboxError) => console.error(error));
 
 // Forward messages to SQS
 const sqsClient = new SQSClient({ region: 'us-east-1' });
@@ -74,6 +74,7 @@ await db.transaction(async (transaction) => {
 - **Guaranteed Delivery**: At-least-once semantics with exponential backoff and dead letter handling.
 - **Safe Retries**: Strict 1:1 command bus pattern prevents duplicate side-effects.
 - **Built-in Publishers**: Comes with optional publishers for SQS, SNS, Kafka, RabbitMQ, Redis Streams, and EventBridge
+- **Typed Error Handling**: Comprehensive typed errors for precise control over failure scenarios and recovery strategies.
 - **TypeScript First**: Full type safety with generics for events, payloads, and transactions.
 
 ## Contents
@@ -276,15 +277,17 @@ The library provides typed errors to help you handle specific failure scenarios 
 #### Example
 
 ```typescript
-import { OutboxEventBus, TimeoutError, MaxRetriesExceededError, HandlerError } from 'outbox-event-bus';
+import { OutboxEventBus, MaxRetriesExceededError } from 'outbox-event-bus';
 
-const bus = new OutboxEventBus(outbox, (err, event) => {
-  if (err instanceof MaxRetriesExceededError) {
-    console.warn(`Event ${event?.id} timed out, will retry...`);
-  } else if (err instanceof HandlerError) {
-    console.warn(`Handler failed for event ${event?.id}, retrying...`, err.originalError);
+const bus = new OutboxEventBus(outbox, (error: OutboxError) => {
+  // error is always an OutboxError instance
+  const event = error.context?.event;
+  
+  if (error instanceof MaxRetriesExceededError) {
+    console.error(`Event ${event?.id} permanently failed after ${error.retryCount} attempts`);
+    console.error('Original error:', error.cause);
   } else {
-    console.error('Unexpected error:', err);
+    console.error(`Event ${event?.id} failed:`, error.message);
   }
 });
 ```
@@ -300,20 +303,27 @@ For a complete list and usage examples, see the [API Reference](./docs/API_REFER
 > **Note:** The `onError` callback captures unexpected errors (e.g., database connection loss, handler crashes). Events that simply fail processing and are retried are not considered "errors" until they exceed max retries, at which point they are marked as `failed` in the database.
 
 ```typescript
-const bus = new OutboxEventBus(outbox, (error, event) => {
-  // Log to your monitoring service
+const bus = new OutboxEventBus(outbox, (error: OutboxError) => {
+  const event = error.context?.event;
+  
+  // Send to monitoring service
   logger.error('Event processing failed', {
     eventId: event?.id,
     eventType: event?.type,
-    error: error.message,
-    stack: error.stack
+    errorMessage: error.message,
+    errorName: error.name
   });
   
-  // Send to error tracking (Sentry, Datadog, etc.)
-  Sentry.captureException(error, {
-    tags: { eventType: event?.type },
-    extra: { event }
-  });
+  // Send to error tracking
+  if (error instanceof MaxRetriesExceededError) {
+    Sentry.captureException(error, {
+      tags: { 
+        eventType: event?.type,
+        retryCount: error.retryCount 
+      },
+      extra: error.context
+    });
+  }
 });
 ```
 

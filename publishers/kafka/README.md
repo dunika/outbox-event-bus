@@ -69,7 +69,7 @@ interface KafkaPublisherConfig {
 - `producer`: An instance of the KafkaJS `Producer`.
 - `topic`: The Kafka topic to publish to.
 - `processingConfig`: (Optional) Settings for accumulation and batching.
-    - `bufferSize`: Number of events to accumulation in memory before publishing. Default: `50`.
+    - `bufferSize`: Number of events to accumulate in memory before publishing. Default: `50`.
     - `bufferTimeoutMs`: Maximum time to wait for a buffer to fill before flushing. Default: `100ms`.
     - `concurrency`: Maximum number of concurrent batch requests to Kafka. Default: `5`.
     - `maxBatchSize`: (Optional) If set, the accumulated buffer will be split into smaller downstream batches.

@@ -58,10 +58,14 @@ import { OutboxEventBus } from 'outbox-event-bus';
 const outbox = new DynamoDBAwsSdkOutbox({
   client: new DynamoDBClient({ region: 'us-east-1' }),
   tableName: 'my-events-table',
-  statusIndexName: 'status-index' // Name of your GSI
+  statusIndexName: 'status-gsiSortKey-index' // Name of your GSI
 });
 
-const bus = new OutboxEventBus(outbox, (err) => console.error(err));
+const bus = new OutboxEventBus(outbox, (error: OutboxError) => {
+  const event = error.context?.event;
+  console.error('Event failed:', event?.type, error);
+});
+
 bus.start();
 ```
 
@@ -247,7 +251,7 @@ for (const event of failed) {
 
 ##### `retryEvents(eventIds: string[]): Promise<void>`
 
-Resets failed events to `PENDING` status for retry. Clears retry count, error message, and next retry timestamp.
+Resets failed events to `created` status for retry. Clears retry count, error message, and next retry timestamp.
 
 **Parameters:**
 - `eventIds`: Array of event IDs to retry

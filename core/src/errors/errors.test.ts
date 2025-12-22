@@ -4,6 +4,7 @@ import {
   BatchSizeLimitError,
   ConfigurationError,
   DuplicateListenerError,
+  HandlerError,
   MaintenanceError,
   MaxRetriesExceededError,
   OperationalError,
@@ -24,7 +25,13 @@ describe("Errors", () => {
     it("should store context", () => {
       const context = { foo: "bar" }
       const error = new ConfigurationError("test", context)
-      expect(error.data).toEqual(context)
+      expect(error.context).toEqual(context)
+    })
+
+    it("should set cause from context.cause", () => {
+      const original = new Error("original")
+      const error = new ConfigurationError("test", { cause: original })
+      expect(error.cause).toBe(original)
     })
   })
 
@@ -104,12 +111,32 @@ describe("Errors", () => {
   describe("MaxRetriesExceededError", () => {
     it("should be an OperationalError", () => {
       const original = new Error("original")
-      const error = new MaxRetriesExceededError(original, 5)
+      const event = {
+        id: "1",
+        type: "test",
+        payload: {},
+        occurredAt: new Date(),
+        retryCount: 5,
+      }
+      const error = new MaxRetriesExceededError(original, event)
       expect(error).toBeInstanceOf(OperationalError)
       expect(error.name).toBe("MaxRetriesExceededError")
       expect(error.message).toContain("5")
-      expect(error.originalError).toBe(original)
       expect(error.retryCount).toBe(5)
+      expect(error.cause).toBe(original)
+      expect(error.event).toBe(event)
+    })
+  })
+
+  describe("HandlerError", () => {
+    it("should be an OutboxError", () => {
+      const original = new Error("original")
+      const event = { id: "1", type: "test", payload: {}, occurredAt: new Date() }
+      const error = new HandlerError(original, event)
+      expect(error).toBeInstanceOf(OutboxError)
+      expect(error.name).toBe("HandlerError")
+      expect(error.cause).toBe(original)
+      expect(error.event).toBe(event)
     })
   })
 })

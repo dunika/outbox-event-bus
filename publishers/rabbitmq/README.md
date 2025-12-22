@@ -100,7 +100,7 @@ If `routingKey` is not provided, the **event type** is used as the routing key a
 - `exchange`: The exchange to publish to.
 - `routingKey`: (Optional) The routing key. Default: uses `event.type`.
 - `processingConfig`: (Optional) Settings for accumulation and batching.
-    - `bufferSize`: Number of events to accumulation in memory before publishing. Default: `50`.
+    - `bufferSize`: Number of events to accumulate in memory before publishing. Default: `50`.
     - `bufferTimeoutMs`: Maximum time to wait for a buffer to fill before flushing. Default: `100ms`.
     - `concurrency`: Maximum number of concurrent processing tasks. Default: `5`.
     - `maxBatchSize`: (Optional) If set, the accumulated buffer will be split into smaller downstream batches.

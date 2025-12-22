@@ -72,7 +72,24 @@ describe("InMemoryOutbox Unit", () => {
     await new Promise((resolve) => setTimeout(resolve, 200))
 
     expect(handler).toHaveBeenCalled()
-    expect(onError).toHaveBeenCalledWith(error, event)
+    // Verify error is wrapped in OutboxError with event bundled
+    expect(onError).toHaveBeenCalledTimes(1)
+    const call = onError.mock.calls[0]
+    expect(call).toBeDefined()
+    if (call?.[0]) {
+      const errorArg = call[0]
+      // Verify it's an OutboxError instance
+      expect(errorArg).toBeInstanceOf(Error)
+      expect(errorArg).toHaveProperty("context")
+      expect(errorArg).toHaveProperty("name")
+      expect(errorArg).toHaveProperty("message")
+
+      // Verify event is bundled in error.context
+      if (typeof errorArg === "object" && "context" in errorArg) {
+        expect(errorArg.context).toHaveProperty("event")
+        expect(errorArg.context.event).toMatchObject(event)
+      }
+    }
   })
 
   it("should stop processing when stopped", async () => {
@@ -123,9 +140,11 @@ describe("InMemoryOutbox Unit", () => {
     expect(onError).toHaveBeenCalledTimes(3)
 
     // Check that we got the max retries error
-    expect(onError).toHaveBeenLastCalledWith(
-      expect.any(MaxRetriesExceededError),
-      expect.objectContaining(event)
-    )
+    const lastCall = onError.mock.calls[onError.mock.calls.length - 1]
+    expect(lastCall).toBeDefined()
+    if (lastCall) {
+      expect(lastCall[0]).toBeInstanceOf(MaxRetriesExceededError)
+      expect(lastCall[0].context?.event).toMatchObject(event)
+    }
   })
 })

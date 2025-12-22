@@ -47,21 +47,23 @@ describe("PostgresDrizzle Outbox Transactions with AsyncLocalStorage", () => {
 
   beforeAll(async () => {
     // Schema setup (in a real app this would be migrations)
-    await sql`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT, created_at TIMESTAMP DEFAULT NOW())`
+    await sql`DROP TABLE IF EXISTS users`
+    await sql`DROP TABLE IF EXISTS outbox_events`
+    await sql`DROP TABLE IF EXISTS outbox_events_archive`
+    await sql`DROP TYPE IF EXISTS outbox_status`
+
+    await sql`CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT, created_at TIMESTAMP DEFAULT NOW())`
     await sql`
-      DO $$ BEGIN
-        CREATE TYPE outbox_status AS ENUM ('created', 'active', 'completed', 'failed');
-      EXCEPTION
-        WHEN duplicate_object THEN null;
-      END $$;
+      CREATE TYPE outbox_status AS ENUM ('created', 'active', 'completed', 'failed')
     `
-    await sql`CREATE TABLE IF NOT EXISTS outbox_events (
+    await sql`CREATE TABLE outbox_events (
       id UUID PRIMARY KEY,
       type TEXT NOT NULL,
       payload JSONB NOT NULL,
       occurred_at TIMESTAMP NOT NULL,
       status outbox_status NOT NULL DEFAULT 'created',
       retry_count INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
       next_retry_at TIMESTAMP,
       created_on TIMESTAMP NOT NULL DEFAULT NOW(),
       started_on TIMESTAMP,
@@ -69,6 +71,9 @@ describe("PostgresDrizzle Outbox Transactions with AsyncLocalStorage", () => {
       keep_alive TIMESTAMP,
       expire_in_seconds INTEGER NOT NULL DEFAULT 300
     )`
+  })
+
+  beforeEach(async () => {
     await sql`DELETE FROM users`
     await sql`DELETE FROM outbox_events`
   })

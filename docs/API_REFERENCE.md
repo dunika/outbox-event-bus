@@ -17,7 +17,7 @@ new OutboxEventBus<TTransaction = unknown>(
 
 **Parameters:**
 - `outbox`: Storage adapter implementing `IOutbox` interface
-- `onError`: Required error handler for processing failures
+- `onError`: Required error handler for processing failures. Receives `OutboxError` with event bundled in `error.context?.event` for event-related errors.
 
 #### Methods
 
@@ -94,6 +94,30 @@ Removes all registered handlers.
 
 ```typescript
 bus.removeAllListeners(eventType?: string): this
+```
+
+##### `subscribe()`
+
+Subscribes a single handler to multiple event types.
+
+```typescript
+bus.subscribe(
+  eventTypes: string[],
+  handler: (event: BusEvent) => Promise<void>
+): this
+```
+
+**Parameters:**
+
+- `eventTypes`: Array of event type strings
+- `handler`: Function to handle the events
+
+**Example:**
+
+```typescript
+bus.subscribe(['user.created', 'user.updated'], async (event) => {
+  console.log('User changed:', event.type);
+});
 ```
 
 ##### `waitFor()`
@@ -584,7 +608,7 @@ The library provides a structured error hierarchy to help you distinguish betwee
 
 | Error Class | Category | Description |
 | :--- | :--- | :--- |
-| `OutboxError` | - | **Base class** for all errors in the library. Includes a `.data` property. |
+| `OutboxError` | - | **Base class** for all errors in the library. Includes a `.context` property. |
 | `ConfigurationError`| Category | Base class for setup-related issues. |
 | `DuplicateListenerError` | Configuration | Thrown by `.on()` if a listener is already registered for an event type. |
 | `UnsupportedOperationError` | Configuration | Thrown if an outbox doesn't support management APIs like `getFailedEvents`. |
@@ -599,31 +623,19 @@ The library provides a structured error hierarchy to help you distinguish betwee
 
 ### The `onError` Callback
 
-The `onError` callback is the primary place to handle background processing failures. It receives the error instance and the relevant `BusEvent` (if the error is tied to a specific event).
+The `onError` callback is the primary place to handle background processing failures. It receives the error instance with event information bundled in `error.context.event` for event-related errors.
 
 #### Example: Specific Error Handling
 
 ```typescript
-import { 
-  MaxRetriesExceededError, 
-  BackpressureError, 
-  MaintenanceError,
-  HandlerError
-} from 'outbox-event-bus';
+import { OutboxEventBus, MaxRetriesExceededError, MaintenanceError } from 'outbox-event-bus';
 
-const bus = new OutboxEventBus(outbox, (error, event) => {
+const bus = new OutboxEventBus(outbox, (error: OutboxError) => {
+  // error is always an OutboxError instance  
   if (error instanceof MaxRetriesExceededError) {
-    // Event permanently failed and is now in the Outbox's failed state/DLQ.
-    console.error(`Permanent failure for event ${event?.id}`, {
-      error: error.originalError,
-      attempts: error.retryCount
-    });
-  } else if (error instanceof HandlerError) {
-    // The event handler failed, but the event will be retried.
-    console.warn(`Handler failed for event ${event?.id}, retrying...`, error.originalError);
-  } else if (error instanceof BackpressureError) {
-    // The publisher cannot keep up.
-    console.warn(`Backpressure detected on ${error.data?.resource}`);
+    // Access strongly typed event and cause
+    console.error(`Event ${error.event.id} permanently failed after ${error.retryCount} attempts`);
+    console.error('Original cause:', error.cause);
   } else if (error instanceof MaintenanceError) {
     // Background tasks like stuck event recovery failed.
     console.error(`Maintenance failed: ${error.message}`);
@@ -636,7 +648,7 @@ const bus = new OutboxEventBus(outbox, (error, event) => {
 
 ### Contextual Data
 
-Every `OutboxError` contains a `data` property with additional debugging information:
+Every `OutboxError` contains a `context` property with additional debugging information:
 
 ```typescript
 try {
@@ -644,7 +656,7 @@ try {
   bus.on('my-event', handler); // Throws DuplicateListenerError
 } catch (error) {
   if (error instanceof DuplicateListenerError) {
-    console.log(error.data.eventType); // "my-event"
+    console.log(error.context.eventType); // "my-event"
   }
 }
 ```

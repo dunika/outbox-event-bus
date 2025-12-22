@@ -29,7 +29,14 @@ describe("PollingService", () => {
 
     expect(onError).toHaveBeenCalledWith(expect.any(MaintenanceError))
     const error = onError.mock.calls[0][0]
-    expect(error.data.originalError).toBe(maintenanceError)
+
+    // Verify it's a MaintenanceError instance
+    expect(error).toBeInstanceOf(MaintenanceError)
+    expect(error.name).toBe("MaintenanceError")
+    expect(error.message).toBeDefined()
+
+    // Verify cause is preserved in data
+    expect(error.context?.cause).toBe(maintenanceError)
   })
 
   it("should wrap batch processing errors in OperationalError", async () => {
@@ -50,7 +57,7 @@ describe("PollingService", () => {
     expect(onError).toHaveBeenCalledWith(expect.any(OperationalError))
     const error = onError.mock.calls[0][0]
     expect(error.message).toContain("Polling cycle failed")
-    expect(error.data.originalError).toBe(batchError)
+    expect(error.context.cause).toBe(batchError)
   })
 
   it("should not wrap already categorized OutboxErrors", async () => {

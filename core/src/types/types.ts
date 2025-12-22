@@ -1,3 +1,5 @@
+import type { OutboxError } from "../errors/errors"
+
 type PartialBy<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>
 
 export type BusEvent<T extends string = string, P = unknown> = {
@@ -25,7 +27,7 @@ export type EventHandler<T extends string = string, P = unknown> = (
 
 export type AnyListener = (...args: unknown[]) => unknown
 
-export type ErrorHandler = (error: unknown, event?: BusEvent | FailedBusEvent) => void
+export type ErrorHandler = (error: OutboxError) => void
 
 export type RetryOptions = {
   maxAttempts?: number

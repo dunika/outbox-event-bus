@@ -109,8 +109,6 @@ describe("PostgresDrizzleOutbox", () => {
     queryBuilder.for.mockResolvedValueOnce(testEvents)
     queryBuilder.for.mockResolvedValue([])
 
-    const eventId = "fail-me"
-    let attempts = 0
     const handler = vi.fn().mockRejectedValue(new Error("processing failed"))
 
     outbox.start(handler, vi.fn())

@@ -107,7 +107,7 @@ model OutboxEvent {
   createdOn       DateTime     @default(now()) @map("created_on")
   startedOn       DateTime?    @map("started_on")
   keepAlive       DateTime?    @map("keep_alive")
-  expireInSeconds Int          @default(30) @map("expire_in_seconds")
+  expireInSeconds Int          @default(300) @map("expire_in_seconds")
 
   @@index([status, nextRetryAt])
   @@index([status, keepAlive])
@@ -198,7 +198,7 @@ model OutboxEvent {
   createdOn       DateTime     @default(now()) @map("created_on")
   startedOn       DateTime?    @map("started_on")
   keepAlive       DateTime?    @map("keep_alive")
-  expireInSeconds Int          @default(30) @map("expire_in_seconds")
+  expireInSeconds Int          @default(300) @map("expire_in_seconds")
 
   @@index([status, nextRetryAt])
   @@index([status, keepAlive])
@@ -510,30 +510,39 @@ const prisma = new PrismaClient({
 
 **Track processing metrics:**
 
-```typescript
-let processedCount = 0;
-let failedCount = 0;
+You can wrap your handlers to track successful executions, while the error handler captures failures.
 
-const bus = new OutboxEventBus(outbox, (error, event) => {
-  failedCount++;
+```typescript
+const metrics = {
+  processed: 0,
+  failed: 0
+};
+
+const bus = new OutboxEventBus(outbox, (error: OutboxError) => {
+  metrics.failed++;
   logger.error('Event processing failed', {
-    eventId: event?.id,
-    eventType: event?.type,
-    error: error.message
+    error: error.message,
+    event: error.context?.event
   });
 });
 
-bus.on('user.created', async (event) => {
-  processedCount++;
+// Helper to wrap handlers with monitoring
+const monitor = (handler: (event: any) => Promise<void>) => {
+  return async (event: any) => {
+    await handler(event);
+    metrics.processed++;
+  };
+};
+
+bus.on('user.created', monitor(async (event) => {
   // ... handler logic
-});
+}));
 
 // Expose metrics endpoint
 app.get('/metrics', (req, res) => {
   res.json({
-    processed: processedCount,
-    failed: failedCount,
-    ratio: processedCount / (processedCount + failedCount)
+    ...metrics,
+    successRate: metrics.processed / (metrics.processed + metrics.failed) || 1
   });
 });
 ```

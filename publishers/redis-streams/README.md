@@ -64,7 +64,7 @@ interface RedisStreamsPublisherConfig {
 - `redisClient`: An instance of `ioredis`.
 - `streamKey`: The Redis key for the stream.
 - `processingConfig`: (Optional) Settings for accumulation and batching.
-    - `bufferSize`: Number of events to accumulation in memory before publishing. Default: `50`.
+    - `bufferSize`: Number of events to accumulate in memory before publishing. Default: `50`.
     - `bufferTimeoutMs`: Maximum time to wait for a buffer to fill before flushing. Default: `100ms`.
     - `concurrency`: Maximum number of concurrent processing tasks. Default: `5`.
     - `maxBatchSize`: (Optional) If set, the accumulated buffer will be split into smaller downstream batches.
@@ -94,6 +94,9 @@ const publisher = new RedisStreamsPublisher(bus, {
 ## Message Format
 
 Events are added to the stream using `XADD` with the following field mapping:
+
+> [!NOTE]
+> Unlike other publishers that send the full event object as JSON, Redis Streams stores events as **flattened key-value fields** for efficient stream operations and consumer group processing.
 
 | Redis Field | Value | Description |
 |-------------|-------|-------------|
