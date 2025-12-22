@@ -130,6 +130,20 @@ bus.waitFor(
 ): Promise<BusEvent>
 ```
 
+##### `getFailedEvents()`
+Retrieves a list of events that have failed processing.
+
+```typescript
+bus.getFailedEvents(): Promise<FailedBusEvent[]>
+```
+
+##### `retryEvents()`
+Resets the status of failed events to 'created' so they can be retried.
+
+```typescript
+bus.retryEvents(eventIds: string[]): Promise<void>
+```
+
 ### InMemoryOutbox
 
 A lightweight in-memory outbox, primarily useful for testing or non-persistent workflows.
@@ -353,8 +367,8 @@ interface PostgresDrizzleOutboxConfig extends OutboxConfig {
   db: PostgresJsDatabase<Record<string, unknown>>;
   getTransaction?: () => PostgresJsDatabase<Record<string, unknown>> | undefined;
   tables?: {
-    outbox: Table;
-    archive?: Table;
+    outboxEvents: Table;
+    outboxEventsArchive?: Table;
   };
 }
 ```
