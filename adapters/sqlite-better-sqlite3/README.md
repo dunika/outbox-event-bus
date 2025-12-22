@@ -2,7 +2,6 @@
 
 ![npm version](https://img.shields.io/npm/v/@outbox-event-bus/sqlite-better-sqlite3-outbox?style=flat-square&color=2563eb)
 ![npm downloads](https://img.shields.io/npm/dm/@outbox-event-bus/sqlite-better-sqlite3-outbox?style=flat-square&color=2563eb)
-![license](https://img.shields.io/npm/l/@outbox-event-bus/sqlite-better-sqlite3-outbox?style=flat-square&color=2563eb)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue?style=flat-square)
 
 > **Reliable event storage for single-instance applications—zero external dependencies.**

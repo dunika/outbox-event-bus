@@ -3,7 +3,6 @@
 <div align="center">
 
 ![npm version](https://img.shields.io/npm/v/outbox-event-bus?style=flat-square&color=2563eb)
-![npm downloads](https://img.shields.io/npm/dm/outbox-event-bus?style=flat-square&color=2563eb)
 ![npm bundle size](https://img.shields.io/bundlephobia/minzip/outbox-event-bus?style=flat-square&color=2563eb)
 ![license](https://img.shields.io/npm/l/outbox-event-bus?style=flat-square&color=2563eb)
 
@@ -93,7 +92,6 @@ await db.transaction(async (transaction) => {
 
 ### Strict 1:1 Command Bus Pattern
 
-> [!IMPORTANT]
 > This library enforces a **Command Bus pattern**: Each event type can have exactly **one** handler.
 
 **Why?**

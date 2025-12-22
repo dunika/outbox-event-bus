@@ -1,5 +1,6 @@
-import { HandlerError, MaxRetriesExceededError } from "src/errors/errors"
 import type { BusEvent, ErrorHandler, FailedBusEvent } from "../types/types"
+
+import { HandlerError, MaxRetriesExceededError } from "./errors"
 
 export function reportEventError(
   onError: ErrorHandler | undefined,

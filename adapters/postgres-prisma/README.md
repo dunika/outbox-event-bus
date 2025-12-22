@@ -2,7 +2,6 @@
 
 ![npm version](https://img.shields.io/npm/v/@outbox-event-bus/postgres-prisma-outbox?style=flat-square&color=2563eb)
 ![npm downloads](https://img.shields.io/npm/dm/@outbox-event-bus/postgres-prisma-outbox?style=flat-square&color=2563eb)
-![license](https://img.shields.io/npm/l/@outbox-event-bus/postgres-prisma-outbox?style=flat-square&color=2563eb)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue?style=flat-square&logo=typescript)
 
 > **Transactional Outbox for Prisma — Zero Event Loss with Your Existing Schema**
@@ -366,7 +365,6 @@ async function createUser(userData: any) {
 
 ### With Interactive Transactions (Explicit)
 
-> [!IMPORTANT]
 > Always pass the transaction object to `emit()` to ensure atomicity. If you forget, the event will be saved outside the transaction and could be lost on rollback.
 
 If you prefer passing the transaction client explicitly, you can pass it as a second argument to `emit`.

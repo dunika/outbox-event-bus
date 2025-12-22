@@ -2,7 +2,6 @@
 
 ![npm version](https://img.shields.io/npm/v/@outbox-event-bus/postgres-drizzle-outbox?style=flat-square&color=2563eb)
 ![npm downloads](https://img.shields.io/npm/dm/@outbox-event-bus/postgres-drizzle-outbox?style=flat-square&color=2563eb)
-![license](https://img.shields.io/npm/l/@outbox-event-bus/postgres-drizzle-outbox?style=flat-square&color=2563eb)
 
 > **Type-Safe PostgreSQL Outbox with Drizzle ORM**
 > 
@@ -262,7 +261,6 @@ const outbox = new PostgresDrizzleOutbox({
 });
 ```
 
-> [!IMPORTANT]
 > Custom tables **must** include all required columns with compatible types. Missing columns will cause runtime errors.
 
 ### Required Schema Fields

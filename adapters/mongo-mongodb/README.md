@@ -2,7 +2,6 @@
 
 ![npm version](https://img.shields.io/npm/v/@outbox-event-bus/mongo-mongodb-outbox?style=flat-square&color=2563eb)
 ![npm downloads](https://img.shields.io/npm/dm/@outbox-event-bus/mongo-mongodb-outbox?style=flat-square&color=2563eb)
-![license](https://img.shields.io/npm/l/@outbox-event-bus/mongo-mongodb-outbox?style=flat-square&color=2563eb)
 
 > **Transactional Event Persistence for MongoDB**  
 > Leverage MongoDB's ACID transactions and flexible document model to reliably persist and process events with the Outbox pattern.

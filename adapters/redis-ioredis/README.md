@@ -2,7 +2,6 @@
 
 ![npm version](https://img.shields.io/npm/v/@outbox-event-bus/redis-ioredis-outbox?style=flat-square&color=2563eb)
 ![npm downloads](https://img.shields.io/npm/dm/@outbox-event-bus/redis-ioredis-outbox?style=flat-square&color=2563eb)
-![license](https://img.shields.io/npm/l/@outbox-event-bus/redis-ioredis-outbox?style=flat-square&color=2563eb)
 
 > **Lightning-Fast Event Storage with Redis**
 >
@@ -340,7 +339,6 @@ const redis = new Cluster([{ host: 'localhost', port: 6379 }]);
 const outbox = new RedisIoRedisOutbox({ redis });
 ```
 
-> [!IMPORTANT]
 > **Redis Cluster Users**: You **must** use hash tags in your `keyPrefix` (e.g., `{outbox}`) to ensure that all related keys (sorted sets and hashes) are mapped to the same hash slot. Redis operations within this adapter involve multiple keys and will fail in a Cluster environment without hash tags.
 > ```typescript
 > { keyPrefix: '{myapp}:outbox' }  // All keys go to same slot

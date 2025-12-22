@@ -2,7 +2,6 @@
 
 ![npm version](https://img.shields.io/npm/v/@outbox-event-bus/dynamodb-aws-sdk-outbox?style=flat-square&color=2563eb)
 ![npm downloads](https://img.shields.io/npm/dm/@outbox-event-bus/dynamodb-aws-sdk-outbox?style=flat-square&color=2563eb)
-![license](https://img.shields.io/npm/l/@outbox-event-bus/dynamodb-aws-sdk-outbox?style=flat-square&color=2563eb)
 
 > **Reliable, Serverless-First Event Storage for DynamoDB**
 
