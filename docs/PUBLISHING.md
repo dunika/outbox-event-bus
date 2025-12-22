@@ -18,6 +18,22 @@ pnpm publish:interactive            # publish (handles auth automatically)
 
 > The publish script automatically runs build, lint, and test across the workspace.
 
+## Versioning
+
+Before publishing, you need to version your packages using Changesets.
+
+1. **Create a Changeset**
+   Run this command and follow the prompts to select packages and bump types (patch, minor, major).
+   ```bash
+   pnpm changeset
+   ```
+
+2. **Apply Versions**
+   This consumes the changesets and updates `package.json` versions and `CHANGELOG.md` files.
+   ```bash
+   pnpm version-packages
+   ```
+
 ## Local Publishing
 
 **Step 1: Test with Dry-run**
