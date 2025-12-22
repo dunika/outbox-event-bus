@@ -18,6 +18,7 @@
 <img src="https://raw.githubusercontent.com/dunika/outbox-event-bus/main/docs/images/problem.png" alt="The Dual Write Problem" width="600">
 </div>
 
+<br>
 
 **The Solution**: `outbox-event-bus` stores events in your database *within the same transaction* as your data. A background worker then reliably delivers them.
 
