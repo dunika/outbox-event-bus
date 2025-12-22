@@ -2,15 +2,19 @@
 
 <div align="center">
 
-![npm version](https://img.shields.io/npm/v/outbox-event-bus?style=flat-square&color=2563eb)
-![npm bundle size](https://img.shields.io/bundlephobia/minzip/outbox-event-bus?style=flat-square&color=2563eb)
+![version](https://img.shields.io/npm/v/outbox-event-bus?style=flat-square&color=2563eb)
+![size](https://img.shields.io/bundlephobia/minzip/outbox-event-bus?style=flat-square&color=2563eb)
+![deps](https://img.shields.io/librariesio/release/npm/outbox-event-bus?style=flat-square&color=2563eb)
 ![license](https://img.shields.io/npm/l/outbox-event-bus?style=flat-square&color=2563eb)
+
 
 </div>
 
 > **Never Lose an Event Again**
 >
 > Transactional outbox pattern made simple. Persist events atomically with your data. Guaranteed delivery with your database.
+
+<br>
 
 **The Problem**: You save data to your database and attempt to emit a relevant event. If your process crashes or the network fails before the event is sent, your system becomes inconsistent.
 
@@ -25,6 +29,8 @@
 <div align="center">
 <img src="https://raw.githubusercontent.com/dunika/outbox-event-bus/main/docs/images/solution.png" alt="The Outbox Solution" width="600">
 </div>
+
+<br>
 
 ## Quick Start (Postgres + Drizzle ORM + SQS Example)
 
@@ -42,7 +48,7 @@ const outbox = new PostgresDrizzleOutbox({ db });
 const bus = new OutboxEventBus(outbox, (error: OutboxError) => console.error(error));
 
 
-// Register Handlers
+// Register handlers
 bus.on('user.created', async (event) => {
   // Fan Out as needed
   await bus.emitMany([
@@ -66,10 +72,10 @@ const sqsClient = new SQSClient({ region: 'us-east-1' });
 const publisher = new SQSPublisher(bus, { queueUrl: '...', sqsClient });
 publisher.subscribe(['sync-to-sqs']);
 
-// Start the Bus
+// Start the bus
 bus.start();
 
-// Emit Transactionally
+// Emit transactionally
 await db.transaction(async (transaction) => {
   const [user] = await transaction.insert(users).values(newUser).returning();
   
@@ -77,6 +83,8 @@ await db.transaction(async (transaction) => {
   await bus.emit({ type: 'user.created', payload: user }, transaction);
 });
 ```
+
+<br>
 
 ## Why outbox-event-bus?
 
@@ -93,14 +101,14 @@ await db.transaction(async (transaction) => {
 
 - [Concepts](#concepts)
 - [Middleware](#middleware)
+- [Adapters & Publishers](#adapters--publishers)
 - [How-To Guides](#how-to-guides)
 - [API Reference](./docs/API_REFERENCE.md)
-- [Adapters & Publishers](#adapters--publishers)
 - [Production Guide](#production-guide)
 - [Contributing](./docs/CONTRIBUTING.md)
 - [License](#license)
 
-
+<br>
 
 ## Concepts
 
@@ -145,7 +153,9 @@ Events flow through several states from creation to completion:
 <img src="https://raw.githubusercontent.com/dunika/outbox-event-bus/main/docs/images/event_life_cycle.png" alt="Event Lifecycle" width="600">
 </div>
 
-**State Descriptions:**
+<br>
+
+**State Descriptions**
 
 | State | Description | Next States |
 |:---|:---|:---|
@@ -154,7 +164,9 @@ Events flow through several states from creation to completion:
 | `completed` | Handler succeeded, event ready for archival | `archived` (maintenance) |
 | `failed` | Error occurred (retry pending or max retries exceeded) | `active` (retry), Manual intervention (max retries) |
 
-**Stuck Event Recovery:**
+<br>
+
+**Stuck Event Recovery**
 
 If a worker crashes while processing an event (status: `active`), the event becomes "stuck". The outbox adapter automatically reclaims stuck events after `processingTimeoutMs` (default: 30s).
 
@@ -167,6 +179,8 @@ WHERE status = 'active'
 ```
 
 > **Note:** Non-SQL adapters (DynamoDB, Redis, Mongo) implement equivalent recovery mechanisms using their native features (TTL, Sorted Sets, etc).
+
+<br>
 
 ## Middleware
 
@@ -220,6 +234,53 @@ const correlationMiddleware: Middleware = async (ctx, next) => {
   await next();
 };
 ```
+
+<br>
+
+## Adapters & Publishers
+
+Mix and match any storage adapter with any publisher.
+
+### Storage Adapters (The "Outbox")
+
+These store your events. Choose one that matches your primary database.
+
+| Database | Adapters | Transaction Support | Concurrency |
+|:---|:---|:---:|:---|
+| **Postgres** | [Prisma](./adapters/postgres-prisma/README.md), [Drizzle](./adapters/postgres-drizzle/README.md) | Full (ACID) | `SKIP LOCKED` |
+| **MongoDB** | [Native Driver](./adapters/mongo-mongodb/README.md) | Full (Replica Set) | Optimistic Locking |
+| **DynamoDB** | [AWS SDK](./adapters/dynamodb-aws-sdk/README.md) | Full (TransactWrite) | Optimistic Locking |
+| **Redis** | [ioredis](./adapters/redis-ioredis/README.md) | Atomic (Multi/Exec) | Distributed Lock |
+| **SQLite** | [better-sqlite3](./adapters/sqlite-better-sqlite3/README.md) | Full (ACID) | Serialized |
+
+**Legend:**
+
+- **Full**: ACID transactions with atomicity guarantees
+- **Limited**: Single-document transactions or optimistic locking
+- **None**: No transaction support (events saved separately)
+- **SKIP LOCKED**: High-performance non-blocking reads for multiple workers
+
+### Publishers
+
+These send your events to the world.
+
+| Publisher | Target | Batching | Package |
+|:---|:---|:---:|:---|
+| **[AWS SQS](./publishers/sqs/README.md)** | Amazon SQS Queues | Yes (10) | `@outbox-event-bus/sqs-publisher` |
+| **[AWS SNS](./publishers/sns/README.md)** | Amazon SNS Topics | Yes (10) | `@outbox-event-bus/sns-publisher` |
+| **[EventBridge](./publishers/eventbridge/README.md)** | AWS Event Bus | Yes (10) | `@outbox-event-bus/eventbridge-publisher` |
+| **[RabbitMQ](./publishers/rabbitmq/README.md)** | AMQP Brokers | Yes (Configurable) | `@outbox-event-bus/rabbitmq-publisher` |
+| **[Kafka](./publishers/kafka/README.md)** | Streaming | Yes (Configurable) | `@outbox-event-bus/kafka-publisher` |
+| **[Redis Streams](./publishers/redis-streams/README.md)** | Lightweight Stream | Yes (Configurable) | `@outbox-event-bus/redis-streams-publisher` |
+
+
+### Choosing the Right Publisher
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/dunika/outbox-event-bus/main/docs/images/choose_publisher.png" alt="Choose Publisher" width="600">
+</div>
+
+<br>
 
 ## How-To Guides
 
@@ -360,11 +421,80 @@ const bus = new OutboxEventBus(outbox, {
 
 For a complete list and usage examples, see the [API Reference](./docs/API_REFERENCE.md).
 
-### Monitoring & Debugging
+### Handling Failures
 
-**Problem:** How do I monitor event processing errors, metrics, and traces in production?
+**Problem:** An event failed after max retries. How do I retry it?
 
-**Solution:** Use the `onError` callback for errors, and **Middleware** for metrics and tracing.
+**Solution:** Use `retryEvents` or reset via SQL.
+
+**Using API:**
+```typescript
+const failedEvents = await bus.getFailedEvents();
+const idsToRetry = failedEvents.map(e => e.id);
+await bus.retryEvents(idsToRetry);
+```
+
+**Using SQL:**
+```sql
+-- Reset a specific event
+UPDATE outbox_events 
+SET status = 'created', retry_count = 0, last_error = NULL 
+WHERE id = 'event-id-here';
+
+-- Reset all failed events of a type
+UPDATE outbox_events 
+SET status = 'created', retry_count = 0, last_error = NULL 
+WHERE status = 'failed' AND type = 'user.created';
+```
+
+### Schema Evolution
+
+**Problem:** I need to change my event payload structure. How do I handle old events?
+
+**Solution:** Use versioned event types and handlers:
+
+```typescript
+// Old handler (still processes legacy events)
+bus.on('user.created.v1', async (event) => {
+  const { firstName, lastName } = event.payload;
+  await emailService.send({ name: `${firstName} ${lastName}` });
+});
+
+// New handler (processes new events)
+bus.on('user.created.v2', async (event) => {
+  const { fullName } = event.payload;
+  await emailService.send({ name: fullName });
+});
+
+// Emit new version
+await bus.emit({ type: 'user.created.v2', payload: { fullName: 'John Doe' } });
+```
+
+
+
+## Production Guide
+
+> [!TIP]
+> Start with conservative settings and tune based on your metrics. It's easier to increase throughput than to debug overload issues.
+
+### Deployment Checklist
+
+- [ ] **Database Schema**: Ensure outbox tables are created and migrated
+- [ ] **Connection Pooling**: Size your connection pool for concurrent workers
+- [ ] **Error Monitoring**: Set up error tracking (Sentry, Datadog, etc.)
+- [ ] **Metrics**: Track event processing rates, retry counts, failure rates
+- [ ] **Archiving**: Configure automatic archiving of completed events
+- [ ] **Scaling**: Plan for horizontal scaling (multiple workers)
+
+### Observability & Monitoring
+
+**Key Metrics to Track:**
+
+1. **Event Processing Rate**: Events/second processed
+2. **Retry Rate**: Percentage of events requiring retries
+3. **Failure Rate**: Percentage of events failing after max retries
+4. **Processing Latency**: Time from event creation to successful delivery
+5. **Queue Depth**: Number of pending events in the outbox
 
 #### 1. Error Monitoring (Sentry/Loggers)
 
@@ -466,125 +596,6 @@ Or via SQL:
 ```sql
 SELECT * FROM outbox_events WHERE status = 'failed';
 ```
-
-### Handling Failures
-
-**Problem:** An event failed after max retries. How do I retry it?
-
-**Solution:** Use `retryEvents` or reset via SQL.
-
-**Using API:**
-```typescript
-const failedEvents = await bus.getFailedEvents();
-const idsToRetry = failedEvents.map(e => e.id);
-await bus.retryEvents(idsToRetry);
-```
-
-**Using SQL:**
-```sql
--- Reset a specific event
-UPDATE outbox_events 
-SET status = 'created', retry_count = 0, last_error = NULL 
-WHERE id = 'event-id-here';
-
--- Reset all failed events of a type
-UPDATE outbox_events 
-SET status = 'created', retry_count = 0, last_error = NULL 
-WHERE status = 'failed' AND type = 'user.created';
-```
-
-### Schema Evolution
-
-**Problem:** I need to change my event payload structure. How do I handle old events?
-
-**Solution:** Use versioned event types and handlers:
-
-```typescript
-// Old handler (still processes legacy events)
-bus.on('user.created.v1', async (event) => {
-  const { firstName, lastName } = event.payload;
-  await emailService.send({ name: `${firstName} ${lastName}` });
-});
-
-// New handler (processes new events)
-bus.on('user.created.v2', async (event) => {
-  const { fullName } = event.payload;
-  await emailService.send({ name: fullName });
-});
-
-// Emit new version
-await bus.emit({ type: 'user.created.v2', payload: { fullName: 'John Doe' } });
-```
-
-## Adapters & Publishers
-
-Mix and match any storage adapter with any publisher.
-
-### Storage Adapters (The "Outbox")
-
-These store your events. Choose one that matches your primary database.
-
-| Database | Adapters | Transaction Support | Concurrency |
-|:---|:---|:---:|:---|
-| **Postgres** | [Prisma](./adapters/postgres-prisma/README.md), [Drizzle](./adapters/postgres-drizzle/README.md) | Full (ACID) | `SKIP LOCKED` |
-| **MongoDB** | [Native Driver](./adapters/mongo-mongodb/README.md) | Full (Replica Set) | Optimistic Locking |
-| **DynamoDB** | [AWS SDK](./adapters/dynamodb-aws-sdk/README.md) | Full (TransactWrite) | Optimistic Locking |
-| **Redis** | [ioredis](./adapters/redis-ioredis/README.md) | Atomic (Multi/Exec) | Distributed Lock |
-| **SQLite** | [better-sqlite3](./adapters/sqlite-better-sqlite3/README.md) | Full (ACID) | Serialized |
-
-**Legend:**
-
-- **Full**: ACID transactions with atomicity guarantees
-- **Limited**: Single-document transactions or optimistic locking
-- **None**: No transaction support (events saved separately)
-- **SKIP LOCKED**: High-performance non-blocking reads for multiple workers
-
-### Publishers
-
-These send your events to the world.
-
-| Publisher | Target | Batching | Package |
-|:---|:---|:---:|:---|
-| **[AWS SQS](./publishers/sqs/README.md)** | Amazon SQS Queues | Yes (10) | `@outbox-event-bus/sqs-publisher` |
-| **[AWS SNS](./publishers/sns/README.md)** | Amazon SNS Topics | Yes (10) | `@outbox-event-bus/sns-publisher` |
-| **[EventBridge](./publishers/eventbridge/README.md)** | AWS Event Bus | Yes (10) | `@outbox-event-bus/eventbridge-publisher` |
-| **[RabbitMQ](./publishers/rabbitmq/README.md)** | AMQP Brokers | Yes (Configurable) | `@outbox-event-bus/rabbitmq-publisher` |
-| **[Kafka](./publishers/kafka/README.md)** | Streaming | Yes (Configurable) | `@outbox-event-bus/kafka-publisher` |
-| **[Redis Streams](./publishers/redis-streams/README.md)** | Lightweight Stream | Yes (Configurable) | `@outbox-event-bus/redis-streams-publisher` |
-
-
-### Choosing the Right Publisher
-
-<div align="center">
-<img src="https://raw.githubusercontent.com/dunika/outbox-event-bus/main/docs/images/choose_publisher.png" alt="Choose Publisher" width="600">
-</div>
-
-## Production Guide
-
-> [!TIP]
-> Start with conservative settings and tune based on your metrics. It's easier to increase throughput than to debug overload issues.
-
-### Deployment Checklist
-
-- [ ] **Database Schema**: Ensure outbox tables are created and migrated
-- [ ] **Connection Pooling**: Size your connection pool for concurrent workers
-- [ ] **Error Monitoring**: Set up error tracking (Sentry, Datadog, etc.)
-- [ ] **Metrics**: Track event processing rates, retry counts, failure rates
-- [ ] **Archiving**: Configure automatic archiving of completed events
-- [ ] **Scaling**: Plan for horizontal scaling (multiple workers)
-
-### Monitoring
-
-**Key Metrics to Track:**
-
-1. **Event Processing Rate**: Events/second processed
-2. **Retry Rate**: Percentage of events requiring retries
-3. **Failure Rate**: Percentage of events failing after max retries
-4. **Processing Latency**: Time from event creation to successful delivery
-5. **Queue Depth**: Number of pending events in the outbox
-
-> **Tip:** Use [Middleware](#middleware) to automatically capture these metrics without cluttering your business logic. See the [Monitoring & Debugging](#monitoring--debugging) section for Prometheus and OpenTelemetry examples.
-
 
 ### Scaling
 

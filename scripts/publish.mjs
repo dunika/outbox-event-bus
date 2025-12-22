@@ -18,8 +18,13 @@ if (!IS_CI) {
     const { stdout } = await $`npm whoami`
     echo(chalk.green(`✓ Logged in as: ${stdout.trim()}\n`))
   } catch (_error) {
+    const hasNpmrc = await fs.pathExists(".npmrc")
+    const npmrcContent = hasNpmrc ? await fs.readFile(".npmrc", "utf8") : ""
+
     if (process.env.NPM_TOKEN) {
       echo(chalk.green("✓ NPM_TOKEN is set\n"))
+    } else if (hasNpmrc && npmrcContent.includes("_authToken")) {
+      echo(chalk.green("✓ .npmrc file with auth token found\n"))
     } else {
       echo(chalk.red("✗ Authentication failed\n"))
       echo(chalk.bold("Choose an authentication method:\n"))

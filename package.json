@@ -15,7 +15,8 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm build && changeset publish",
-    "publish:interactive": "zx scripts/publish.mjs"
+    "publish": "zx scripts/publish.mjs",
+    "publish:dry-run": "zx scripts/publish.mjs --dry-run"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
