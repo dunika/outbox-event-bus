@@ -7,7 +7,7 @@
 > **Transactional Event Persistence for MongoDB**  
 > Leverage MongoDB's ACID transactions and flexible document model to reliably persist and process events with the Outbox pattern.
 
-MongoDB adapter for [outbox-event-bus](../../README.md). Provides reliable, transactional event storage using MongoDB's native transactions and optimistic locking via `findOneAndUpdate`.
+MongoDB adapter for [outbox-event-bus](https://github.com/dunika/outbox-event-bus#readme). Provides reliable, transactional event storage using MongoDB's native transactions and optimistic locking via `findOneAndUpdate`.
 
 ---
 
@@ -48,16 +48,16 @@ await bus.emit({
 
 **Choose MongoDB Outbox when:**
 
-- ✅ You are already using **MongoDB** in your stack
-- ✅ You need to store **complex, nested event payloads** without serialization overhead
-- ✅ You want **flexible schema** evolution for events
-- ✅ You need deep **query capabilities** on event history (e.g., analytics, debugging)
-- ✅ You require **ACID transactions** with MongoDB replica sets
+- You are already using **MongoDB** in your stack
+- You need to store **complex, nested event payloads** without serialization overhead
+- You want **flexible schema** evolution for events
+- You need deep **query capabilities** on event history (e.g., analytics, debugging)
+- You require **ACID transactions** with MongoDB replica sets
 
 **Consider alternatives if:**
 
-- ❌ You need the absolute lowest latency (Redis may be faster for in-memory workloads)
-- ❌ You're not using MongoDB and don't want to add it as a dependency
+- You need the absolute lowest latency (Redis may be faster for in-memory workloads)
+- You're not using MongoDB and don't want to add it as a dependency
 
 ---
 
@@ -226,9 +226,9 @@ interface MongoMongodbOutboxConfig {
 | `dbName` | `string` | ✅ | - | Database name |
 | `collectionName` | `string` | ❌ | `'outbox_events'` | Collection name for outbox events |
 | `maxRetries` | `number` | ❌ | `5` | Maximum retry attempts for failed events |
-| `baseBackoffMs` | `number` | ❌ | `1000` | Base backoff duration in milliseconds |
+| `baseBackoffMs` | `number` | ❌ | `1000` | Base delay for exponential backoff (ms). |
+| `maxErrorBackoffMs` | `number` | ❌ | `30000` | Maximum backoff delay after polling errors (ms). |
 | `pollIntervalMs` | `number` | ❌ | `1000` | Polling interval in milliseconds |
-| `maxErrorBackoffMs` | `number` | ❌ | `30000` | Maximum backoff duration for polling errors |
 | `processingTimeoutMs` | `number` | ❌ | `30000` | Processing timeout in milliseconds |
 | `batchSize` | `number` | ❌ | `50` | Number of events to claim per poll |
 | `getSession` | `() => ClientSession \| undefined` | ❌ | `undefined` | Function to retrieve the current MongoDB session (for ALS) |
@@ -254,6 +254,30 @@ Starts the polling service to process events.
 ##### `stop(): Promise<void>`
 
 Stops the polling service gracefully.
+
+---
+
+### Required Document Fields
+
+If you are using a custom collection, it **must** support documents with the following fields:
+
+| Field | MongoDB Type | Required | Description |
+|:---|:---|:---:|:---|
+| `_id` | `String` or `ObjectId` | ✅ | Unique event ID |
+| `type` | `String` | ✅ | Event type string |
+| `payload` | `Object` | ✅ | Event data (any valid BSON) |
+| `occurredAt` | `Date` | ✅ | When event occurred |
+| `status` | `String` | ✅ | `created`, `active`, `completed`, `failed` |
+| `retryCount` | `Int` | ✅ | Current retry attempts |
+| `lastError` | `String` | ❌ | Last error message |
+| `nextRetryAt` | `Date` | ❌ | Scheduled retry time |
+| `createdOn` | `Date` | ✅ | Document creation time |
+| `startedOn` | `Date` | ❌ | Processing start time |
+| `keepAlive` | `Date` | ❌ | Heartbeat for stuck detection |
+| `expireInSeconds` | `Int` | ✅ | Default: 30 |
+
+> [!TIP]
+> Ensure you have an index on `{ status: 1, nextRetryAt: 1 }` and `{ status: 1, keepAlive: 1 }` for optimal polling performance.
 
 ---
 
@@ -473,6 +497,6 @@ Yes! The adapter uses atomic locking to prevent double-processing. You can safel
 
 ## Related
 
-- [Core Documentation](../../README.md)
-- [API Reference](../../docs/API_REFERENCE.md)
+- [Core Documentation](https://github.com/dunika/outbox-event-bus#readme)
+- [API Reference](https://github.com/dunika/outbox-event-bus/blob/main/docs/API_REFERENCE.md)
 - [MongoDB Node.js Driver](https://www.mongodb.com/docs/drivers/node/current/)

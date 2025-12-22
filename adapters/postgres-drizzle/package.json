@@ -33,18 +33,22 @@
   ],
   "scripts": {
     "build": "tsdown",
-    "test": "vitest run --exclude \"**/*.e2e.test.ts\" --exclude \"src/transactions.test.ts\"",
-    "test:e2e": "docker-compose up -d --wait && vitest run src/e2e.test.ts; status=$?; docker-compose down; exit $status"
+    "test": "vitest run",
+    "test:e2e": "docker-compose up -d --wait && vitest run -c vitest.e2e.config.ts; status=$?; docker-compose down; exit $status"
   },
   "dependencies": {
+    "outbox-event-bus": "workspace:*"
+  },
+  "peerDependencies": {
     "drizzle-orm": "^0.45.1",
-    "outbox-event-bus": "workspace:*",
     "postgres": "^3.4.7"
   },
   "devDependencies": {
     "@outbox-event-bus/config": "workspace:*",
     "@types/node": "catalog:",
     "drizzle-kit": "^0.31.8",
+    "drizzle-orm": "^0.45.1",
+    "postgres": "^3.4.7",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

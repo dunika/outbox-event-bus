@@ -33,16 +33,19 @@
   ],
   "scripts": {
     "build": "tsdown",
-    "test": "vitest run src/redis-ioredis-outbox.test.ts",
-    "test:e2e": "docker-compose up -d --wait && vitest run src/e2e.test.ts; status=$?; docker-compose down; exit $status"
+    "test": "vitest run",
+    "test:e2e": "docker-compose up -d --wait && vitest run -c vitest.e2e.config.ts; status=$?; docker-compose down; exit $status"
   },
   "dependencies": {
-    "ioredis": "catalog:",
     "outbox-event-bus": "workspace:*"
+  },
+  "peerDependencies": {
+    "ioredis": "catalog:"
   },
   "devDependencies": {
     "@outbox-event-bus/config": "workspace:*",
     "@types/node": "catalog:",
+    "ioredis": "catalog:",
     "ioredis-mock": "^8.13.1",
     "testcontainers": "catalog:",
     "tsdown": "catalog:",

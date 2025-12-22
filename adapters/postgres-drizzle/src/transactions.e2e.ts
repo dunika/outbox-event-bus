@@ -5,7 +5,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js"
 import { drizzle } from "drizzle-orm/postgres-js"
 import { OutboxEventBus } from "outbox-event-bus"
 import postgres from "postgres"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { PostgresDrizzleOutbox } from "./index"
 import { outboxEvents } from "./schema"
 
@@ -19,7 +19,7 @@ const users = pgTable("users", {
 type Db = PostgresJsDatabase<Record<string, never>>
 
 describe("PostgresDrizzle Outbox Transactions with AsyncLocalStorage", () => {
-  const sql = postgres("postgres://test_user:test_password@localhost:5432/outbox_test")
+  const sql = postgres("postgres://test_user:test_password@localhost:5433/outbox_test")
   const db = drizzle(sql)
 
   const als = new AsyncLocalStorage<Db>()
@@ -34,7 +34,7 @@ describe("PostgresDrizzle Outbox Transactions with AsyncLocalStorage", () => {
 
   const outbox = new PostgresDrizzleOutbox({
     db,
-    getExecutor: () => als.getStore(),
+    getTransaction: () => als.getStore(),
     pollIntervalMs: 50,
   })
 

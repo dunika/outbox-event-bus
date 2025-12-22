@@ -22,39 +22,43 @@ export class Batcher<T> {
   async add(item: T): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       this.queue.push({ item, resolve, reject })
-
-      if (this.queue.length >= this.config.batchSize) {
-        void this.flush()
-      } else {
-        this.timer ??= setTimeout(() => {
-          void this.flush()
-        }, this.config.batchTimeoutMs)
-      }
+      this.scheduleFlushIfNeeded()
     })
   }
 
-  private async flush(): Promise<void> {
-    if (this.timer) {
-      clearTimeout(this.timer)
-      this.timer = null
-    }
-
-    if (this.queue.length === 0) {
+  private scheduleFlushIfNeeded(): void {
+    if (this.queue.length >= this.config.batchSize) {
+      void this.flush()
       return
     }
+
+    this.timer ??= setTimeout(() => {
+      void this.flush()
+    }, this.config.batchTimeoutMs)
+  }
+
+  private async flush(): Promise<void> {
+    this.clearTimer()
+
+    if (this.queue.length === 0) return
 
     const currentBatch = this.queue
     this.queue = []
 
+    const items = currentBatch.map((qi) => qi.item)
+
     try {
-      await this.config.processBatch(currentBatch.map((queuedItem) => queuedItem.item))
-      for (const queuedItem of currentBatch) {
-        queuedItem.resolve()
-      }
+      await this.config.processBatch(items)
+      for (const qi of currentBatch) qi.resolve()
     } catch (error) {
-      for (const queuedItem of currentBatch) {
-        queuedItem.reject(error)
-      }
+      for (const qi of currentBatch) qi.reject(error)
+    }
+  }
+
+  private clearTimer(): void {
+    if (this.timer) {
+      clearTimeout(this.timer)
+      this.timer = null
     }
   }
 }

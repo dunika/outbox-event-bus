@@ -79,11 +79,11 @@ describe("EventPublisher", () => {
     const busHandler = (mockBus.subscribe as any).mock.calls[0][1]
 
     const events: BusEvent[] = [
-      { id: "1", type: "TEST_EVENT", payload: {} },
-      { id: "2", type: "TEST_EVENT", payload: {} },
+      { id: "1", type: "TEST_EVENT", payload: {}, occurredAt: new Date() },
+      { id: "2", type: "TEST_EVENT", payload: {}, occurredAt: new Date() },
     ]
 
-    // Send 2 events, they should be batched (default batchSize is 100)
+    // Send 2 events, they should be buffered (default bufferSize is 50)
     // We await both to ensure they both get added and wait for the same flush
     await Promise.all([busHandler(events[0]), busHandler(events[1])])
 

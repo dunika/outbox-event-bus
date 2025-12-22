@@ -5,7 +5,7 @@
 
 > **High-Throughput Log Streaming with Redis**
 
-Redis Streams publisher for [outbox-event-bus](../../README.md). Appends events to Redis Streams for efficient consumption by multiple consumer groups.
+Redis Streams publisher for [outbox-event-bus](https://github.com/dunika/outbox-event-bus#readme). Appends events to Redis Streams for efficient consumption by multiple consumer groups.
 
 ```typescript
 import { RedisStreamsPublisher } from '@outbox-event-bus/redis-streams-publisher';
@@ -43,42 +43,52 @@ npm install @outbox-event-bus/redis-streams-publisher ioredis
 
 ```typescript
 interface RedisStreamsPublisherConfig {
-  redisClient: Redis;    // ioredis client instance
-  streamKey: string;     // Key of the Redis Stream
-  retryConfig?: RetryOptions;      // Application-level retry logic
-  batchConfig?: BatchOptions;      // Batch processing settings (default: batchSize: 100, batchTimeoutMs: 100)
+  redisClient: Redis;             // ioredis client instance
+  streamKey: string;              // Key of the Redis Stream
+  processingConfig?: {
+    bufferSize?: number;          // Default: 50
+    bufferTimeoutMs?: number;     // Default: 100
+    concurrency?: number;         // Default: 5
+    maxBatchSize?: number;        // Optional downstream batch limit
+  };
+  retryConfig?: {
+    maxAttempts?: number;         // Default: 3
+    initialDelayMs?: number;      // Default: 1000
+    maxDelayMs?: number;          // Default: 10000
+  };
 }
 ```
 
-## Batching
+### Configuration Options
 
-This publisher has **batching enabled by default** (100 items or 100ms). It uses Redis **Pipelines** to send multiple `XADD` commands in a single round-trip, significantly improving throughput.
+- `redisClient`: An instance of `ioredis`.
+- `streamKey`: The Redis key for the stream.
+- `processingConfig`: (Optional) Settings for accumulation and batching.
+    - `bufferSize`: Number of events to accumulation in memory before publishing. Default: `50`.
+    - `bufferTimeoutMs`: Maximum time to wait for a buffer to fill before flushing. Default: `100ms`.
+    - `concurrency`: Maximum number of concurrent processing tasks. Default: `5`.
+    - `maxBatchSize`: (Optional) If set, the accumulated buffer will be split into smaller downstream batches.
+- `retryConfig`: (Optional) Custom retry settings for publishing failures.
+    - `maxAttempts`: Maximum number of publication attempts. Default: `3`.
+    - `initialDelayMs`: Initial backoff delay in milliseconds. Default: `1000ms`.
+    - `maxDelayMs`: Maximum backoff delay in milliseconds. Default: `10000ms`.
 
-To tune batching for maximum performance, increase the `batchSize`:
+> [!NOTE]
+> This publisher uses Redis **Pipelines** to efficiently publish multiple events in a single round-trip.
+
+## Batching & Buffering
+
+This publisher has **buffering enabled by default** (50 items or 100ms).
+
+To tune buffering for high throughput, adjust `bufferSize` and `bufferTimeoutMs`:
 ```typescript
 const publisher = new RedisStreamsPublisher(bus, {
   // ...
-  batchConfig: { 
-    batchSize: 100,
-    batchTimeoutMs: 50 
+  processingConfig: {
+    bufferSize: 50,
+    bufferTimeoutMs: 10
   }
 });
-```
-
-## Usage
-
-### Basic Setup
-
-```typescript
-import Redis from 'ioredis';
-import { RedisStreamsPublisher } from '@outbox-event-bus/redis-streams-publisher';
-
-const publisher = new RedisStreamsPublisher(bus, {
-  redisClient: new Redis(),
-  streamKey: 'logs'
-});
-
-publisher.subscribe(['*']);
 ```
 
 ## Message Format

@@ -24,7 +24,7 @@ describe("DynamoDBAwsSdkOutbox Transactional Support", () => {
     const outbox = new DynamoDBAwsSdkOutbox({
       client: mockClient as any,
       tableName: "test-table",
-      getExecutor: () => mockCollector,
+      getCollector: () => mockCollector,
     })
 
     await outbox.publish([{ id: "1", type: "test", payload: {}, occurredAt: new Date() }])
@@ -41,7 +41,7 @@ describe("DynamoDBAwsSdkOutbox Transactional Support", () => {
     const outbox = new DynamoDBAwsSdkOutbox({
       client: mockClient as any,
       tableName: "test-table",
-      getExecutor: () => undefined,
+      getCollector: () => undefined,
     })
 
     await outbox.publish([{ id: "1", type: "test", payload: {}, occurredAt: new Date() }])
@@ -66,7 +66,7 @@ describe("DynamoDBAwsSdkOutbox Transactional Support", () => {
     }))
 
     await expect(outbox.publish(events)).rejects.toThrow(
-      "DynamoDB Outbox: Cannot publish more than 100 events in a single transaction (DynamoDB limit)."
+      "Cannot publish 101 events because the batch size limit is 100."
     )
   })
 
@@ -74,11 +74,14 @@ describe("DynamoDBAwsSdkOutbox Transactional Support", () => {
     const mockClient = {
       send: vi.fn(),
     }
-    const collector = Array.from({ length: 90 }, () => ({}))
+    const collector = {
+      push: vi.fn(),
+      items: Array.from({ length: 90 }, () => ({})),
+    }
     const outbox = new DynamoDBAwsSdkOutbox({
       client: mockClient as any,
       tableName: "test-table",
-      getExecutor: () => collector,
+      getCollector: () => collector as any,
     })
 
     const events = Array.from({ length: 11 }, (_, i) => ({
@@ -89,7 +92,7 @@ describe("DynamoDBAwsSdkOutbox Transactional Support", () => {
     }))
 
     await expect(outbox.publish(events)).rejects.toThrow(
-      "DynamoDB Outbox: Cannot add 11 events because the transaction already has 90 items (DynamoDB limit is 100)."
+      "Cannot publish 101 events because the batch size limit is 100."
     )
   })
 })

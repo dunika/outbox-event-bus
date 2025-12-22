@@ -25,18 +25,15 @@ export class RabbitMQPublisher<TTransaction = unknown> implements IPublisher {
     this.publisher.subscribe(eventTypes, async (events: BusEvent[]) => {
       for (const event of events) {
         const message = JSON.stringify(event)
-        const published = this.channel.publish(
-          this.exchange,
-          this.routingKey || event.type,
-          Buffer.from(message),
-          {
-            contentType: "application/json",
-            headers: {
-              eventType: event.type,
-              eventId: event.id,
-            },
-          }
-        )
+        const routingKey = this.routingKey || event.type
+
+        const published = this.channel.publish(this.exchange, routingKey, Buffer.from(message), {
+          contentType: "application/json",
+          headers: {
+            eventType: event.type,
+            eventId: event.id,
+          },
+        })
 
         if (!published) {
           throw new BackpressureError("RabbitMQ channel")

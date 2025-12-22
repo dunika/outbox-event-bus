@@ -3,6 +3,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js"
 import {
   type BusEvent,
   type ErrorHandler,
+  EventStatus,
   type FailedBusEvent,
   formatErrorMessage,
   type IOutbox,
@@ -61,7 +62,7 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
         type: event.type,
         payload: event.payload,
         occurredAt: event.occurredAt,
-        status: "created" as const,
+        status: EventStatus.CREATED,
       }))
     )
   }
@@ -70,7 +71,7 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
     const events = await this.config.db
       .select()
       .from(this.config.tables.outboxEvents)
-      .where(eq(this.config.tables.outboxEvents.status, "failed"))
+      .where(eq(this.config.tables.outboxEvents.status, EventStatus.FAILED))
       .orderBy(sql`${this.config.tables.outboxEvents.occurredAt} DESC`)
       .limit(100)
 
@@ -92,7 +93,7 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
     await this.config.db
       .update(this.config.tables.outboxEvents)
       .set({
-        status: "created",
+        status: EventStatus.CREATED,
         retryCount: 0,
         nextRetryAt: null,
         lastError: null,
@@ -121,14 +122,14 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
         .from(this.config.tables.outboxEvents)
         .where(
           or(
-            eq(this.config.tables.outboxEvents.status, "created"),
+            eq(this.config.tables.outboxEvents.status, EventStatus.CREATED),
             and(
-              eq(this.config.tables.outboxEvents.status, "failed"),
+              eq(this.config.tables.outboxEvents.status, EventStatus.FAILED),
               lt(this.config.tables.outboxEvents.retryCount, this.config.maxRetries),
               lt(this.config.tables.outboxEvents.nextRetryAt, now)
             ),
             and(
-              eq(this.config.tables.outboxEvents.status, "active"),
+              eq(this.config.tables.outboxEvents.status, EventStatus.ACTIVE),
               // Check if event is stuck: keepAlive is older than (now - expireInSeconds)
               // This uses PostgreSQL's make_interval to subtract expireInSeconds from current timestamp
               lt(
@@ -148,7 +149,7 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
       await transaction
         .update(this.config.tables.outboxEvents)
         .set({
-          status: "active",
+          status: EventStatus.ACTIVE,
           startedOn: now,
           keepAlive: now,
         })
@@ -163,7 +164,7 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
             type: event.type,
             payload: event.payload,
             occurredAt: event.occurredAt,
-            status: "completed" as const,
+            status: EventStatus.COMPLETED,
             retryCount: event.retryCount,
             createdOn: event.createdOn,
             startedOn: now,
@@ -181,7 +182,7 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
           await transaction
             .update(this.config.tables.outboxEvents)
             .set({
-              status: "failed",
+              status: EventStatus.FAILED,
               retryCount,
               lastError: formatErrorMessage(error),
               nextRetryAt: new Date(Date.now() + delay),

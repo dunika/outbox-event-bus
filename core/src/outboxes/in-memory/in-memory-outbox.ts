@@ -71,7 +71,7 @@ export class InMemoryOutbox implements IOutbox<unknown> {
   private async processBatch(handler: (event: BusEvent) => Promise<void>) {
     if (this.events.length === 0) return
 
-    const batch = [...this.events]
+    const batch = this.events
     this.events = []
 
     const failedEvents: BusEvent[] = []
@@ -83,34 +83,39 @@ export class InMemoryOutbox implements IOutbox<unknown> {
           this.retryCounts.delete(event.id)
         }
       } catch (error) {
-        let shouldRetry = true
-        if (this.maxRetries !== undefined && event.id) {
-          const currentRetries = this.retryCounts.get(event.id) ?? 0
-          if (currentRetries >= this.maxRetries) {
-            shouldRetry = false
-
-            this.retryCounts.delete(event.id)
-
-            this.onError?.(new MaxRetriesExceededError(error, currentRetries + 1), event)
-
-            this.deadLetterQueue.push(event)
-          } else {
-            this.retryCounts.set(event.id, currentRetries + 1)
-            this.onError?.(error, event)
-          }
-        } else {
-          this.onError?.(error, event)
-        }
-
-        if (shouldRetry) {
+        if (this.shouldRetry(event)) {
           failedEvents.push(event)
+          this.onError?.(error, event)
+        } else {
+          this.moveToDLQ(event, error)
         }
       }
     }
 
-    // Put failed events back for retry
     if (failedEvents.length > 0) {
       this.events.unshift(...failedEvents)
     }
+  }
+
+  private shouldRetry(event: BusEvent): boolean {
+    if (this.maxRetries === undefined || !event.id) return true
+
+    const currentRetries = this.retryCounts.get(event.id) ?? 0
+    if (currentRetries < this.maxRetries) {
+      this.retryCounts.set(event.id, currentRetries + 1)
+      return true
+    }
+
+    return false
+  }
+
+  private moveToDLQ(event: BusEvent, error: unknown): void {
+    const retryCount = (event.id ? this.retryCounts.get(event.id) : 0) ?? 0
+    if (event.id) {
+      this.retryCounts.delete(event.id)
+    }
+
+    this.onError?.(new MaxRetriesExceededError(error, retryCount + 1), event)
+    this.deadLetterQueue.push(event)
   }
 }

@@ -2,6 +2,7 @@ import Database from "better-sqlite3"
 import {
   type BusEvent,
   type ErrorHandler,
+  EventStatus,
   type FailedBusEvent,
   formatErrorMessage,
   type IOutbox,
@@ -18,7 +19,7 @@ const getOutboxSchema = (tableName: string, archiveTableName: string) => `
     type TEXT NOT NULL,
     payload TEXT NOT NULL,
     occurred_at TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'created',
+    status TEXT NOT NULL DEFAULT '${EventStatus.CREATED}',
     retry_count INTEGER NOT NULL DEFAULT 0,
     last_error TEXT,
     next_retry_at TEXT,
@@ -58,7 +59,7 @@ interface OutboxRow {
   type: string
   payload: string
   occurred_at: string
-  status: "created" | "active" | "failed" | "completed"
+  status: EventStatus
   retry_count: number
   next_retry_at: string | null
   last_error: string | null
@@ -118,7 +119,7 @@ export class SqliteBetterSqlite3Outbox implements IOutbox<Database.Database> {
 
     const insert = executor.prepare(`
       INSERT INTO ${this.config.tableName} (id, type, payload, occurred_at, status)
-      VALUES (?, ?, ?, ?, 'created')
+      VALUES (?, ?, ?, ?, '${EventStatus.CREATED}')
     `)
 
     executor.transaction(() => {
@@ -137,7 +138,7 @@ export class SqliteBetterSqlite3Outbox implements IOutbox<Database.Database> {
     const rows = this.db
       .prepare(`
       SELECT * FROM ${this.config.tableName}
-      WHERE status = 'failed'
+      WHERE status = '${EventStatus.FAILED}'
       ORDER BY occurred_at DESC
       LIMIT 100
     `)
@@ -164,7 +165,7 @@ export class SqliteBetterSqlite3Outbox implements IOutbox<Database.Database> {
     this.db
       .prepare(`
       UPDATE ${this.config.tableName}
-      SET status = 'created',
+      SET status = '${EventStatus.CREATED}',
           retry_count = 0,
           next_retry_at = NULL,
           last_error = NULL
@@ -193,9 +194,9 @@ export class SqliteBetterSqlite3Outbox implements IOutbox<Database.Database> {
       const rows = this.db
         .prepare(`
         SELECT * FROM ${this.config.tableName}
-        WHERE status = 'created'
-        OR (status = 'failed' AND retry_count < ? AND next_retry_at <= ?)
-        OR (status = 'active' AND datetime(keep_alive, '+' || expire_in_seconds || ' seconds') < datetime(?))
+        WHERE status = '${EventStatus.CREATED}'
+        OR (status = '${EventStatus.FAILED}' AND retry_count < ? AND next_retry_at <= ?)
+        OR (status = '${EventStatus.ACTIVE}' AND datetime(keep_alive, '+' || expire_in_seconds || ' seconds') < datetime(?))
         LIMIT ?
       `)
         .all(this.config.maxRetries, now, now, this.config.batchSize) as OutboxRow[]
@@ -203,18 +204,17 @@ export class SqliteBetterSqlite3Outbox implements IOutbox<Database.Database> {
       if (rows.length === 0) return []
 
       const ids = rows.map((r) => r.id)
+      const placeholders = ids.map(() => "?").join(",")
 
-      const update = this.db.prepare(`
+      this.db
+        .prepare(`
         UPDATE ${this.config.tableName}
-        SET status = 'active',
+        SET status = '${EventStatus.ACTIVE}',
             started_on = ?,
             keep_alive = ?
-        WHERE id = ?
+        WHERE id IN (${placeholders})
       `)
-
-      for (const id of ids) {
-        update.run(now, now, id)
-      }
+        .run(now, now, ...ids)
 
       return rows
     })()
@@ -246,7 +246,7 @@ export class SqliteBetterSqlite3Outbox implements IOutbox<Database.Database> {
         this.db
           .prepare(`
           UPDATE ${this.config.tableName}
-          SET status = 'failed',
+          SET status = '${EventStatus.FAILED}',
               retry_count = ?,
               last_error = ?,
               next_retry_at = ?
@@ -266,7 +266,7 @@ export class SqliteBetterSqlite3Outbox implements IOutbox<Database.Database> {
         const insertArchive = this.db.prepare(`
           INSERT INTO ${this.config.archiveTableName} (
             id, type, payload, occurred_at, status, retry_count, last_error, created_on, started_on, completed_on
-          ) VALUES (?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, '${EventStatus.COMPLETED}', ?, ?, ?, ?, ?)
         `)
         const deleteEvent = this.db.prepare(`DELETE FROM ${this.config.tableName} WHERE id = ?`)
 

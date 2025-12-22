@@ -9,7 +9,7 @@ export interface EventBridgePublisherConfig extends PublisherConfig {
   source: string
 }
 
-const MAX_BATCH_SIZE = 10 // EventBridge PutEvents has a limit of 10 entries per request
+const AWS_BATCH_LIMIT = 10 // EventBridge PutEvents has a limit of 10 entries per request
 
 export class EventBridgePublisher<TTransaction = unknown> implements IPublisher {
   private readonly eventBridgeClient: EventBridgeClient
@@ -21,33 +21,27 @@ export class EventBridgePublisher<TTransaction = unknown> implements IPublisher 
     this.eventBridgeClient = config.eventBridgeClient
     this.eventBusName = config.eventBusName
     this.source = config.source
-    this.publisher = new EventPublisher(bus, {
-      ...config,
-      batchConfig: {
-        batchSize: config.batchConfig?.batchSize ?? MAX_BATCH_SIZE,
-        batchTimeoutMs: config.batchConfig?.batchTimeoutMs ?? 100,
-      },
-    })
+    this.publisher = new EventPublisher(
+      bus,
+      EventPublisher.withOverrides(config, { maxBatchSize: AWS_BATCH_LIMIT })
+    )
   }
 
   subscribe(eventTypes: string[]): void {
     this.publisher.subscribe(eventTypes, async (events: BusEvent[]) => {
       if (events.length === 0) return
 
-      for (let offset = 0; offset < events.length; offset += MAX_BATCH_SIZE) {
-        const chunk = events.slice(offset, offset + MAX_BATCH_SIZE)
-        await this.eventBridgeClient.send(
-          new PutEventsCommand({
-            Entries: chunk.map((event) => ({
-              Source: this.source,
-              DetailType: event.type,
-              Detail: JSON.stringify(event),
-              EventBusName: this.eventBusName,
-              Time: event.occurredAt,
-            })),
-          })
-        )
-      }
+      await this.eventBridgeClient.send(
+        new PutEventsCommand({
+          Entries: events.map((event) => ({
+            Source: this.source,
+            DetailType: event.type,
+            Detail: JSON.stringify(event),
+            EventBusName: this.eventBusName,
+            Time: event.occurredAt,
+          })),
+        })
+      )
     })
   }
 }

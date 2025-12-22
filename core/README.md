@@ -1,4 +1,4 @@
-# @outbox-event-bus/core
+# outbox-event-bus
 
 Core logic for the `outbox-event-bus` library. This package contains the `OutboxEventBus` class and the interfaces for implementing storage adapters.
 
@@ -7,16 +7,16 @@ For full documentation, please visit the [root repository](https://github.com/du
 ## Installation
 
 ```bash
-npm install @outbox-event-bus/core
+npm install outbox-event-bus
 ```
 
 ## Architecture
 
 The library consists of three main components:
 
-1.  **[OutboxEventBus](../docs/API_REFERENCE.md#outboxeventbus)**: The main entry point. It manages event listeners and delegates storage to the `IOutbox` adapter.
-2.  **[IOutbox](../docs/API_REFERENCE.md#ioutbox-interface) (Adapter)**: Responsible for persisting events to the database and polling for new events.
-3.  **[IPublisher](../docs/API_REFERENCE.md#publishers)**: Optional component that subscribes to the bus and forwards events to external systems (SQS, Kafka, etc.).
+1.  **[OutboxEventBus](https://github.com/dunika/outbox-event-bus/blob/main/docs/API_REFERENCE.md#outboxeventbus)**: The main entry point. It manages event listeners and delegates storage to the `IOutbox` adapter.
+2.  **[IOutbox](https://github.com/dunika/outbox-event-bus/blob/main/docs/API_REFERENCE.md#ioutbox-interface) (Adapter)**: Responsible for persisting events to the database and polling for new events.
+3.  **[IPublisher](https://github.com/dunika/outbox-event-bus/blob/main/docs/API_REFERENCE.md#publishers)**: Optional component that subscribes to the bus and forwards events to external systems (SQS, Kafka, etc.).
 
 ## Project Structure
 
@@ -26,24 +26,16 @@ The core package is organized into the following directories:
 core/src/
 ├── bus/              # OutboxEventBus implementation
 ├── errors/           # Error classes and utilities
-├── outboxes/         # Built-in outbox implementations (InMemoryOutbox)
+├── outboxes/         # Built-in outbox implementations
 ├── services/         # PollingService and EventPublisher
 ├── types/            # TypeScript interfaces and types
-└── utils/            # Utility functions (time, etc.)
+└── utils/            # Utility functions
 ```
-
-**Key Files:**
-- `bus/outbox-event-bus.ts` - Main event bus implementation
-- `types/interfaces.ts` - Core interfaces (`IOutbox`, `IOutboxEventBus`, `IPublisher`)
-- `types/types.ts` - Type definitions (`BusEvent`, `BusEventInput`, `FailedBusEvent`)
-- `errors/errors.ts` - Error class hierarchy
-- `services/polling-service.ts` - Background polling service
-- `services/event-publisher.ts` - Base publisher implementation
 
 ## Usage
 
 ```typescript
-import { OutboxEventBus, InMemoryOutbox } from "@outbox-event-bus/core";
+import { OutboxEventBus, InMemoryOutbox } from "outbox-event-bus";
 
 // 1. Initialize Storage
 const outbox = new InMemoryOutbox();
@@ -63,11 +55,11 @@ To support a new database, implement the `IOutbox` interface.
 
 ```typescript
 import { 
-  IOutbox,           // See: ../docs/API_REFERENCE.md#ioutbox-interface
-  BusEvent,          // See: ../docs/API_REFERENCE.md#busevent
-  FailedBusEvent,    // See: ../docs/API_REFERENCE.md#failedbusevent
+  IOutbox,
+  BusEvent,
+  FailedBusEvent,
   ErrorHandler 
-} from "@outbox-event-bus/core";
+} from "outbox-event-bus";
 
 export class MyCustomOutbox implements IOutbox<MyTransactionType> {
   
@@ -108,9 +100,9 @@ To forward events to a new external system, implement `IPublisher`.
 
 ```typescript
 import { 
-  IPublisher,        // See: ../docs/API_REFERENCE.md#publishers
-  IOutboxEventBus    // See: ../docs/API_REFERENCE.md#ioutboxeventbus-interface
-} from "@outbox-event-bus/core";
+  IPublisher,
+  IOutboxEventBus
+} from "outbox-event-bus";
 
 export class MyCustomPublisher implements IPublisher {
   constructor(private bus: IOutboxEventBus<any>) {}

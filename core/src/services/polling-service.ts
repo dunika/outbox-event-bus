@@ -34,7 +34,8 @@ export class PollingService {
   }
 
   calculateBackoff(retryCount: number): number {
-    const backoff = this.config.baseBackoffMs * 2 ** (retryCount - 1)
+    const { baseBackoffMs } = this.config
+    const backoff = baseBackoffMs * 2 ** (retryCount - 1)
     const jitter = (Math.random() * 0.2 - 0.1) * backoff // ±10% jitter
     return Math.floor(backoff + jitter)
   }
@@ -42,34 +43,40 @@ export class PollingService {
   private async poll(handler: (event: BusEvent) => Promise<void>) {
     if (!this.isPolling) return
 
-    const pollExecution = this.executePoll(handler)
-
-    this.activePollPromise = pollExecution
+    this.activePollPromise = this.executePoll(handler)
 
     try {
-      await pollExecution
+      await this.activePollPromise
       this.errorCount = 0
     } catch (error) {
-      const errorToReport =
-        error instanceof OutboxError
-          ? error
-          : new OperationalError("Polling cycle failed", { originalError: error })
-
-      this.onError?.(errorToReport)
-      this.errorCount++
+      this.handlePollError(error)
     } finally {
       this.activePollPromise = null
-      if (this.isPolling) {
-        const delay =
-          this.errorCount > 0
-            ? Math.min(this.calculateBackoff(this.errorCount + 1), this.maxErrorBackoffMs)
-            : this.config.pollIntervalMs
-
-        this.pollTimer = setTimeout(() => {
-          void this.poll(handler)
-        }, delay)
-      }
+      this.scheduleNextPoll(handler)
     }
+  }
+
+  private handlePollError(error: unknown): void {
+    const errorToReport =
+      error instanceof OutboxError
+        ? error
+        : new OperationalError("Polling cycle failed", { originalError: error })
+
+    this.onError?.(errorToReport)
+    this.errorCount++
+  }
+
+  private scheduleNextPoll(handler: (event: BusEvent) => Promise<void>): void {
+    if (!this.isPolling) return
+
+    const delay =
+      this.errorCount > 0
+        ? Math.min(this.calculateBackoff(this.errorCount + 1), this.maxErrorBackoffMs)
+        : this.config.pollIntervalMs
+
+    this.pollTimer = setTimeout(() => {
+      void this.poll(handler)
+    }, delay)
   }
 
   private async executePoll(handler: (event: BusEvent) => Promise<void>): Promise<void> {

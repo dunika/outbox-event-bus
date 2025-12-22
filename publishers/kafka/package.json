@@ -33,15 +33,18 @@
   ],
   "scripts": {
     "build": "tsdown",
-    "test": "vitest run src/*.test.ts"
+    "test": "vitest run"
   },
   "dependencies": {
-    "kafkajs": "^2.2.4",
     "outbox-event-bus": "workspace:*"
+  },
+  "peerDependencies": {
+    "kafkajs": "^2.2.4"
   },
   "devDependencies": {
     "@outbox-event-bus/config": "workspace:*",
     "@types/node": "catalog:",
+    "kafkajs": "^2.2.4",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

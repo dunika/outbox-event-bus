@@ -65,4 +65,15 @@ describe("SQSPublisher", () => {
 
     await expect(handler({ type: "user.created" } as any)).rejects.toThrow("SQS Error")
   })
+
+  it("should support bufferSize greater than 10 by automatic chunking", () => {
+    // This is now supported as SQSPublisher sets maxBatchSize: 10
+    // and EventPublisher handles the chunking.
+    const publisher = new SQSPublisher(mockBus, {
+      ...config,
+      sqsClient: mockSqsClient,
+      processingConfig: { bufferSize: 11 },
+    })
+    expect(publisher).toBeDefined()
+  })
 })

@@ -7,17 +7,7 @@
 
 > **Reliable event storage for single-instance applications—zero external dependencies.**
 
-A SQLite adapter for the [Outbox Pattern](../../README.md), providing transactional event storage with automatic retry, archiving, and WAL-mode concurrency. Perfect for local development, testing, desktop applications, and single-instance deployments.
-
-**Perfect for:**
-- 🧪 Local development & testing
-- 🖥️ Desktop applications & CLI tools
-- 📦 Single-instance deployments
-- ⚡ Zero-config event storage
-
-**Quick Links:** [Installation](#installation) · [Getting Started](#getting-started) · [Configuration](#configuration) · [Transactions](#transactions) · [API Reference](#api-reference) · [Troubleshooting](#troubleshooting)
-
----
+A SQLite adapter for the [Outbox Pattern](https://github.com/dunika/outbox-event-bus#readme), providing transactional event storage with automatic retry, archiving, and WAL-mode concurrency. Perfect for local development, testing, desktop applications, and single-instance deployments.
 
 ## When to Use
 
@@ -29,15 +19,15 @@ A SQLite adapter for the [Outbox Pattern](../../README.md), providing transactio
 | **Best For** | Dev, CLI, Desktop | High throughput | ACID guarantees | Cloud-native |
 
 **Choose SQLite when:**
-- ✅ You're in **local development** or testing
-- ✅ You have a **single-instance deployment** (no horizontal scaling)
-- ✅ You want **zero external dependencies**
-- ✅ You're building a **desktop application** or CLI tool
+- You're in **local development** or testing
+- You have a **single-instance deployment** (no horizontal scaling)
+- You want **zero external dependencies**
+- You're building a **desktop application** or CLI tool
 
 **Consider alternatives when:**
-- ❌ You need **horizontal scaling** across multiple servers → use [Redis](../redis-ioredis) or [DynamoDB](../dynamodb-aws-sdk)
-- ❌ You require **high write throughput** (>1K events/sec) → SQLite serializes writes
-- ❌ You want **cloud-native deployment** → use managed database services
+- You need **horizontal scaling** across multiple servers → use [Redis](https://github.com/dunika/outbox-event-bus/tree/main/adapters/redis-ioredis#readme) or [DynamoDB](https://github.com/dunika/outbox-event-bus/tree/main/adapters/dynamodb-aws-sdk#readme)
+- You require **high write throughput** (>1K events/sec) → SQLite serializes writes
+- You want **cloud-native deployment** → use managed database services
 
 ---
 
@@ -151,7 +141,7 @@ SQLite is designed for **single-instance deployments** and uses **file-level loc
 - **Thread-Safe**: Safe for multi-threaded applications within a single process
 
 > [!WARNING]
-> Do not run multiple instances of your application with the same SQLite database file. This can lead to database corruption. For multi-instance deployments, use [PostgreSQL](../postgres-prisma), [Redis](../redis-ioredis), or [DynamoDB](../dynamodb-aws-sdk) adapters instead.
+> Do not run multiple instances of your application with the same SQLite database file. This can lead to database corruption. For multi-instance deployments, use [PostgreSQL](https://github.com/dunika/outbox-event-bus/tree/main/adapters/postgres-prisma#readme), [Redis](https://github.com/dunika/outbox-event-bus/tree/main/adapters/redis-ioredis#readme), or [DynamoDB](https://github.com/dunika/outbox-event-bus/tree/main/adapters/dynamodb-aws-sdk#readme) adapters instead.
 
 ### ⚡ WAL Mode for Concurrency
 
@@ -375,15 +365,15 @@ interface SqliteBetterSqlite3OutboxConfig extends OutboxConfig {
   // Inherited from OutboxConfig
   maxRetries?: number;
   baseBackoffMs?: number;
-  maxErrorBackoffMs?: number;
-  processingTimeoutMs?: number;
+  processingTimeoutMs?: number;        // Processing timeout (default: 30000ms)
   pollIntervalMs?: number;
   batchSize?: number;
+  maxErrorBackoffMs?: number;          // Max polling error backoff (default: 30000ms)
 }
 ```
 
 > [!NOTE]
-> All adapters inherit base configuration options from `OutboxConfig`. See the [API Reference](../../docs/API_REFERENCE.md#base-outbox-configuration) for details on inherited options.
+> All adapters inherit base configuration options from `OutboxConfig`. See the [API Reference](https://github.com/dunika/outbox-event-bus/blob/main/docs/API_REFERENCE.md#base-outbox-configuration) for details on inherited options.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -599,7 +589,7 @@ Stores active and pending events.
 | `started_on` | TEXT | - | Timestamp when processing started |
 | `completed_on` | TEXT | - | Timestamp when processing completed |
 | `keep_alive` | TEXT | - | Last keep-alive timestamp for stuck event detection |
-| `expire_in_seconds` | INTEGER | NOT NULL, DEFAULT 300 | Timeout duration for stuck event detection (5 minutes) |
+| `expire_in_seconds` | INTEGER | NOT NULL, DEFAULT 30 | Heartbeat timeout (seconds) |
 
 **Indexes:**
 - `idx_outbox_events_status_retry` on `(status, next_retry_at)` - Optimizes polling queries
@@ -757,9 +747,9 @@ const outbox = new SqliteBetterSqlite3Outbox({
 
 ## Related Documentation
 
-- [Main README](../../README.md) - Overview of the outbox-event-bus library
-- [API Reference](../../docs/API_REFERENCE.md) - Complete API documentation
-- [Contributing Guide](../../docs/CONTRIBUTING.md) - How to contribute
+- [Main README](https://github.com/dunika/outbox-event-bus#readme) - Overview of the outbox-event-bus library
+- [API Reference](https://github.com/dunika/outbox-event-bus/blob/main/docs/API_REFERENCE.md) - Complete API documentation
+- [Contributing Guide](https://github.com/dunika/outbox-event-bus/blob/main/docs/CONTRIBUTING.md) - How to contribute
 
 ---
 

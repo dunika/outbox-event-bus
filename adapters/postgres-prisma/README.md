@@ -7,7 +7,7 @@
 
 > **Transactional Outbox for Prisma — Zero Event Loss with Your Existing Schema**
 
-PostgreSQL adapter for [outbox-event-bus](../../README.md) using [Prisma ORM](https://www.prisma.io/). Provides reliable event storage with ACID transactions and row-level locking for safe distributed processing.
+PostgreSQL adapter for [outbox-event-bus](https://github.com/dunika/outbox-event-bus#readme) using [Prisma ORM](https://www.prisma.io/). Provides reliable event storage with ACID transactions and row-level locking for safe distributed processing.
 
 ## Quick Start
 
@@ -22,7 +22,7 @@ import { OutboxEventBus } from 'outbox-event-bus';
 
 const prisma = new PrismaClient();
 const outbox = new PostgresPrismaOutbox({ prisma });
-const bus = new OutboxEventBus(outbox);
+const bus = new OutboxEventBus(outbox, (error) => console.error(error));
 
 bus.start();
 
@@ -107,7 +107,7 @@ model OutboxEvent {
   createdOn       DateTime     @default(now()) @map("created_on")
   startedOn       DateTime?    @map("started_on")
   keepAlive       DateTime?    @map("keep_alive")
-  expireInSeconds Int          @default(60) @map("expire_in_seconds")
+  expireInSeconds Int          @default(30) @map("expire_in_seconds")
 
   @@index([status, nextRetryAt])
   @@index([status, keepAlive])
@@ -198,7 +198,7 @@ model OutboxEvent {
   createdOn       DateTime     @default(now()) @map("created_on")
   startedOn       DateTime?    @map("started_on")
   keepAlive       DateTime?    @map("keep_alive")
-  expireInSeconds Int          @default(60) @map("expire_in_seconds")
+  expireInSeconds Int          @default(30) @map("expire_in_seconds")
 
   @@index([status, nextRetryAt])
   @@index([status, keepAlive])
@@ -225,6 +225,28 @@ Run migration:
 ```bash
 npx prisma migrate dev --name add_outbox
 ```
+
+### Required Schema Fields
+
+Your Prisma model **must** include the following fields with these specific types (or compatible ones):
+
+| Field | Type | Required | Description |
+|:---|:---|:---:|:---|
+| `id` | `String` | ✅ | Primary Key |
+| `type` | `String` | ✅ | Event type |
+| `payload` | `Json` | ✅ | Event data |
+| `occurredAt` | `DateTime` | ✅ | When event occurred |
+| `status` | `OutboxStatus` | ✅ | Lifecycle state |
+| `retryCount` | `Int` | ✅ | Default: 0 |
+| `lastError` | `String?` | ❌ | Error message |
+| `nextRetryAt` | `DateTime?` | ❌ | Scheduled retry |
+| `createdOn` | `DateTime` | ✅ | Default: now() |
+| `startedOn` | `DateTime?` | ❌ | Processing start |
+| `keepAlive` | `DateTime?` | ❌ | Heartbeat |
+| `expireInSeconds` | `Int` | ✅ | Default: 30 |
+
+> [!TIP]
+> Use `@map` to align Prisma field names with your database column names if they differ.
 
 ## Concurrency & Locking
 
@@ -259,7 +281,7 @@ interface PostgresPrismaOutboxConfig extends OutboxConfig {
 ```
 
 > [!NOTE]
-> All adapters inherit base configuration options from `OutboxConfig`. See the [API Reference](../../docs/API_REFERENCE.md#base-outbox-configuration) for details on inherited options.
+> All adapters inherit base configuration options from `OutboxConfig`. See the [API Reference](https://github.com/dunika/outbox-event-bus/blob/main/docs/API_REFERENCE.md#base-outbox-configuration) for details on inherited options.
 
 ## Usage
 

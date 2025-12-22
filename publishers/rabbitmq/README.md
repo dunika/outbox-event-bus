@@ -5,7 +5,7 @@
 
 > **Enterprise-Grade Message Routing**
 
-RabbitMQ (AMQP) publisher for [outbox-event-bus](../../README.md). Forwards events to RabbitMQ exchanges with intelligent routing and configurable retries.
+RabbitMQ (AMQP) publisher for [outbox-event-bus](https://github.com/dunika/outbox-event-bus#readme). Forwards events to RabbitMQ exchanges with intelligent routing and configurable retries.
 
 ```typescript
 import { RabbitMQPublisher } from '@outbox-event-bus/rabbitmq-publisher';
@@ -44,25 +44,34 @@ npm install @outbox-event-bus/rabbitmq-publisher amqplib
 
 ```typescript
 interface RabbitMQPublisherConfig {
-  channel: Channel;                 // amqplib Channel instance
-  exchange: string;                 // Target exchange name
-  routingKey?: string;              // Optional static routing key
-  retryConfig?: RetryOptions;      // Application-level retry logic
-  batchConfig?: BatchOptions;      // Batch processing settings (default: batchSize: 100, batchTimeoutMs: 100)
+  channel: Channel;               // amqplib Channel instance
+  exchange: string;               // Target exchange name
+  routingKey?: string;            // Optional static routing key
+  processingConfig?: {
+    bufferSize?: number;          // Default: 50
+    bufferTimeoutMs?: number;     // Default: 100
+    concurrency?: number;         // Default: 5
+    maxBatchSize?: number;        // Optional downstream batch limit
+  };
+  retryConfig?: {
+    maxAttempts?: number;         // Default: 3
+    initialDelayMs?: number;      // Default: 1000
+    maxDelayMs?: number;          // Default: 10000
+  };
 }
 ```
 
-## Batching
+## Batching & Buffering
 
-This publisher has **batching enabled by default** (100 items or 100ms). This safe default ensures efficient use of the AMQP channel while maintaining low latency.
+This publisher has **buffering enabled by default** (50 items or 100ms). This safe default ensures efficient use of the AMQP channel while maintaining low latency.
 
-To tune batching, adjust the `batchConfig`:
+To tune buffering, adjust the `processingConfig`:
 ```typescript
 const publisher = new RabbitMQPublisher(bus, {
   // ...
-  batchConfig: { 
-    batchSize: 50,
-    batchTimeoutMs: 200 
+  processingConfig: {
+    bufferSize: 100,
+    bufferTimeoutMs: 50
   }
 });
 ```
@@ -84,6 +93,24 @@ publisher.subscribe(['*']);
 
 ### Dynamic Routing
 If `routingKey` is not provided, the **event type** is used as the routing key automatically.
+
+### Configuration Options
+
+- `channel`: An instance of the `amqplib` `Channel`.
+- `exchange`: The exchange to publish to.
+- `routingKey`: (Optional) The routing key. Default: uses `event.type`.
+- `processingConfig`: (Optional) Settings for accumulation and batching.
+    - `bufferSize`: Number of events to accumulation in memory before publishing. Default: `50`.
+    - `bufferTimeoutMs`: Maximum time to wait for a buffer to fill before flushing. Default: `100ms`.
+    - `concurrency`: Maximum number of concurrent processing tasks. Default: `5`.
+    - `maxBatchSize`: (Optional) If set, the accumulated buffer will be split into smaller downstream batches.
+- `retryConfig`: (Optional) Custom retry settings for publishing failures.
+    - `maxAttempts`: Maximum number of publication attempts. Default: `3`.
+    - `initialDelayMs`: Initial backoff delay in milliseconds. Default: `1000ms`.
+    - `maxDelayMs`: Maximum backoff delay in milliseconds. Default: `10000ms`.
+
+> [!NOTE]
+> RabbitMQ publishers are often used with smaller buffers for lower latency, but larger buffers can significantly improve throughput for high-volume event streams.
 
 ## Message Format
 

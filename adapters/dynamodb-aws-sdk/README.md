@@ -10,7 +10,7 @@ The DynamoDB adapter for `outbox-event-bus` provides a high-performance, resilie
 
 ---
 
-## 🏗️ How it Works
+## How it Works
 
 The adapter persists events in a DynamoDB table and uses a Global Secondary Index (GSI) to efficiently track event progression.
 
@@ -30,7 +30,7 @@ graph LR
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Installation
 
@@ -45,7 +45,7 @@ Create a DynamoDB table with an `id` partition key and a GSI for status tracking
 | Component | Attribute | Type | Detail |
 | :--- | :--- | :--- | :--- |
 | **Table PK** | `id` | String | Unique Event ID |
-| **GSI PK** | `status` | String | `PENDING`, `PROCESSING`, etc. |
+| **GSI PK** | `status` | String | `created`, `active`, etc. |
 | **GSI SK** | `gsiSortKey` | Number | Unix timestamp for ordering |
 
 ### 3. Initialize & Start
@@ -67,7 +67,7 @@ bus.start();
 
 ---
 
-## 📖 Feature Highlights
+## Feature Highlights
 
 - **Atomic Transactions**: Emit events and update your business data in a single atomic operation.
 - **Optimistic Locking**: Guarantees "at-least-once" delivery without double-processing, even with multiple workers.
@@ -84,7 +84,7 @@ This adapter uses **Optimistic Locking** via Conditional Writes to ensure safe c
 -   **Multiple Workers**: You can safely run multiple instances (e.g., Lambda functions).
 -   **No Duplicates**: DynamoDB guarantees that only one worker can successfully claim a specific event.
 
-## 🛠️ How-to Guides
+## How-to Guides
 
 ### Transactional Writes (AsyncLocalStorage)
 
@@ -133,7 +133,7 @@ await client.send(new TransactWriteCommand({ TransactItems: items }));
 
 ---
 
-## ⚙️ Configuration Reference
+## Configuration Reference
 
 ### `DynamoDBAwsSdkOutboxConfig`
 
@@ -155,7 +155,7 @@ interface DynamoDBAwsSdkOutboxConfig extends OutboxConfig {
 ```
 
 > [!NOTE]
-> All adapters inherit base configuration options from `OutboxConfig`. See the [API Reference](../../docs/API_REFERENCE.md#base-outbox-configuration) for details on inherited options.
+> All adapters inherit base configuration options from `OutboxConfig`. See the [API Reference](https://github.com/dunika/outbox-event-bus/blob/main/docs/API_REFERENCE.md#base-outbox-configuration) for details on inherited options.
 
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
@@ -294,7 +294,7 @@ await outbox.stop();
 
 ---
 
-## 🛡️ IAM Permissions
+## IAM Permissions
 
 Your application's IAM role needs the following permissions:
 
@@ -305,7 +305,7 @@ Your application's IAM role needs the following permissions:
     {
       "Effect": "Allow",
       "Action": ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem"],
-      "Resource": "arn:aws:dynamodb:*:*:table/YOUR_TABLE"
+      "Resource": "arn:aws:dynamodb:*:*:table/YOUR_TABLE/index/YOUR_GSI"
     },
     {
       "Effect": "Allow",
@@ -322,7 +322,7 @@ Your application's IAM role needs the following permissions:
 
 ### Events Not Moving
 
-**Symptom**: Events are stuck in `PENDING` status and never get processed.
+**Symptom**: Events are stuck in `created` status and never get processed.
 
 **Causes**:
 1. `statusIndexName` doesn't match the actual GSI name in DynamoDB
@@ -433,9 +433,9 @@ const outbox = new DynamoDBAwsSdkOutbox({
 
 ---
 
-### Events Stuck in PROCESSING
+### Events Stuck in active
 
-**Symptom**: Events remain in `PROCESSING` status indefinitely.
+**Symptom**: Events remain in `active` status indefinitely.
 
 **Cause**: Worker crashed or Lambda timed out during processing.
 
@@ -453,22 +453,13 @@ const outbox = new DynamoDBAwsSdkOutbox({
 const response = await client.send(new QueryCommand({
   TableName: 'events',
   IndexName: 'status-gsiSortKey-index',
-  KeyConditionExpression: '#status = :processing',
-  FilterExpression: '#gsiSortKey < :cutoff',
-  ExpressionAttributeNames: {
-    '#status': 'status',
-    '#gsiSortKey': 'gsiSortKey'
+  KeyConditionExpression: "#status = :active AND gsiSortKey <= :now",
+  ExpressionAttributeNames: { 
+    "#status": "status"
   },
   ExpressionAttributeValues: {
-    ':processing': { S: 'PROCESSING' },
-    ':cutoff': { N: String(Date.now() - 60000) } // 1 minute ago
+    ":active": { S: 'active' },
+    ":now": { N: String(Date.now()) }
   }
 }));
 ```
-
----
-
-<div align="center">
-  Built with ❤️ for the AWS Community.
-</div>
-

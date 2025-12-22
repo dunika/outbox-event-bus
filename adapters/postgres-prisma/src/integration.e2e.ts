@@ -1,32 +1,21 @@
-import { execSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { OutboxStatus, PrismaClient } from "@prisma/client"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { PostgresPrismaOutbox } from "./index"
 
-const DATABASE_URL = "postgresql://test_user:test_password@127.0.0.1:5434/outbox_test"
+const DATABASE_URL = process.env.DATABASE_URL!
 
 describe("PostgresPrismaOutbox E2E", () => {
   let prisma: PrismaClient
   let outbox: PostgresPrismaOutbox
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = DATABASE_URL
-
-    await execSync(`npx prisma db push --accept-data-loss --url "${DATABASE_URL}"`, {
-      stdio: "inherit",
-      env: process.env,
-    })
-
-    // @ts-expect-error
     const { Pool } = await import("pg")
-    // @ts-expect-error
     const { PrismaPg } = await import("@prisma/adapter-pg")
 
     const pool = new Pool({ connectionString: DATABASE_URL })
     const adapter = new PrismaPg(pool)
 
-    // @ts-expect-error - Prisma 7 config workaround
     prisma = new PrismaClient({ adapter })
     await prisma.$connect()
   })
@@ -277,5 +266,100 @@ describe("PostgresPrismaOutbox E2E", () => {
     const ids = processedEvents.map((event) => event.id)
     const uniqueIds = new Set(ids)
     expect(uniqueIds.size).toBe(eventCount)
+  })
+
+  it("should not publish events when transaction is rolled back", async () => {
+    outbox = new PostgresPrismaOutbox({
+      prisma,
+      pollIntervalMs: 100,
+      getTransaction: () => undefined,
+    })
+
+    const eventId = randomUUID()
+    const event = {
+      id: eventId,
+      type: "transaction.test",
+      payload: { test: "rollback" },
+      occurredAt: new Date(),
+    }
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        await outbox.publish([event], tx as any)
+
+        const inTx = await tx.outboxEvent.findUnique({ where: { id: eventId } })
+        expect(inTx).toBeTruthy()
+        expect(inTx?.status).toBe(OutboxStatus.created)
+
+        throw new Error("Intentional rollback")
+      })
+    } catch (error: any) {
+      expect(error.message).toBe("Intentional rollback")
+    }
+
+    const afterRollback = await prisma.outboxEvent.findUnique({ where: { id: eventId } })
+    expect(afterRollback).toBeNull()
+
+    const processedEvents: any[] = []
+    outbox.start(
+      async (e) => {
+        processedEvents.push(e)
+      },
+      (err) => console.error(err)
+    )
+
+    await new Promise((r) => setTimeout(r, 1000))
+    await outbox.stop()
+
+    expect(processedEvents).toHaveLength(0)
+  })
+
+  it("should publish events when transaction is committed", async () => {
+    outbox = new PostgresPrismaOutbox({
+      prisma,
+      pollIntervalMs: 100,
+      getTransaction: () => undefined,
+    })
+
+    const eventId = randomUUID()
+    const event = {
+      id: eventId,
+      type: "transaction.test",
+      payload: { test: "commit" },
+      occurredAt: new Date(),
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await outbox.publish([event], tx as any)
+
+      const inTx = await tx.outboxEvent.findUnique({ where: { id: eventId } })
+      expect(inTx).toBeTruthy()
+      expect(inTx?.status).toBe(OutboxStatus.created)
+    })
+
+    const afterCommit = await prisma.outboxEvent.findUnique({ where: { id: eventId } })
+    expect(afterCommit).toBeTruthy()
+    expect(afterCommit?.status).toBe(OutboxStatus.created)
+
+    const processedEvents: any[] = []
+    outbox.start(
+      async (e) => {
+        processedEvents.push(e)
+      },
+      (err) => console.error(err)
+    )
+
+    await new Promise((r) => setTimeout(r, 1000))
+    await outbox.stop()
+
+    expect(processedEvents).toHaveLength(1)
+    expect(processedEvents[0].id).toBe(eventId)
+
+    const final = await prisma.outboxEvent.findUnique({ where: { id: eventId } })
+    expect(final).toBeNull()
+
+    const archived = await prisma.outboxEventArchive.findUnique({ where: { id: eventId } })
+    expect(archived).toBeTruthy()
+    expect(archived?.status).toBe(OutboxStatus.completed)
   })
 })

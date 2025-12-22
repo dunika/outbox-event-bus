@@ -24,20 +24,19 @@ export class RedisStreamsPublisher<TTransaction = unknown> implements IPublisher
 
       const pipeline = this.redisClient.pipeline()
       for (const event of events) {
-        pipeline.xadd(
-          this.streamKey,
-          "*",
+        const fields = [
           "eventId",
-          event.id || "",
+          event.id,
           "eventType",
           event.type,
           "payload",
           JSON.stringify(event.payload),
           "occurredAt",
-          (event.occurredAt ?? new Date()).toISOString(),
+          event.occurredAt.toISOString(),
           "metadata",
-          JSON.stringify(event.metadata ?? {})
-        )
+          JSON.stringify(event.metadata ?? {}),
+        ]
+        pipeline.xadd(this.streamKey, "*", ...fields)
       }
       await pipeline.exec()
     })

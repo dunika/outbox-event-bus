@@ -14,10 +14,6 @@ export type FailedBusEvent<T extends string = string, P = unknown> = BusEvent<T,
   lastAttemptAt?: Date
 }
 
-/**
- * Event structure when emitting (initial state).
- * Optional `id` and `occurredAt` are auto-generated if not provided.
- */
 export type BusEventInput<T extends string = string, P = unknown> = PartialBy<
   BusEvent<T, P>,
   "id" | "occurredAt"
@@ -31,18 +27,29 @@ export type AnyListener = (...args: unknown[]) => unknown
 
 export type ErrorHandler = (error: unknown, event?: BusEvent | FailedBusEvent) => void
 
-export interface RetryOptions {
+export type RetryOptions = {
   maxAttempts?: number
   initialDelayMs?: number
   maxDelayMs?: number
 }
 
-export interface BatchOptions {
-  batchSize?: number
-  batchTimeoutMs?: number
+export type ProcessingOptions = {
+  bufferSize?: number
+  bufferTimeoutMs?: number
+  concurrency?: number
+  maxBatchSize?: number
 }
 
-export interface PublisherConfig {
+export type PublisherConfig = {
   retryConfig?: RetryOptions
-  batchConfig?: BatchOptions
+  processingConfig?: ProcessingOptions
 }
+
+export const EventStatus = {
+  CREATED: "created",
+  ACTIVE: "active",
+  FAILED: "failed",
+  COMPLETED: "completed",
+} as const
+
+export type EventStatus = (typeof EventStatus)[keyof typeof EventStatus]

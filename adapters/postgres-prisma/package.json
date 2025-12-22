@@ -33,20 +33,26 @@
   ],
   "scripts": {
     "build": "prisma generate && tsdown",
-    "test": "prisma generate && vitest run --exclude \"**/*.e2e.test.ts\" --exclude \"src/transactions.test.ts\"",
-    "test:e2e": "docker-compose up -d --wait && vitest run src/e2e.test.ts; status=$?; docker-compose down; exit $status"
+    "test": "prisma generate && vitest run --passWithNoTests",
+    "test:e2e": "prisma generate && docker-compose up -d --wait && npx prisma db push --accept-data-loss && vitest run -c vitest.e2e.config.ts; status=$?; docker-compose down; exit $status"
   },
   "dependencies": {
-    "@prisma/client": "^7.2.0",
     "outbox-event-bus": "workspace:*"
+  },
+  "peerDependencies": {
+    "@prisma/client": "^7.2.0"
   },
   "devDependencies": {
     "@outbox-event-bus/config": "workspace:*",
     "@prisma/adapter-pg": "^7.2.0",
+    "@prisma/client": "^7.2.0",
     "@types/node": "catalog:",
+    "@types/pg": "^8.16.0",
     "pg": "^8.16.3",
     "prisma": "^7.2.0",
+    "ts-node": "^10.9.2",
     "tsdown": "catalog:",
+    "tsx": "^4.21.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

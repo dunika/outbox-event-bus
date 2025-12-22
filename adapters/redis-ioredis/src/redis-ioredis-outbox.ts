@@ -2,6 +2,7 @@ import type { ChainableCommander, Redis } from "ioredis"
 import {
   type BusEvent,
   type ErrorHandler,
+  EventStatus,
   type FailedBusEvent,
   formatErrorMessage,
   type IOutbox,
@@ -9,6 +10,7 @@ import {
   PollingService,
   reportEventError,
 } from "outbox-event-bus"
+import { RedisFields } from "./constants"
 import { pollEventsScript, recoverEventsScript } from "./scripts"
 
 export interface RedisIoRedisOutboxConfig extends OutboxConfig {
@@ -84,20 +86,20 @@ export class RedisIoRedisOutbox implements IOutbox<ChainableCommander> {
 
     for (const event of events) {
       const key = `${this.KEYS.EVENT_PREFIX}${event.id}`
-      // Use hmset for ioredis-mock compatibility (multiple hset calls don't work in pipelines)
-      pipeline.hmset(
+      // Use hset for compatibility
+      pipeline.hset(
         key,
-        "id",
+        RedisFields.ID,
         event.id,
-        "type",
+        RedisFields.TYPE,
         event.type,
-        "payload",
+        RedisFields.PAYLOAD,
         JSON.stringify(event.payload),
-        "occurredAt",
+        RedisFields.OCCURRED_AT,
         event.occurredAt.toISOString(),
-        "status",
-        "created",
-        "retryCount",
+        RedisFields.STATUS,
+        EventStatus.CREATED,
+        RedisFields.RETRY_COUNT,
         "0"
       )
       pipeline.zadd(this.KEYS.PENDING, event.occurredAt.getTime(), event.id)
@@ -151,8 +153,14 @@ export class RedisIoRedisOutbox implements IOutbox<ChainableCommander> {
     for (const id of eventIds) {
       pipeline.zrem(this.KEYS.FAILED, id)
       pipeline.zadd(this.KEYS.PENDING, now, id)
-      pipeline.hmset(`${this.KEYS.EVENT_PREFIX}${id}`, "status", "created", "retryCount", "0")
-      pipeline.hdel(`${this.KEYS.EVENT_PREFIX}${id}`, "lastError")
+      pipeline.hset(
+        `${this.KEYS.EVENT_PREFIX}${id}`,
+        RedisFields.STATUS,
+        EventStatus.CREATED,
+        RedisFields.RETRY_COUNT,
+        "0"
+      )
+      pipeline.hdel(`${this.KEYS.EVENT_PREFIX}${id}`, RedisFields.LAST_ERROR)
     }
 
     await pipeline.exec()
@@ -178,50 +186,6 @@ export class RedisIoRedisOutbox implements IOutbox<ChainableCommander> {
     )
   }
 
-  private createCleanupPipeline(eventId: string): ChainableCommander {
-    const pipeline = this.redis.pipeline()
-    pipeline.zrem(this.KEYS.PROCESSING, eventId)
-    pipeline.del(`${this.KEYS.EVENT_PREFIX}${eventId}`)
-    return pipeline
-  }
-
-  private createRetryPipeline(
-    eventId: string,
-    retryCount: number,
-    error: unknown
-  ): ChainableCommander {
-    const pipeline = this.redis.pipeline()
-
-    if (retryCount >= this.config.maxRetries) {
-      pipeline.zrem(this.KEYS.PROCESSING, eventId)
-      pipeline.zadd(this.KEYS.FAILED, Date.now(), eventId)
-      pipeline.hmset(
-        `${this.KEYS.EVENT_PREFIX}${eventId}`,
-        "retryCount",
-        retryCount.toString(),
-        "status",
-        "FAILED",
-        "lastError",
-        formatErrorMessage(error)
-      )
-    } else {
-      const delay = this.poller.calculateBackoff(retryCount)
-      const nextAttemptTime = Date.now() + delay
-
-      pipeline.zrem(this.KEYS.PROCESSING, eventId)
-      pipeline.zadd(this.KEYS.PENDING, nextAttemptTime, eventId)
-      pipeline.hmset(
-        `${this.KEYS.EVENT_PREFIX}${eventId}`,
-        "retryCount",
-        retryCount.toString(),
-        "lastError",
-        formatErrorMessage(error)
-      )
-    }
-
-    return pipeline
-  }
-
   private async processBatch(handler: (event: BusEvent) => Promise<void>) {
     const now = Date.now()
 
@@ -244,6 +208,11 @@ export class RedisIoRedisOutbox implements IOutbox<ChainableCommander> {
 
     if (!results) return
 
+    const successPipeline = this.redis.pipeline()
+    const failurePipeline = this.redis.pipeline()
+    let hasSuccesses = false
+    let hasFailures = false
+
     for (let index = 0; index < results.length; index++) {
       const res = results[index]
       const id = eventIds[index]
@@ -264,17 +233,46 @@ export class RedisIoRedisOutbox implements IOutbox<ChainableCommander> {
       try {
         await handler(event)
 
-        const pipelineCleanup = this.createCleanupPipeline(id)
-        await pipelineCleanup.exec()
+        successPipeline.zrem(this.KEYS.PROCESSING, id)
+        successPipeline.del(`${this.KEYS.EVENT_PREFIX}${id}`)
+        hasSuccesses = true
       } catch (error) {
         const data = message as Record<string, string>
         const retryCount = Number.parseInt(data.retryCount || "0", 10) + 1
 
         reportEventError(this.poller.onError, error, event, retryCount, this.config.maxRetries)
 
-        const pipelineRetry = this.createRetryPipeline(id, retryCount, error)
-        await pipelineRetry.exec()
+        if (retryCount >= this.config.maxRetries) {
+          failurePipeline.zrem(this.KEYS.PROCESSING, id)
+          failurePipeline.zadd(this.KEYS.FAILED, Date.now(), id)
+          failurePipeline.hset(
+            `${this.KEYS.EVENT_PREFIX}${id}`,
+            RedisFields.RETRY_COUNT,
+            retryCount.toString(),
+            RedisFields.STATUS,
+            EventStatus.FAILED,
+            RedisFields.LAST_ERROR,
+            formatErrorMessage(error)
+          )
+        } else {
+          const delay = this.poller.calculateBackoff(retryCount)
+          const nextAttemptTime = Date.now() + delay
+
+          failurePipeline.zrem(this.KEYS.PROCESSING, id)
+          failurePipeline.zadd(this.KEYS.PENDING, nextAttemptTime, id)
+          failurePipeline.hset(
+            `${this.KEYS.EVENT_PREFIX}${id}`,
+            RedisFields.RETRY_COUNT,
+            retryCount.toString(),
+            RedisFields.LAST_ERROR,
+            formatErrorMessage(error)
+          )
+        }
+        hasFailures = true
       }
     }
+
+    if (hasSuccesses) await successPipeline.exec()
+    if (hasFailures) await failurePipeline.exec()
   }
 }

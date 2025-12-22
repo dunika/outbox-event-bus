@@ -1,8 +1,4 @@
-import { defineConfig } from "vitest/config"
+import sharedConfig from "@outbox-event-bus/config/vitest"
+import { defineConfig, mergeConfig } from "vitest/config"
 
-export default defineConfig({
-  test: {
-    include: ["src/**/*.test.ts"],
-    exclude: ["src/**/*.e2e.test.ts", "node_modules"],
-  },
-})
+export default mergeConfig(sharedConfig, defineConfig({}))

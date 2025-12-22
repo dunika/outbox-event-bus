@@ -3,12 +3,14 @@ import {
   QueryCommand as DocQueryCommand,
   DynamoDBDocumentClient,
   TransactWriteCommand,
+  type TransactWriteCommandInput,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb"
 import {
   BatchSizeLimitError,
   type BusEvent,
   type ErrorHandler,
+  EventStatus,
   type FailedBusEvent,
   formatErrorMessage,
   type IOutbox,
@@ -20,9 +22,11 @@ import {
 // DynamoDB has a hard limit of 100 items per transaction
 const DYNAMODB_TRANSACTION_LIMIT = 100
 
+export type TransactWriteItem = NonNullable<TransactWriteCommandInput["TransactItems"]>[number]
+
 export type DynamoDBAwsSdkTransactionCollector = {
-  push: (item: any) => void
-  items?: any[]
+  push: (item: TransactWriteItem) => void
+  items?: TransactWriteItem[]
 }
 
 export interface DynamoDBAwsSdkOutboxConfig extends OutboxConfig {
@@ -86,7 +90,7 @@ export class DynamoDBAwsSdkOutbox implements IOutbox<DynamoDBAwsSdkTransactionCo
             type: event.type,
             payload: event.payload,
             occurredAt: event.occurredAt.toISOString(),
-            status: "PENDING",
+            status: EventStatus.CREATED,
             retryCount: 0,
             gsiSortKey: event.occurredAt.getTime(),
           },
@@ -120,9 +124,9 @@ export class DynamoDBAwsSdkOutbox implements IOutbox<DynamoDBAwsSdkTransactionCo
         IndexName: this.config.statusIndexName,
         KeyConditionExpression: "#status = :status",
         ExpressionAttributeNames: { "#status": "status" },
-        ExpressionAttributeValues: { ":status": "FAILED" },
+        ExpressionAttributeValues: { ":status": EventStatus.FAILED },
         Limit: 100,
-        ScanIndexForward: false, // Newest first
+        ScanIndexForward: false,
       })
     )
 
@@ -155,7 +159,7 @@ export class DynamoDBAwsSdkOutbox implements IOutbox<DynamoDBAwsSdkTransactionCo
               "SET #status = :pending, retryCount = :zero, gsiSortKey = :now REMOVE lastError, nextRetryAt, startedOn",
             ExpressionAttributeNames: { "#status": "status" },
             ExpressionAttributeValues: {
-              ":pending": "PENDING",
+              ":pending": EventStatus.CREATED,
               ":zero": 0,
               ":now": Date.now(),
             },
@@ -173,73 +177,6 @@ export class DynamoDBAwsSdkOutbox implements IOutbox<DynamoDBAwsSdkTransactionCo
     await this.poller.stop()
   }
 
-  private async updateEventAfterFailure(
-    itemId: string,
-    retryCount: number,
-    now: number
-  ): Promise<void> {
-    if (retryCount >= this.config.maxRetries) {
-      await this.docClient.send(
-        new UpdateCommand({
-          TableName: this.config.tableName,
-          Key: { id: itemId },
-          UpdateExpression: "SET #status = :failed, nextRetryAt = :now REMOVE gsiSortKey",
-          ExpressionAttributeNames: { "#status": "status" },
-          ExpressionAttributeValues: {
-            ":failed": "FAILED",
-            ":now": now,
-          },
-        })
-      )
-    } else {
-      await this.docClient.send(
-        new UpdateCommand({
-          TableName: this.config.tableName,
-          Key: { id: itemId },
-          UpdateExpression: "SET #status = :pending, gsiSortKey = :now",
-          ExpressionAttributeNames: { "#status": "status" },
-          ExpressionAttributeValues: {
-            ":pending": "PENDING",
-            ":now": now,
-          },
-        })
-      )
-    }
-  }
-
-  private parseOccurredAt(occurredAt: unknown): Date {
-    if (occurredAt instanceof Date) {
-      return occurredAt
-    }
-    if (typeof occurredAt === "string") {
-      return new Date(occurredAt)
-    }
-    return new Date()
-  }
-
-  private async recoverStuckEvents() {
-    const now = Date.now()
-
-    const result = await this.docClient.send(
-      new DocQueryCommand({
-        TableName: this.config.tableName,
-        IndexName: this.config.statusIndexName,
-        KeyConditionExpression: "#status = :status AND gsiSortKey <= :now",
-        ExpressionAttributeNames: { "#status": "status" },
-        ExpressionAttributeValues: {
-          ":status": "PROCESSING",
-          ":now": now,
-        },
-      })
-    )
-
-    if (result.Items && result.Items.length > 0) {
-      await Promise.all(
-        result.Items.map((item) => this.updateEventAfterFailure(item.id, item.retryCount || 0, now))
-      )
-    }
-  }
-
   private async processBatch(handler: (event: BusEvent) => Promise<void>) {
     const now = Date.now()
 
@@ -252,7 +189,7 @@ export class DynamoDBAwsSdkOutbox implements IOutbox<DynamoDBAwsSdkTransactionCo
           "#status": "status",
         },
         ExpressionAttributeValues: {
-          ":status": "PENDING",
+          ":status": EventStatus.CREATED,
           ":now": now,
         },
         Limit: this.config.batchSize,
@@ -269,39 +206,10 @@ export class DynamoDBAwsSdkOutbox implements IOutbox<DynamoDBAwsSdkTransactionCo
         occurredAt: this.parseOccurredAt(item.occurredAt),
       }
 
-      // Try to lock the event
       try {
-        await this.docClient.send(
-          new UpdateCommand({
-            TableName: this.config.tableName,
-            Key: { id: item.id },
-            UpdateExpression:
-              "SET #status = :processing, gsiSortKey = :timeoutAt, startedOn = :now",
-            ConditionExpression: "#status = :pending",
-            ExpressionAttributeNames: { "#status": "status" },
-            ExpressionAttributeValues: {
-              ":processing": "PROCESSING",
-              ":timeoutAt": now + this.config.processingTimeoutMs,
-              ":pending": "PENDING",
-              ":now": now,
-            },
-          })
-        )
-
+        await this.markEventAsProcessing(item.id, now)
         await handler(event)
-
-        await this.docClient.send(
-          new UpdateCommand({
-            TableName: this.config.tableName,
-            Key: { id: event.id },
-            UpdateExpression: "SET #status = :completed, completedOn = :now REMOVE gsiSortKey",
-            ExpressionAttributeNames: { "#status": "status" },
-            ExpressionAttributeValues: {
-              ":completed": "COMPLETED",
-              ":now": Date.now(),
-            },
-          })
-        )
+        await this.markEventAsCompleted(event.id)
       } catch (error) {
         if (error instanceof ConditionalCheckFailedException) {
           continue
@@ -310,42 +218,108 @@ export class DynamoDBAwsSdkOutbox implements IOutbox<DynamoDBAwsSdkTransactionCo
         const newRetryCount = (item.retryCount || 0) + 1
         reportEventError(this.poller.onError, error, event, newRetryCount, this.config.maxRetries)
 
-        const errorMsg = formatErrorMessage(error)
-        const delay = this.poller.calculateBackoff(newRetryCount)
-
-        if (newRetryCount >= this.config.maxRetries) {
-          await this.docClient.send(
-            new UpdateCommand({
-              TableName: this.config.tableName,
-              Key: { id: item.id },
-              UpdateExpression:
-                "SET #status = :failed, retryCount = :rc, lastError = :err REMOVE gsiSortKey",
-              ExpressionAttributeNames: { "#status": "status" },
-              ExpressionAttributeValues: {
-                ":failed": "FAILED",
-                ":rc": newRetryCount,
-                ":err": errorMsg,
-              },
-            })
-          )
-        } else {
-          await this.docClient.send(
-            new UpdateCommand({
-              TableName: this.config.tableName,
-              Key: { id: item.id },
-              UpdateExpression:
-                "SET #status = :pending, retryCount = :rc, lastError = :err, gsiSortKey = :nextAttempt",
-              ExpressionAttributeNames: { "#status": "status" },
-              ExpressionAttributeValues: {
-                ":pending": "PENDING",
-                ":rc": newRetryCount,
-                ":err": errorMsg,
-                ":nextAttempt": Date.now() + delay,
-              },
-            })
-          )
-        }
+        await this.markEventAsFailed(item.id, newRetryCount, error)
       }
+    }
+  }
+
+  private parseOccurredAt(occurredAt: unknown): Date {
+    if (occurredAt instanceof Date) {
+      return occurredAt
+    }
+    if (typeof occurredAt === "string") {
+      return new Date(occurredAt)
+    }
+    return new Date()
+  }
+
+  private async markEventAsProcessing(id: string, now: number): Promise<void> {
+    await this.docClient.send(
+      new UpdateCommand({
+        TableName: this.config.tableName,
+        Key: { id },
+        UpdateExpression: "SET #status = :processing, gsiSortKey = :timeoutAt, startedOn = :now",
+        ExpressionAttributeNames: { "#status": "status" },
+        ExpressionAttributeValues: {
+          ":processing": EventStatus.ACTIVE,
+          ":timeoutAt": now + this.config.processingTimeoutMs,
+          ":now": now,
+        },
+      })
+    )
+  }
+
+  private async markEventAsCompleted(id: string): Promise<void> {
+    await this.docClient.send(
+      new UpdateCommand({
+        TableName: this.config.tableName,
+        Key: { id },
+        UpdateExpression: "SET #status = :completed, completedOn = :now REMOVE gsiSortKey",
+        ExpressionAttributeNames: { "#status": "status" },
+        ExpressionAttributeValues: {
+          ":completed": EventStatus.COMPLETED,
+          ":now": Date.now(),
+        },
+      })
+    )
+  }
+
+  private async markEventAsFailed(id: string, retryCount: number, error: unknown): Promise<void> {
+    const isFinalFailure = retryCount >= this.config.maxRetries
+    const status = isFinalFailure ? EventStatus.FAILED : EventStatus.CREATED
+    const errorMsg = formatErrorMessage(error)
+    const now = Date.now()
+
+    const updateExpression = isFinalFailure
+      ? "SET #status = :status, retryCount = :rc, lastError = :err, nextRetryAt = :now REMOVE gsiSortKey"
+      : "SET #status = :status, retryCount = :rc, lastError = :err, gsiSortKey = :nextAttempt"
+
+    const expressionAttributeValues: Record<string, any> = {
+      ":status": status,
+      ":rc": retryCount,
+      ":err": errorMsg,
+    }
+
+    if (isFinalFailure) {
+      expressionAttributeValues[":now"] = now
+    } else {
+      const delay = this.poller.calculateBackoff(retryCount)
+      expressionAttributeValues[":nextAttempt"] = now + delay
+    }
+
+    await this.docClient.send(
+      new UpdateCommand({
+        TableName: this.config.tableName,
+        Key: { id },
+        UpdateExpression: updateExpression,
+        ExpressionAttributeNames: { "#status": "status" },
+        ExpressionAttributeValues: expressionAttributeValues,
+      })
+    )
+  }
+
+  private async recoverStuckEvents() {
+    const now = Date.now()
+
+    const result = await this.docClient.send(
+      new DocQueryCommand({
+        TableName: this.config.tableName,
+        IndexName: this.config.statusIndexName,
+        KeyConditionExpression: "#status = :status AND gsiSortKey <= :now",
+        ExpressionAttributeNames: { "#status": "status" },
+        ExpressionAttributeValues: {
+          ":status": EventStatus.ACTIVE,
+          ":now": now,
+        },
+      })
+    )
+
+    if (result.Items && result.Items.length > 0) {
+      await Promise.all(
+        result.Items.map((item) =>
+          this.markEventAsFailed(item.id, (item.retryCount || 0) + 1, "Processing timeout")
+        )
+      )
     }
   }
 }

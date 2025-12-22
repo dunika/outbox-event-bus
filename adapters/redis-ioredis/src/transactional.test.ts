@@ -4,7 +4,7 @@ import { RedisIoRedisOutbox } from "./redis-ioredis-outbox"
 describe("RedisIoRedisOutbox Transactional Support", () => {
   it("should use external pipeline and NOT call exec when getExecutor provides one", async () => {
     const mockPipeline = {
-      hmset: vi.fn().mockReturnThis(),
+      hset: vi.fn().mockReturnThis(),
       zadd: vi.fn().mockReturnThis(),
       exec: vi.fn().mockResolvedValue([]),
     }
@@ -15,12 +15,12 @@ describe("RedisIoRedisOutbox Transactional Support", () => {
 
     const outbox = new RedisIoRedisOutbox({
       redis: mockRedis as any,
-      getExecutor: () => mockPipeline as any,
+      getPipeline: () => mockPipeline as any,
     })
 
     await outbox.publish([{ id: "1", type: "test", payload: {}, occurredAt: new Date() }])
 
-    expect(mockPipeline.hmset).toHaveBeenCalled()
+    expect(mockPipeline.hset).toHaveBeenCalled()
     expect(mockPipeline.zadd).toHaveBeenCalled()
     expect(mockPipeline.exec).not.toHaveBeenCalled()
     expect(mockRedis.pipeline).not.toHaveBeenCalled()
@@ -28,7 +28,7 @@ describe("RedisIoRedisOutbox Transactional Support", () => {
 
   it("should use internal pipeline and call exec when getExecutor returns undefined", async () => {
     const mockPipeline = {
-      hmset: vi.fn().mockReturnThis(),
+      hset: vi.fn().mockReturnThis(),
       zadd: vi.fn().mockReturnThis(),
       exec: vi.fn().mockResolvedValue([]),
     }
@@ -39,12 +39,12 @@ describe("RedisIoRedisOutbox Transactional Support", () => {
 
     const outbox = new RedisIoRedisOutbox({
       redis: mockRedis as any,
-      getExecutor: () => undefined,
+      getPipeline: () => undefined,
     })
 
     await outbox.publish([{ id: "1", type: "test", payload: {}, occurredAt: new Date() }])
 
-    expect(mockPipeline.hmset).toHaveBeenCalled()
+    expect(mockPipeline.hset).toHaveBeenCalled()
     expect(mockPipeline.zadd).toHaveBeenCalled()
     expect(mockPipeline.exec).toHaveBeenCalled()
     expect(mockRedis.pipeline).toHaveBeenCalled()

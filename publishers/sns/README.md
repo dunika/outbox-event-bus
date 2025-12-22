@@ -5,7 +5,7 @@
 
 > **Serverless Pub/Sub to Thousands of Subscribers**
 
-AWS SNS publisher for [outbox-event-bus](../../README.md). Provides high-fanout event delivery to SQS, Email, HTTP endpoints, and more.
+AWS SNS publisher for [outbox-event-bus](https://github.com/dunika/outbox-event-bus#readme). Provides high-fanout event delivery to SQS, Email, HTTP endpoints, and more.
 
 ```typescript
 import { SNSClient } from '@aws-sdk/client-sns';
@@ -44,25 +44,49 @@ npm install @outbox-event-bus/sns-publisher
 
 ```typescript
 interface SNSPublisherConfig {
-  snsClient: SNSClient;   // AWS SDK v3 SNS client
-  topicArn: string;       // AWS Topic ARN
-  retryConfig?: RetryOptions;      // Application-level retry logic
-  batchConfig?: BatchOptions;      // Batch processing settings (default: batchSize: 10, batchTimeoutMs: 100)
+  snsClient: SNSClient;           // AWS SDK v3 SNS client
+  topicArn: string;               // Target SNS Topic ARN
+  processingConfig?: {
+    bufferSize?: number;          // Default: 50
+    bufferTimeoutMs?: number;     // Default: 100
+    concurrency?: number;         // Default: 5
+  };
+  retryConfig?: {
+    maxAttempts?: number;         // Default: 3
+    initialDelayMs?: number;      // Default: 1000
+    maxDelayMs?: number;          // Default: 10000
+  };
 }
 ```
 
-## Batching
+### Configuration Options
 
-This publisher has **batching enabled by default** (10 items or 100ms).
+- `snsClient`: An instance of the AWS SDK `SNSClient`.
+- `topicArn`: The ARN of the SNS topic.
+- `processingConfig`: (Optional) Settings for accumulation and batching.
+    - `bufferSize`: Number of events to accumulation in memory before publishing. Default: `50`.
+    - `bufferTimeoutMs`: Maximum time to wait for a buffer to fill before flushing. Default: `100ms`.
+    - `concurrency`: Maximum number of concurrent batch requests to SNS. Default: `5`.
+- `retryConfig`: (Optional) Custom retry settings for publishing failures.
+    - `maxAttempts`: Maximum number of publication attempts. Default: `3`.
+    - `initialDelayMs`: Initial backoff delay in milliseconds. Default: `1000ms`.
+    - `maxDelayMs`: Maximum backoff delay in milliseconds. Default: `10000ms`.
 
-- **Automatic Chunking**: If you configure a `batchSize` larger than 10, the publisher will automatically split the batch into multiple `PublishBatch` calls to respect the AWS limit of 10 messages per request.
-- **Efficient**: This allows you to buffer more events in memory while ensuring safe delivery to SNS.
+> [!NOTE]
+> The `maxBatchSize` for SNS is fixed at 10, as per AWS limits. If your `bufferSize` exceeds 10, the publisher will automatically split the buffer into multiple SNS batch requests.
 
-To disable batching, set `batchSize` to `1`:
+## Batching & Buffering
+
+This publisher has **buffering enabled by default** (50 items or 100ms).
+
+- **Efficient Accumulation**: Events are collected in memory until `bufferSize` is reached or `bufferTimeoutMs` expires.
+- **Automatic SNS Batching**: The publisher automatically chunks the buffered events into batches of 10 to respect SNS `PublishBatch` limits.
+
+To disable buffering (process events one by one), set `bufferSize` to `1`:
 ```typescript
 const publisher = new SNSPublisher(bus, {
   // ...
-  batchConfig: { batchSize: 1 }
+  processingConfig: { bufferSize: 1 }
 });
 ```
 

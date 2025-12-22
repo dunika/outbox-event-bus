@@ -5,7 +5,7 @@
 
 > **High-Throughput Distributed Event Streaming**
 
-Apache Kafka publisher for [outbox-event-bus](../../README.md). Forwards events from the outbox to Kafka topics with guaranteed at-least-once delivery and configurable partitioning.
+Apache Kafka publisher for [outbox-event-bus](https://github.com/dunika/outbox-event-bus#readme). Forwards events from the outbox to Kafka topics with guaranteed at-least-once delivery and configurable partitioning.
 
 ```typescript
 import { Kafka } from 'kafkajs';
@@ -48,24 +48,50 @@ npm install @outbox-event-bus/kafka-publisher kafkajs
 
 ```typescript
 interface KafkaPublisherConfig {
-  producer: Producer;        // KafkaJS producer instance
-  topic: string;             // Target Kafka topic
-  retryConfig?: RetryOptions;      // Application-level retry logic
-  batchConfig?: BatchOptions;      // Batch processing settings (default: batchSize: 100, batchTimeoutMs: 100)
+  producer: Producer;             // KafkaJS producer instance
+  topic: string;                  // Target Kafka topic
+  processingConfig?: {
+    bufferSize?: number;          // Default: 50
+    bufferTimeoutMs?: number;     // Default: 100
+    concurrency?: number;         // Default: 5
+    maxBatchSize?: number;        // Optional downstream batch limit
+  };
+  retryConfig?: {
+    maxAttempts?: number;         // Default: 3
+    initialDelayMs?: number;      // Default: 1000
+    maxDelayMs?: number;          // Default: 10000
+  };
 }
 ```
 
-## Batching
+### Configuration Options
 
-This publisher has **batching enabled by default** (100 items or 100ms). While Kafka can handle much larger batches, this safe default ensures compatibility across all outbox-event-bus publishers.
+- `producer`: An instance of the KafkaJS `Producer`.
+- `topic`: The Kafka topic to publish to.
+- `processingConfig`: (Optional) Settings for accumulation and batching.
+    - `bufferSize`: Number of events to accumulation in memory before publishing. Default: `50`.
+    - `bufferTimeoutMs`: Maximum time to wait for a buffer to fill before flushing. Default: `100ms`.
+    - `concurrency`: Maximum number of concurrent batch requests to Kafka. Default: `5`.
+    - `maxBatchSize`: (Optional) If set, the accumulated buffer will be split into smaller downstream batches.
+- `retryConfig`: (Optional) Custom retry settings for publishing failures.
+    - `maxAttempts`: Maximum number of publication attempts. Default: `3`.
+    - `initialDelayMs`: Initial backoff delay in milliseconds. Default: `1000ms`.
+    - `maxDelayMs`: Maximum backoff delay in milliseconds. Default: `10000ms`.
 
-To tune batching for high throughput, increase the `batchSize`:
+> [!TIP]
+> Kafka typically performs best with larger buffers. Consider setting `bufferSize` to 100 or more if you have high throughput.
+
+## Batching & Buffering
+
+This publisher has **buffering enabled by default** (50 items or 100ms). While Kafka can handle much larger batches, this safe default ensures compatibility across all outbox-event-bus publishers.
+
+To tune buffering for high throughput, adjust `bufferSize` and `bufferTimeoutMs`:
 ```typescript
 const publisher = new KafkaPublisher(bus, {
   // ...
-  batchConfig: { 
-    batchSize: 500,
-    batchTimeoutMs: 50 
+  processingConfig: {
+    bufferSize: 100,
+    bufferTimeoutMs: 50
   }
 });
 ```

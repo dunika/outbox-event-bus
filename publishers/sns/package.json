@@ -33,13 +33,16 @@
   ],
   "scripts": {
     "build": "tsdown",
-    "test": "vitest run src/sns-publisher.test.ts"
+    "test": "vitest run"
   },
   "dependencies": {
-    "@aws-sdk/client-sns": "^3.956.0",
     "outbox-event-bus": "workspace:*"
   },
+  "peerDependencies": {
+    "@aws-sdk/client-sns": "^3.956.0"
+  },
   "devDependencies": {
+    "@aws-sdk/client-sns": "^3.956.0",
     "@outbox-event-bus/config": "workspace:*",
     "@types/node": "catalog:",
     "tsdown": "catalog:",

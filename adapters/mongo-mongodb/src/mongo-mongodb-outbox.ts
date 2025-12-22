@@ -2,6 +2,7 @@ import { type ClientSession, type Collection, type MongoClient, ObjectId } from 
 import {
   type BusEvent,
   type ErrorHandler,
+  EventStatus,
   type FailedBusEvent,
   formatErrorMessage,
   type IOutbox,
@@ -25,7 +26,7 @@ interface OutboxDocument {
   type: string
   payload: unknown
   occurredAt: Date
-  status: "created" | "active" | "failed" | "completed"
+  status: EventStatus
   retryCount: number
   nextRetryAt: Date | null
   lastError?: string
@@ -76,7 +77,7 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
       type: event.type,
       payload: event.payload,
       occurredAt: event.occurredAt,
-      status: "created",
+      status: EventStatus.CREATED,
       retryCount: 0,
       nextRetryAt: event.occurredAt,
       expireInSeconds: DEFAULT_EXPIRE_IN_SECONDS,
@@ -92,7 +93,7 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
 
   async getFailedEvents(): Promise<FailedBusEvent[]> {
     const events = await this.collection
-      .find({ status: "failed" })
+      .find({ status: EventStatus.FAILED })
       .sort({ occurredAt: -1 })
       .limit(100)
       .toArray()
@@ -116,7 +117,7 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
       { eventId: { $in: eventIds } },
       {
         $set: {
-          status: "created",
+          status: EventStatus.CREATED,
           retryCount: 0,
           nextRetryAt: null,
         },
@@ -146,7 +147,7 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
       { eventId },
       {
         $set: {
-          status: "failed",
+          status: EventStatus.FAILED,
           retryCount,
           lastError: formatErrorMessage(error),
           nextRetryAt: new Date(Date.now() + delay),
@@ -158,46 +159,55 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
   private async processBatch(handler: (event: BusEvent) => Promise<void>) {
     const now = new Date()
 
-    const lockedEvents: OutboxDocument[] = []
-
-    // MongoDB's findOneAndUpdate doesn't support bulk locking with returnDocument,
-    // so we must lock events sequentially to ensure atomic claim-and-update.
-    for (let index = 0; index < this.config.batchSize; index++) {
-      const result = await this.collection.findOneAndUpdate(
+    // Identify events ready for processing (created, retryable, or stuck).
+    const query = {
+      $or: [
+        { status: EventStatus.CREATED },
         {
-          $or: [
-            { status: "created" },
-            {
-              status: "failed",
-              retryCount: { $lt: this.config.maxRetries },
-              nextRetryAt: { $lt: now },
-            },
-            // Check if event is stuck (keepAlive is older than expireInSeconds)
-            {
-              $expr: {
-                $lt: [
-                  "$keepAlive",
-                  {
-                    $subtract: [now, { $multiply: ["$expireInSeconds", 1000] }],
-                  },
-                ],
-              },
-            },
-          ],
+          status: EventStatus.FAILED,
+          retryCount: { $lt: this.config.maxRetries },
+          nextRetryAt: { $lt: now },
         },
         {
-          $set: {
-            status: "active",
-            startedOn: now,
-            keepAlive: now,
+          $expr: {
+            $lt: [
+              "$keepAlive",
+              {
+                $subtract: [now, { $multiply: ["$expireInSeconds", 1000] }],
+              },
+            ],
           },
         },
-        { returnDocument: "after" }
-      )
-
-      if (!result) break
-      lockedEvents.push(result)
+      ],
     }
+
+    // Fetch candidate IDs first to enforce batchSize limit (updateMany does not support limit).
+    const candidates = await this.collection
+      .find(query)
+      .project({ _id: 1 })
+      .limit(this.config.batchSize)
+      .toArray()
+
+    if (candidates.length === 0) return
+
+    const candidateIds = candidates.map((c) => c._id)
+
+    const result = await this.collection.updateMany(
+      { _id: { $in: candidateIds }, ...query }, // Re-include query to handle race conditions
+      {
+        $set: {
+          status: EventStatus.ACTIVE,
+          startedOn: now,
+          keepAlive: now,
+        },
+      }
+    )
+
+    if (result.matchedCount === 0) return
+
+    const lockedEvents = await this.collection
+      .find({ _id: { $in: candidateIds }, status: EventStatus.ACTIVE })
+      .toArray()
 
     if (lockedEvents.length === 0) return
 
@@ -227,7 +237,7 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
         { eventId: { $in: completedEventIds } },
         {
           $set: {
-            status: "completed",
+            status: EventStatus.COMPLETED,
             completedOn: new Date(),
           },
         }

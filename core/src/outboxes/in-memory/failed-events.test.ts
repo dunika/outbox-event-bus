@@ -26,7 +26,7 @@ describe("InMemoryOutbox Failed Events", () => {
 
     const failed = await outbox.getFailedEvents()
     expect(failed).toHaveLength(1)
-    expect(failed[0]!.id).toBe("1")
+    expect(failed[0]?.id).toBe("1")
   })
 
   it("should allow retrying failed events", async () => {
@@ -37,7 +37,7 @@ describe("InMemoryOutbox Failed Events", () => {
 
     // Fail it until DLQ
     let attempts = 0
-    const handler = async (_event: BusEvent) => {
+    async function handler(_event: BusEvent): Promise<void> {
       attempts++
       if (attempts <= 2) {
         throw new Error("Fail")
@@ -49,7 +49,7 @@ describe("InMemoryOutbox Failed Events", () => {
 
     const failed = await outbox.getFailedEvents()
     expect(failed).toHaveLength(1)
-    expect(failed[0]!.error).toBeDefined()
+    expect(failed[0]?.error).toBeDefined()
 
     await outbox.retryEvents([event.id])
 

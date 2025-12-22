@@ -33,17 +33,20 @@
   ],
   "scripts": {
     "build": "tsdown",
-    "test": "vitest run --exclude \"**/*.e2e.test.ts\"",
-    "test:e2e": "vitest run src/e2e.test.ts"
+    "test": "vitest run",
+    "test:e2e": "vitest run -c vitest.e2e.config.ts"
   },
   "dependencies": {
-    "better-sqlite3": "^12.5.0",
     "outbox-event-bus": "workspace:*"
+  },
+  "peerDependencies": {
+    "better-sqlite3": "^12.5.0"
   },
   "devDependencies": {
     "@outbox-event-bus/config": "workspace:*",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "catalog:",
+    "better-sqlite3": "^12.5.0",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

@@ -33,15 +33,19 @@
   ],
   "scripts": {
     "build": "tsdown",
-    "test": "vitest run src/dynamodb-aws-sdk-outbox.test.ts",
-    "test:e2e": "docker-compose up -d --wait && vitest run src/e2e.test.ts; status=$?; docker-compose down; exit $status"
+    "test": "vitest run",
+    "test:e2e": "docker-compose up -d --wait && vitest run -c vitest.e2e.config.ts; status=$?; docker-compose down; exit $status"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.956.0",
-    "@aws-sdk/lib-dynamodb": "^3.956.0",
     "outbox-event-bus": "workspace:*"
   },
+  "peerDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.956.0",
+    "@aws-sdk/lib-dynamodb": "^3.956.0"
+  },
   "devDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.956.0",
+    "@aws-sdk/lib-dynamodb": "^3.956.0",
     "@outbox-event-bus/config": "workspace:*",
     "@types/node": "catalog:",
     "testcontainers": "catalog:",

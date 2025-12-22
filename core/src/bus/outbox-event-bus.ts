@@ -17,7 +17,7 @@ type WrappedEventHandler<T extends string = string, P = unknown> = EventHandler<
 }
 
 export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransaction> {
-  private handlers = new Map<string, EventHandler<string, unknown>>()
+  private readonly handlers = new Map<string, EventHandler<string, unknown>>()
 
   constructor(
     private readonly outbox: IOutbox<TTransaction>,
@@ -60,13 +60,12 @@ export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransactio
   }
 
   once<T extends string, P = unknown>(eventType: T, handler: EventHandler<T, P>): this {
-    const onceHandler: EventHandler<T, P> = async (event) => {
+    const onceHandler: WrappedEventHandler<T, P> = async (event) => {
       this.off(eventType, onceHandler)
       await handler(event)
     }
 
-    // Store original handler to allow .off(type, originalHandler) to work
-    Object.assign(onceHandler, { _original: handler })
+    onceHandler._original = handler
     return this.on(eventType, onceHandler)
   }
 
@@ -74,6 +73,7 @@ export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransactio
     const currentHandler = this.handlers.get(eventType) as
       | WrappedEventHandler<string, unknown>
       | undefined
+
     if (currentHandler === handler || currentHandler?._original === handler) {
       this.handlers.delete(eventType)
     }
@@ -141,21 +141,21 @@ export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransactio
   }
 
   eventNames(): string[] {
-    return [...this.handlers.keys()]
+    return Array.from(this.handlers.keys())
   }
 
   async getFailedEvents(): Promise<FailedBusEvent[]> {
-    if (this.outbox.getFailedEvents) {
-      return this.outbox.getFailedEvents()
+    if (!this.outbox.getFailedEvents) {
+      throw new UnsupportedOperationError("getFailedEvents")
     }
-    throw new UnsupportedOperationError("getFailedEvents")
+    return this.outbox.getFailedEvents()
   }
 
   async retryEvents(eventIds: string[]): Promise<void> {
-    if (this.outbox.retryEvents) {
-      return this.outbox.retryEvents(eventIds)
+    if (!this.outbox.retryEvents) {
+      throw new UnsupportedOperationError("retryEvents")
     }
-    throw new UnsupportedOperationError("retryEvents")
+    return this.outbox.retryEvents(eventIds)
   }
 
   private processEvent = async (event: BusEvent): Promise<void> => {

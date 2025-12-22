@@ -115,7 +115,7 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
       // 1. New (status = created)
       // 2. Failed but can be retried
       // 3. Active but stuck/timed out
-      const events = await transaction.$queryRawUnsafe<OutboxEvent[]>(
+      const rawEvents = await transaction.$queryRawUnsafe<any[]>(
         `
         SELECT * FROM "${this.config.tableName}"
         WHERE "status" = 'created'::outbox_status
@@ -128,7 +128,23 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
         now
       )
 
-      if (events.length === 0) return []
+      if (rawEvents.length === 0) return []
+
+      const events: OutboxEvent[] = rawEvents.map((raw) => ({
+        id: raw.id,
+        type: raw.type,
+        payload: raw.payload,
+        occurredAt: raw.occurred_at,
+        status: raw.status,
+        retryCount: raw.retry_count ?? 0,
+        lastError: raw.last_error,
+        nextRetryAt: raw.next_retry_at,
+        createdOn: raw.created_on,
+        startedOn: raw.started_on,
+        completedOn: raw.completed_on,
+        keepAlive: raw.keep_alive,
+        expireInSeconds: raw.expire_in_seconds ?? 300,
+      }))
 
       const eventIds = events.map((event) => event.id)
 

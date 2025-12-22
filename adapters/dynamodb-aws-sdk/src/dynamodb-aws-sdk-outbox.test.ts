@@ -1,5 +1,5 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb"
-import { BatchSizeLimitError } from "outbox-event-bus"
+import { BatchSizeLimitError, EventStatus } from "outbox-event-bus"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { DynamoDBAwsSdkOutbox } from "./index"
 
@@ -49,7 +49,7 @@ describe("DynamoDBAwsSdkOutbox Unit Tests", () => {
         type: "t1",
         payload: { a: 1 },
         occurredAt: new Date().toISOString(),
-        status: "PENDING",
+        status: EventStatus.CREATED,
       },
     ]
 
@@ -77,7 +77,7 @@ describe("DynamoDBAwsSdkOutbox Unit Tests", () => {
         type: "t1",
         payload: { a: 1 },
         occurredAt: new Date().toISOString(),
-        status: "PENDING",
+        status: EventStatus.CREATED,
         retryCount: 0,
       },
     ]

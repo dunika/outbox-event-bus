@@ -14,7 +14,6 @@ describe("PostgresDrizzleOutbox E2E", () => {
   let outbox: PostgresDrizzleOutbox
 
   beforeAll(async () => {
-    // 1. Connect to DB with retry
     const maxRetries = 10
     const delay = 1000
 
@@ -22,16 +21,12 @@ describe("PostgresDrizzleOutbox E2E", () => {
       try {
         client = postgres(DB_URL)
         db = drizzle(client)
-        await client`SELECT 1` // Test connection
+        await client`SELECT 1`
         break
       } catch (e: unknown) {
-        // The original `this.onError(e)` is not applicable in a `beforeAll` hook.
-        // Reverting to original error handling logic for retries.
         if (i === maxRetries - 1) {
-          // If it's the last retry, rethrow the error
           throw e
         }
-        // Close failed connection if client was initialized
         if (client) {
           await client.end()
         }
@@ -90,12 +85,16 @@ describe("PostgresDrizzleOutbox E2E", () => {
     `
   })
 
+  beforeEach(async () => {
+    await client`TRUNCATE TABLE outbox_events CASCADE`
+    await client`TRUNCATE TABLE outbox_events_archive CASCADE`
+  })
+
   afterAll(async () => {
     await client.end()
   })
 
   it("should process events end-to-end", async () => {
-    // Initialize outbox
     outbox = new PostgresDrizzleOutbox({
       db,
       pollIntervalMs: 100,
@@ -130,7 +129,6 @@ describe("PostgresDrizzleOutbox E2E", () => {
     const resultAfter = await db.select().from(outboxEvents).where(eq(outboxEvents.id, eventId))
     expect(resultAfter).toHaveLength(0)
 
-    // 3. Stop outbox
     await outbox.stop()
   })
 
@@ -198,7 +196,6 @@ describe("PostgresDrizzleOutbox E2E", () => {
     })
 
     const inserted = await db.select().from(outboxEvents).where(eq(outboxEvents.id, eventId))
-    console.log("DRIZZLE TEST DEBUG: Inserted row:", inserted)
 
     const failed = await outbox.getFailedEvents()
     const targetEvent = failed.find((e) => e.id === eventId)
@@ -361,7 +358,6 @@ describe("PostgresDrizzleOutbox E2E", () => {
     const successResult = await db.select().from(outboxEvents).where(eq(outboxEvents.id, successId))
     expect(successResult).toHaveLength(0)
 
-    // 2. Failed event should be in outbox with failed status
     const failResult = await db.select().from(outboxEvents).where(eq(outboxEvents.id, failId))
     expect(failResult).toHaveLength(1)
     expect(failResult[0]?.status).toBe("failed")
@@ -371,7 +367,95 @@ describe("PostgresDrizzleOutbox E2E", () => {
     expect(processedEvents).toHaveLength(1)
     expect(processedEvents[0].id).toBe(successId)
 
-    // 4. Error handler should be called
     expect(onError).toHaveBeenCalled()
+  })
+
+  it("should not publish events when transaction is rolled back", async () => {
+    outbox = new PostgresDrizzleOutbox({
+      db,
+      pollIntervalMs: 100,
+    })
+
+    const eventId = crypto.randomUUID()
+    const event = {
+      id: eventId,
+      type: "transaction.test",
+      payload: { test: "rollback" },
+      occurredAt: new Date(),
+    }
+
+    try {
+      await db.transaction(async (tx) => {
+        await outbox.publish([event], tx)
+
+        const inTx = await tx.select().from(outboxEvents).where(eq(outboxEvents.id, eventId))
+        expect(inTx).toHaveLength(1)
+        expect(inTx[0]?.status).toBe("created")
+
+        throw new Error("Intentional rollback")
+      })
+    } catch (error: any) {
+      expect(error.message).toBe("Intentional rollback")
+    }
+
+    const afterRollback = await db.select().from(outboxEvents).where(eq(outboxEvents.id, eventId))
+    expect(afterRollback).toHaveLength(0)
+
+    const processedEvents: any[] = []
+    outbox.start(
+      async (e) => {
+        processedEvents.push(e)
+      },
+      (err) => console.error(err)
+    )
+
+    await new Promise((r) => setTimeout(r, 1000))
+    await outbox.stop()
+
+    expect(processedEvents).toHaveLength(0)
+  })
+
+  it("should publish events when transaction is committed", async () => {
+    outbox = new PostgresDrizzleOutbox({
+      db,
+      pollIntervalMs: 100,
+    })
+
+    const eventId = crypto.randomUUID()
+    const event = {
+      id: eventId,
+      type: "transaction.test",
+      payload: { test: "commit" },
+      occurredAt: new Date(),
+    }
+
+    await db.transaction(async (tx) => {
+      await outbox.publish([event], tx)
+
+      const inTx = await tx.select().from(outboxEvents).where(eq(outboxEvents.id, eventId))
+      expect(inTx).toHaveLength(1)
+      expect(inTx[0]?.status).toBe("created")
+    })
+
+    const afterCommit = await db.select().from(outboxEvents).where(eq(outboxEvents.id, eventId))
+    expect(afterCommit).toHaveLength(1)
+    expect(afterCommit[0]?.status).toBe("created")
+
+    const processedEvents: any[] = []
+    outbox.start(
+      async (e) => {
+        processedEvents.push(e)
+      },
+      (err) => console.error(err)
+    )
+
+    await new Promise((r) => setTimeout(r, 1000))
+    await outbox.stop()
+
+    expect(processedEvents).toHaveLength(1)
+    expect(processedEvents[0].id).toBe(eventId)
+
+    const final = await db.select().from(outboxEvents).where(eq(outboxEvents.id, eventId))
+    expect(final).toHaveLength(0)
   })
 })

@@ -1,7 +1,7 @@
 import Database from "better-sqlite3"
+import { HandlerError, MaxRetriesExceededError } from "outbox-event-bus"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { OutboxEventBus } from "../../../core/src/bus/outbox-event-bus"
-import { HandlerError, MaxRetriesExceededError } from "../../../core/src/errors/errors"
 import { SqliteBetterSqlite3Outbox } from "./sqlite-better-sqlite3-outbox"
 
 describe("Error Handling", () => {

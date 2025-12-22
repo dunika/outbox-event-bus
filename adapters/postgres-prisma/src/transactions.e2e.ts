@@ -1,12 +1,14 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { execSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
+import { PrismaPg } from "@prisma/adapter-pg"
 import { OutboxStatus, PrismaClient } from "@prisma/client"
+import { Pool } from "pg"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
-import { OutboxEventBus } from "../../../core/src/outbox-event-bus"
+import { OutboxEventBus } from "../../../core/src/bus/outbox-event-bus"
 import { PostgresPrismaOutbox } from "./index"
 
-const DATABASE_URL = "postgresql://test_user:test_password@localhost:5432/outbox_test"
+const DATABASE_URL = "postgresql://test_user:test_password@localhost:5434/outbox_test"
 
 describe("PostgresPrisma Outbox Transactions with AsyncLocalStorage", () => {
   let prisma: PrismaClient
@@ -15,17 +17,9 @@ describe("PostgresPrisma Outbox Transactions with AsyncLocalStorage", () => {
   beforeAll(async () => {
     process.env.DATABASE_URL = DATABASE_URL
 
-    try {
-      execSync("npx prisma db push --accept-data-loss", {
-        stdio: "inherit",
-        env: { ...process.env, DATABASE_URL },
-      })
-    } catch (error) {
-      console.error("Failed to push db schema", error)
-      throw error
-    }
-
-    prisma = new PrismaClient()
+    const pool = new Pool({ connectionString: DATABASE_URL })
+    const adapter = new PrismaPg(pool)
+    prisma = new PrismaClient({ adapter })
     await prisma.$connect()
   })
 
@@ -46,14 +40,10 @@ describe("PostgresPrisma Outbox Transactions with AsyncLocalStorage", () => {
   it("should commit both business data and outbox event in a transaction", async () => {
     const outbox = new PostgresPrismaOutbox({
       prisma,
-      getExecutor: () => als.getStore(),
+      getTransaction: () => als.getStore(),
     })
 
-    const eventBus = new OutboxEventBus(
-      outbox,
-      () => {},
-      () => {}
-    )
+    const eventBus = new OutboxEventBus(outbox, () => {})
 
     const eventId = randomUUID()
 
@@ -81,14 +71,10 @@ describe("PostgresPrisma Outbox Transactions with AsyncLocalStorage", () => {
   it("should rollback both business data and outbox event on failure", async () => {
     const outbox = new PostgresPrismaOutbox({
       prisma,
-      getExecutor: () => als.getStore(),
+      getTransaction: () => als.getStore(),
     })
 
-    const eventBus = new OutboxEventBus(
-      outbox,
-      () => {},
-      () => {}
-    )
+    const eventBus = new OutboxEventBus(outbox, () => {})
 
     const eventId = randomUUID()
 

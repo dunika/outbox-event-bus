@@ -33,15 +33,18 @@
   ],
   "scripts": {
     "build": "tsdown",
-    "test": "vitest run src/redis-streams-publisher.test.ts"
+    "test": "vitest run"
   },
   "dependencies": {
-    "ioredis": "catalog:",
     "outbox-event-bus": "workspace:*"
+  },
+  "peerDependencies": {
+    "ioredis": "catalog:"
   },
   "devDependencies": {
     "@outbox-event-bus/config": "workspace:*",
     "@types/node": "catalog:",
+    "ioredis": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

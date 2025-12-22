@@ -164,7 +164,7 @@ import { OutboxEventBus } from 'outbox-event-bus';
 
 const prisma = new PrismaClient();
 const outbox = new PostgresPrismaOutbox({ prisma });
-const bus = new OutboxEventBus(outbox);
+const bus = new OutboxEventBus(outbox, (error) => console.error(error));
 
 bus.start();
 
@@ -199,7 +199,7 @@ const outbox = new SqliteBetterSqlite3Outbox({
   dbPath: 'app.db',
   getTransaction: getBetterSqlite3Transaction() 
 });
-const bus = new OutboxEventBus(outbox);
+const bus = new OutboxEventBus(outbox, (error) => console.error(error));
 
 bus.start();
 
@@ -230,7 +230,7 @@ const outbox = process.env.NODE_ENV === 'production'
   ? new PostgresPrismaOutbox({ prisma })
   : new InMemoryOutbox();
 
-const bus = new OutboxEventBus(outbox);
+const bus = new OutboxEventBus(outbox, (error) => console.error(error));
 ```
 
 ### Testing Event Handlers
@@ -246,7 +246,7 @@ import { OutboxEventBus, InMemoryOutbox } from 'outbox-event-bus';
 describe('User Creation', () => {
   it('sends welcome email when user is created', async () => {
     const outbox = new InMemoryOutbox();
-    const bus = new OutboxEventBus(outbox);
+    const bus = new OutboxEventBus(outbox, (error) => console.error(error));
     
     let emailSent = false;
     bus.on('user.created', async (event) => {
@@ -412,9 +412,9 @@ These send your events to the world.
 | **[AWS SQS](./publishers/sqs/README.md)** | Amazon SQS Queues | Yes (10) | `@outbox-event-bus/sqs-publisher` |
 | **[AWS SNS](./publishers/sns/README.md)** | Amazon SNS Topics | Yes (10) | `@outbox-event-bus/sns-publisher` |
 | **[EventBridge](./publishers/eventbridge/README.md)** | AWS Event Bus | Yes (10) | `@outbox-event-bus/eventbridge-publisher` |
-| **[RabbitMQ](./publishers/rabbitmq/README.md)** | AMQP Brokers | Yes (100) | `@outbox-event-bus/rabbitmq-publisher` |
-| **[Kafka](./publishers/kafka/README.md)** | Streaming | Yes (100) | `@outbox-event-bus/kafka-publisher` |
-| **[Redis Streams](./publishers/redis-streams/README.md)** | Lightweight Stream | Yes (100) | `@outbox-event-bus/redis-streams-publisher` |
+| **[RabbitMQ](./publishers/rabbitmq/README.md)** | AMQP Brokers | Yes (Configurable) | `@outbox-event-bus/rabbitmq-publisher` |
+| **[Kafka](./publishers/kafka/README.md)** | Streaming | Yes (Configurable) | `@outbox-event-bus/kafka-publisher` |
+| **[Redis Streams](./publishers/redis-streams/README.md)** | Lightweight Stream | Yes (Configurable) | `@outbox-event-bus/redis-streams-publisher` |
 
 
 ### Choosing the Right Publisher
@@ -498,9 +498,3 @@ bus.on('user.created', async (event) => {
 ## License
 
 MIT © [Dunika](https://github.com/dunika)
-
-<div align="center">
-
-**[⬆ Back to Top](#outbox-event-bus)**
-
-</div>

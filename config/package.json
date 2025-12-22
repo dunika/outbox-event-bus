@@ -7,6 +7,7 @@
     "./tsconfig.base.json": "./tsconfig.base.json",
     "./eslint": "./eslint.config.js",
     "./vitest": "./vitest.config.ts",
+    "./vitest.e2e": "./vitest.e2e.config.ts",
     "./tsdown": "./tsdown.config.ts"
   },
   "dependencies": {

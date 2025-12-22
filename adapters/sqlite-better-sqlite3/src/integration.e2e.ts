@@ -40,10 +40,8 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
       occurredAt: new Date(),
     }
 
-    // 1. Publish event
     await outbox.publish([event])
 
-    // Verify it's in the DB with 'created' status
     const result = db.prepare("SELECT * FROM outbox_events WHERE id = ?").get(eventId) as any
     expect(result).toBeDefined()
     expect(result.status).toBe("created")
@@ -60,7 +58,6 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
     expect(processedEvents).toHaveLength(1)
     expect(processedEvents[0].id).toBe(eventId)
 
-    // Verify it's moved to archive and deleted from outbox_events
     const eventAfter = db.prepare("SELECT * FROM outbox_events WHERE id = ?").get(eventId)
     expect(eventAfter).toBeUndefined()
 
@@ -70,7 +67,6 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
     expect(archiveResult).toBeDefined()
     expect(archiveResult.status).toBe("completed")
 
-    // 3. Stop outbox
     await outbox.stop()
   })
 
@@ -139,9 +135,7 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
     )
 
     const inserted = db.prepare("SELECT * FROM outbox_events WHERE id = ?").get(eventId)
-    console.log("SQLITE TEST DEBUG: Inserted row:", inserted)
 
-    // 2. Get failed events
     const failed = await outbox.getFailedEvents()
     const targetEvent = failed.find((e) => e.id === eventId)
 
@@ -150,10 +144,8 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
     expect(targetEvent!.error).toBe("Manual failure")
     expect(targetEvent!.retryCount).toBe(5)
 
-    // 3. Retry
     await outbox.retryEvents([eventId])
 
-    // 4. Verify status reset
     const retried = db.prepare("SELECT * FROM outbox_events WHERE id = ?").get(eventId) as any
     expect(retried).toBeDefined()
     expect(retried.status).toBe("created")
@@ -240,9 +232,6 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
     }
 
     for (let i = 0; i < workerCount; i++) {
-      // Sqlite handle multiple connections via better-sqlite3 (it's sync but supports WAL/concurrency to some extent)
-      // Here we test safe locking if implemented or transaction safety.
-      // Even with 1 connection, if the logic isn't atomic, we might get duplicates if polling overlaps.
       const worker = new SqliteBetterSqlite3Outbox({
         dbPath: DB_PATH,
         pollIntervalMs: 100 + Math.random() * 50,
@@ -252,7 +241,6 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
       worker.start(handler, (err) => console.error(`Worker ${i} Error:`, err))
     }
 
-    // 3. Wait for processing
     const maxWaitTime = 10000
     const startTime = Date.now()
 
@@ -260,7 +248,6 @@ describe("SqliteBetterSqlite3Outbox E2E", () => {
       await new Promise((resolve) => setTimeout(resolve, 200))
     }
 
-    // 4. Verify results
     await Promise.all(workers.map((w) => w.stop()))
 
     expect(processedEvents).toHaveLength(eventCount)

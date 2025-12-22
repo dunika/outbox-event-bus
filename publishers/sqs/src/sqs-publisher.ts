@@ -1,4 +1,4 @@
-import type { SQSClient } from "@aws-sdk/client-sqs"
+import type { SendMessageBatchRequestEntry, SQSClient } from "@aws-sdk/client-sqs"
 import { SendMessageBatchCommand } from "@aws-sdk/client-sqs"
 import type { BusEvent, IOutboxEventBus, IPublisher, PublisherConfig } from "outbox-event-bus"
 import { EventPublisher } from "outbox-event-bus"
@@ -8,7 +8,7 @@ export interface SQSPublisherConfig extends PublisherConfig {
   queueUrl: string
 }
 
-const MAX_BATCH_SIZE = 10 // SQS SendMessageBatch has a limit of 10 messages
+const AWS_BATCH_LIMIT = 10 // SQS SendMessageBatch has a limit of 10 messages
 
 export class SQSPublisher<TTransaction = unknown> implements IPublisher {
   private readonly sqsClient: SQSClient
@@ -18,37 +18,44 @@ export class SQSPublisher<TTransaction = unknown> implements IPublisher {
   constructor(bus: IOutboxEventBus<TTransaction>, config: SQSPublisherConfig) {
     this.sqsClient = config.sqsClient
     this.queueUrl = config.queueUrl
-    this.publisher = new EventPublisher(bus, {
-      ...config,
-      batchConfig: {
-        batchSize: config.batchConfig?.batchSize ?? MAX_BATCH_SIZE,
-        batchTimeoutMs: config.batchConfig?.batchTimeoutMs ?? 100,
-      },
-    })
+    this.publisher = new EventPublisher(
+      bus,
+      EventPublisher.withOverrides(config, { maxBatchSize: AWS_BATCH_LIMIT })
+    )
   }
 
   subscribe(eventTypes: string[]): void {
-    this.publisher.subscribe(eventTypes, async (events: BusEvent[]) => {
-      if (events.length === 0) return
+    this.publisher.subscribe(eventTypes, (events) => this.processEvents(events))
+  }
 
-      for (let offset = 0; offset < events.length; offset += MAX_BATCH_SIZE) {
-        const chunk = events.slice(offset, offset + MAX_BATCH_SIZE)
-        await this.sqsClient.send(
-          new SendMessageBatchCommand({
-            QueueUrl: this.queueUrl,
-            Entries: chunk.map((event, index) => ({
-              Id: event.id || `msg-${offset + index}`,
-              MessageBody: JSON.stringify(event),
-              MessageAttributes: {
-                EventType: {
-                  DataType: "String",
-                  StringValue: event.type,
-                },
+  private async processEvents(events: BusEvent[]): Promise<void> {
+    if (events.length === 0) return
+
+    const isFifo = this.queueUrl.endsWith(".fifo")
+
+    await this.sqsClient.send(
+      new SendMessageBatchCommand({
+        QueueUrl: this.queueUrl,
+        Entries: events.map((event) => {
+          const entry: SendMessageBatchRequestEntry = {
+            Id: event.id,
+            MessageBody: JSON.stringify(event),
+            MessageAttributes: {
+              EventType: {
+                DataType: "String",
+                StringValue: event.type,
               },
-            })),
-          })
-        )
-      }
-    })
+            },
+          }
+
+          if (isFifo) {
+            entry.MessageGroupId = event.type
+            entry.MessageDeduplicationId = event.id
+          }
+
+          return entry
+        }),
+      })
+    )
   }
 }

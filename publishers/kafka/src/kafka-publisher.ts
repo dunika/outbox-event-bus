@@ -23,7 +23,7 @@ export class KafkaPublisher<TTransaction = unknown> implements IPublisher {
       await this.producer.send({
         topic: this.topic,
         messages: events.map((event) => ({
-          key: event.id ?? null,
+          key: event.id,
           value: JSON.stringify(event),
           headers: {
             eventType: event.type,

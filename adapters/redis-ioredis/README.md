@@ -8,7 +8,7 @@
 >
 > Process 10,000+ events/second with sub-millisecond latency using Redis Sorted Sets and atomic Lua scripts.
 
-Redis adapter for [outbox-event-bus](../../README.md). Provides reliable event storage using Redis Sorted Sets for efficient time-based scheduling and Lua scripts for atomic operations.
+Redis adapter for [outbox-event-bus](https://github.com/dunika/outbox-event-bus#readme). Provides reliable event storage using Redis Sorted Sets for efficient time-based scheduling and Lua scripts for atomic operations.
 
 ```typescript
 import Redis from 'ioredis';
@@ -68,8 +68,8 @@ The Redis adapter uses three Sorted Sets to manage event lifecycle, with scores 
 
 ```mermaid
 graph LR
-    A[Event Created] -->|zadd pending| B[outbox:pending]
-    B -->|Lua: poll| C[outbox:processing]
+    A[Event Created] -->|zadd created| B[outbox:created]
+    B -->|Lua: poll| C[outbox:active]
     C -->|Success| D[Delete]
     C -->|Failure| E{Max Retries?}
     E -->|No| B
@@ -88,12 +88,12 @@ To prevent race conditions when multiple workers poll for events, the adapter us
 **Poll Script** (claim events):
 ```lua
 -- Get events due for processing (score <= now)
-local eventIds = redis.call('ZRANGEBYSCORE', pendingKey, '-inf', now, 'LIMIT', 0, batchSize)
+local eventIds = redis.call('ZRANGEBYSCORE', createdKey, '-inf', now, 'LIMIT', 0, batchSize)
 
--- Atomically move from pending to processing
+-- Atomically move from created to active
 for _, id in ipairs(eventIds) do
-  redis.call('ZREM', pendingKey, id)
-  redis.call('ZADD', processingKey, now, id)
+  redis.call('ZREM', createdKey, id)
+  redis.call('ZADD', activeKey, now, id)
 end
 
 return eventIds
@@ -101,14 +101,14 @@ return eventIds
 
 **Recovery Script** (reclaim stuck events):
 ```lua
--- Find events stuck in processing (score < now - timeout)
+-- Find events stuck in active (score < now - timeout)
 local cutoff = now - maxProcessingTime
-local eventIds = redis.call('ZRANGEBYSCORE', processingKey, '-inf', cutoff)
+local eventIds = redis.call('ZRANGEBYSCORE', activeKey, '-inf', cutoff)
 
--- Move back to pending for retry
+-- Move back to created for retry
 for _, id in ipairs(eventIds) do
-  redis.call('ZREM', processingKey, id)
-  redis.call('ZADD', pendingKey, now, id)
+  redis.call('ZREM', activeKey, id)
+  redis.call('ZADD', createdKey, now, id)
 end
 ```
 
@@ -116,8 +116,8 @@ end
 
 The adapter uses the following Redis keys:
 
-- **`{prefix}:pending`**: Sorted Set of event IDs waiting to be processed (score = scheduled time)
-- **`{prefix}:processing`**: Sorted Set of event IDs currently being processed (score = claim time)
+- **`{prefix}:created`**: Sorted Set of event IDs waiting to be processed (score = scheduled time)
+- **`{prefix}:active`**: Sorted Set of event IDs currently being processed (score = claim time)
 - **`{prefix}:failed`**: Sorted Set of event IDs that exceeded max retries (score = failure time)
 - **`{prefix}:event:{id}`**: Hash containing the full event data
 
@@ -194,6 +194,18 @@ interface RedisIoRedisOutboxConfig {
   getPipeline?: () => ChainableCommander | undefined; // Optional transaction pipeline getter
 }
 ```
+
+| Parameter | Type | Default | Description |
+|:---|:---|:---|:---|
+| `redis` | `Redis` | `undefined` | Required `ioredis` client instance. |
+| `keyPrefix` | `string` | `'outbox'` | Prefix for all Redis keys used by the outbox. |
+| `batchSize` | `number` | `50` | Number of events to fetch and process in a single poll cycle. |
+| `pollIntervalMs` | `number` | `1000` | How often the outbox polls Redis for new events (in milliseconds). |
+| `processingTimeoutMs` | `number` | `30000` | Maximum time an event can be in the `active` state before being considered stuck and reclaimed (in milliseconds). |
+| `maxRetries` | `number` | `5` | Maximum number of times an event will be retried before being moved to the `failed` state. |
+| `baseBackoffMs` | `number` | `1000` | Base delay for exponential backoff between retries (in milliseconds). |
+| `maxErrorBackoffMs` | `number` | `30000` | Maximum backoff delay after polling errors (in milliseconds). |
+| `getPipeline` | `() => ChainableCommander \| undefined` | `undefined` | Optional function to get a Redis pipeline/multi instance for transactional emits. |
 
 ### Configuration Best Practices
 
@@ -325,8 +337,8 @@ const redis = new Cluster([{ host: 'localhost', port: 6379 }]);
 const outbox = new RedisIoRedisOutbox({ redis });
 ```
 
-> [!WARNING]
-> When using Redis Cluster, ensure all outbox keys map to the same hash slot by using hash tags in `keyPrefix`:
+> [!IMPORTANT]
+> **Redis Cluster Users**: You **must** use hash tags in your `keyPrefix` (e.g., `{outbox}`) to ensure that all related keys (sorted sets and hashes) are mapped to the same hash slot. Redis operations within this adapter involve multiple keys and will fail in a Cluster environment without hash tags.
 > ```typescript
 > { keyPrefix: '{myapp}:outbox' }  // All keys go to same slot
 > ```
@@ -407,9 +419,9 @@ const retryableEvents = failedEvents.filter(event =>
 // 3. Retry selected events
 await outbox.retryEvents(retryableEvents.map(e => e.id));
 
-// 4. Verify they're back in pending
-const pending = await redis.zrange('outbox:pending', 0, -1);
-console.log(`Pending events: ${pending.length}`);
+// 4. Verify they're back in created
+const created = await redis.zrange('outbox:created', 0, -1);
+console.log(`Created events: ${created.length}`);
 ```
 
 **Direct Redis Queries:**
@@ -435,7 +447,7 @@ The adapter uses custom Lua scripts registered with Redis to ensure atomic "poll
 
 ### Stuck Event Recovery
 
-Events that remain in the `processing` state longer than `processingTimeoutMs` are automatically reclaimed and moved back to `pending`. This handles scenarios where:
+Events that remain in the `active` state longer than `processingTimeoutMs` are automatically reclaimed and moved back to `created`. This handles scenarios where:
 - A worker crashes mid-processing
 - Network issues cause handler timeouts
 - Deadlocks or infinite loops in handler code
@@ -561,15 +573,15 @@ const redis = new Redis({
 
 **Diagnosis:**
 ```typescript
-// Check processing queue
-const processing = await redis.zrange('outbox:processing', 0, -1, 'WITHSCORES');
-console.log('Events in processing:', processing);
+// Check active queue
+const active = await redis.zrange('outbox:active', 0, -1, 'WITHSCORES');
+console.log('Events in active:', active);
 
 // Check if any are stuck (older than timeout)
 const now = Date.now();
 const timeout = 30000; // Your processingTimeoutMs
 const cutoff = now - timeout;
-const stuck = await redis.zrangebyscore('outbox:processing', '-inf', cutoff);
+const stuck = await redis.zrangebyscore('outbox:active', '-inf', cutoff);
 console.log('Stuck events:', stuck);
 ```
 

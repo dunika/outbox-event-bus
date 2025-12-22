@@ -1,4 +1,4 @@
-import { SendMessageCommand } from "@aws-sdk/client-sqs"
+import { SendMessageBatchCommand } from "@aws-sdk/client-sqs"
 import { InMemoryOutbox, OutboxEventBus } from "outbox-event-bus"
 import { describe, expect, it, vi } from "vitest"
 import { SQSPublisher } from "./sqs-publisher"
@@ -43,9 +43,11 @@ describe("SQSPublisher E2E (with InMemoryOutbox)", () => {
     }
 
     expect(mockSqsClient.send).toHaveBeenCalled()
-    const command = mockSqsClient.send.mock.calls[0][0] as SendMessageCommand
-    expect(command).toBeInstanceOf(SendMessageCommand)
-    expect(command.input.MessageBody).toContain('"foo":"bar"')
+    expect(mockSqsClient.send).toHaveBeenCalled()
+    const command = mockSqsClient.send.mock.calls[0][0] as SendMessageBatchCommand
+    expect(command).toBeInstanceOf(SendMessageBatchCommand)
+    // For batch command, Entries is an array
+    expect(command.input.Entries?.[0].MessageBody).toContain('"foo":"bar"')
 
     await bus.stop()
   })

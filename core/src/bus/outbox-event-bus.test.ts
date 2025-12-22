@@ -178,10 +178,8 @@ describe("OutboxEventBus", () => {
     eventBus.start()
     const handler = vi.fn().mockResolvedValue(undefined)
 
-    // 1. Subscribe with once
     eventBus.once("test-event", handler)
 
-    // 2. Unsubscribe using the ORIGINAL handler reference
     eventBus.off("test-event", handler)
 
     const event: BusEvent = {
@@ -191,10 +189,8 @@ describe("OutboxEventBus", () => {
       occurredAt: new Date(),
     }
 
-    // 3. Emit event
     await outboxHandler(event)
 
-    // 4. Verify handler was NOT called
     expect(handler).not.toHaveBeenCalled()
   })
 

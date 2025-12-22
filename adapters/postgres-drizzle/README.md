@@ -8,7 +8,7 @@
 > 
 > Zero-config setup with automatic schema inference. Custom table support for existing databases.
 
-PostgreSQL adapter for [outbox-event-bus](../../README.md) using [Drizzle ORM](https://orm.drizzle.team/). Provides robust event storage with `SELECT FOR UPDATE SKIP LOCKED` for safe distributed processing.
+PostgreSQL adapter for [outbox-event-bus](https://github.com/dunika/outbox-event-bus#readme) using [Drizzle ORM](https://orm.drizzle.team/). Provides robust event storage with `SELECT FOR UPDATE SKIP LOCKED` for safe distributed processing.
 
 ```typescript
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -38,10 +38,10 @@ const outbox = new PostgresDrizzleOutbox({
 ## When to Use
 
 **Choose Postgres Drizzle Outbox when:**
-- ✅ You are using **PostgreSQL** as your primary database
-- ✅ You prefer **SQL-first** development with type safety
-- ✅ You need **custom table names** or schemas (multi-tenant apps)
-- ✅ You want **zero magic** - explicit queries you can inspect
+- You are using **PostgreSQL** as your primary database
+- You prefer **SQL-first** development with type safety
+- You need **custom table names** or schemas (multi-tenant apps)
+- You want **zero magic** - explicit queries you can inspect
 
 **Choose Postgres Prisma Outbox instead if:**
 - You're already using Prisma Client
@@ -77,7 +77,7 @@ CREATE TABLE outbox_events (
   created_on TIMESTAMP NOT NULL DEFAULT NOW(),
   started_on TIMESTAMP,
   keep_alive TIMESTAMP,
-  expire_in_seconds INTEGER NOT NULL DEFAULT 60
+  expire_in_seconds INTEGER NOT NULL DEFAULT 30
 );
 
 CREATE TABLE outbox_events_archive (
@@ -236,7 +236,7 @@ const myCustomOutbox = pgTable('tenant_a_outbox', {
   createdOn: timestamp('created_on').notNull().defaultNow(),
   startedOn: timestamp('started_on'),
   keepAlive: timestamp('keep_alive'),
-  expireInSeconds: integer('expire_in_seconds').notNull().default(300),
+  expireInSeconds: integer('expire_in_seconds').notNull().default(30),
 });
 
 const myCustomArchive = pgTable('tenant_a_archive', {
@@ -280,7 +280,7 @@ const outbox = new PostgresDrizzleOutbox({
 | `createdOn` | `timestamp` | Not Null | Record creation time |
 | `startedOn` | `timestamp` | Nullable | Processing start time |
 | `keepAlive` | `timestamp` | Nullable | Last heartbeat (stuck detection) |
-| `expireInSeconds` | `integer` | Not Null, Default: 300 | Timeout threshold |
+| `expireInSeconds` | `integer` | Not Null, Default: 30 | Timeout threshold |
 
 ## Advanced Patterns
 

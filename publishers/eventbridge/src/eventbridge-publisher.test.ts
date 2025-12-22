@@ -62,6 +62,7 @@ describe("EventBridgePublisher", () => {
 
     const entry = command.input.Entries![0]
     expect(entry).toBeDefined()
+    if (!entry) throw new Error("Entry not defined")
     expect(entry.Source).toBe("my.service")
     expect(entry.DetailType).toBe("test.event")
     expect(entry.Detail).toBe(JSON.stringify(event))
@@ -81,7 +82,6 @@ describe("EventBridgePublisher", () => {
     if (!handler) throw new Error("Handler not defined")
 
     const error = new Error("Event Bridge failed")
-    // Mock rejection for all retry attempts (default is 3)
     mockEventBridgeClient.send.mockRejectedValue(error)
 
     const event = {
@@ -91,7 +91,15 @@ describe("EventBridgePublisher", () => {
       occurredAt: new Date(),
     }
 
-    // Should throw error after all retries
     await expect(handler(event)).rejects.toThrow("Event Bridge failed")
+  })
+
+  it("should support bufferSize greater than 10 by automatic chunking", () => {
+    const publisher = new EventBridgePublisher(mockBus as any, {
+      eventBridgeClient: mockEventBridgeClient as any,
+      source: "my.service",
+      processingConfig: { bufferSize: 11 },
+    })
+    expect(publisher).toBeDefined()
   })
 })

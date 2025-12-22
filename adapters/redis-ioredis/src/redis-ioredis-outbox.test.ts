@@ -103,21 +103,17 @@ describe("RedisIoRedisOutbox", () => {
     await new Promise((resolve) => setTimeout(resolve, 300))
     expect(handler).toHaveBeenCalledTimes(1)
 
-    // Verify retry count was incremented
     const retryCount = await redis.hget("outbox:event:1", "retryCount")
     expect(parseInt(retryCount || "0", 10)).toBeGreaterThanOrEqual(1)
 
-    // Verify last error was stored
     const lastError = await redis.hget("outbox:event:1", "lastError")
     expect(lastError).toBe("Fail")
   })
 
   it("should recover stuck events", async () => {
-    // Manually putting an event in processing state
     const now = Date.now()
     const eventKey = "outbox:event:stuck"
 
-    // Set event data using hmset for ioredis-mock compatibility
     await redis.hmset(
       eventKey,
       "id",
@@ -134,15 +130,12 @@ describe("RedisIoRedisOutbox", () => {
       "active"
     )
 
-    // Add to processing with old score (stuck event - older than processing timeout)
     await redis.zadd("outbox:processing", now - 200, "stuck")
 
     const handler = vi.fn().mockResolvedValue(undefined)
 
-    // Start outbox (configured with 100ms processing timeout)
     outbox.start(handler, onError)
 
-    // Wait for recovery and processing (need more time for recovery + poll cycle)
     await new Promise((resolve) => setTimeout(resolve, 400))
 
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ id: "stuck" }))

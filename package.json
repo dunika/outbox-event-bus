@@ -14,7 +14,8 @@
     "update:latest": "pnpm -r update --latest",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "pnpm build && changeset publish"
+    "release": "pnpm build && changeset publish",
+    "publish:interactive": "zx scripts/publish.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
@@ -29,6 +30,7 @@
     "typescript": "catalog:",
     "typescript-eslint": "catalog:",
     "vite-tsconfig-paths": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "zx": "^8.8.5"
   }
 }

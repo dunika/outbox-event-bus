@@ -33,11 +33,13 @@
   ],
   "scripts": {
     "build": "tsdown",
-    "test": "vitest run src/*.test.ts"
+    "test": "vitest run"
   },
   "dependencies": {
-    "amqplib": "^0.10.9",
     "outbox-event-bus": "workspace:*"
+  },
+  "peerDependencies": {
+    "amqplib": "^0.10.9"
   },
   "devDependencies": {
     "@outbox-event-bus/config": "workspace:*",

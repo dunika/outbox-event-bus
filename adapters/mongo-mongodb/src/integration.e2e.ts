@@ -10,21 +10,8 @@ describe("MongoMongodbOutbox E2E", () => {
   let outbox: MongoMongodbOutbox | null = null
 
   beforeAll(async () => {
-    // 1. Connect to MongoDB with retry
-    const maxRetries = 10
-    const delay = 1000
-
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        client = new MongoClient(MONGO_URL)
-        await client.connect()
-        await client.db(DB_NAME).command({ ping: 1 })
-        break
-      } catch (err) {
-        if (i === maxRetries - 1) throw err
-        await new Promise((res) => setTimeout(res, delay))
-      }
-    }
+    client = new MongoClient(MONGO_URL)
+    await client.connect()
   })
 
   afterAll(async () => {
@@ -60,16 +47,13 @@ describe("MongoMongodbOutbox E2E", () => {
       occurredAt: new Date(),
     }
 
-    // 1. Publish event
     await outbox.publish([event])
 
-    // Verify it's in the DB with 'created' status
     const db = client.db(DB_NAME)
     const result = await db.collection("outbox_events").findOne({ eventId: eventId })
     expect(result).not.toBeNull()
     expect(result?.status).toBe("created")
 
-    // 2. Start processing
     const processedEvents: any[] = []
     const handler = async (event: any) => {
       processedEvents.push(event)
@@ -83,7 +67,6 @@ describe("MongoMongodbOutbox E2E", () => {
     expect(processedEvents).toHaveLength(1)
     expect(processedEvents[0].id).toBe(eventId)
 
-    // Verify it's marked as 'completed' in DB
     const resultAfter = await db.collection("outbox_events").findOne({ eventId: eventId })
     expect(resultAfter?.status).toBe("completed")
   })
@@ -139,7 +122,6 @@ describe("MongoMongodbOutbox E2E", () => {
       occurredAt: new Date(),
     }
 
-    // 1. Insert directly as failed
     const db = client.db(DB_NAME)
     await db.collection("outbox_events").insertOne({
       eventId: eventId,
@@ -151,22 +133,18 @@ describe("MongoMongodbOutbox E2E", () => {
       lastError: "Manual failure",
     } as any)
 
-    // 2. Get failed events
     const failed = await outbox.getFailedEvents()
     expect(failed).toHaveLength(1)
     expect(failed[0]!.id).toBe(eventId)
     expect(failed[0]!.error).toBe("Manual failure")
 
-    // 3. Retry
     await outbox.retryEvents([eventId])
 
-    // 4. Verify status reset
     const retried = await db.collection("outbox_events").findOne({ eventId: eventId })
     expect(retried?.status).toBe("created")
     expect(retried?.retryCount).toBe(0)
     expect(retried?.lastError).toBeUndefined()
 
-    // 5. Verify it gets processed
     const processed: any[] = []
     outbox.start(
       async (e) => {
@@ -192,7 +170,6 @@ describe("MongoMongodbOutbox E2E", () => {
     const eventId = "507f1f77bcf86cd799439013"
     const now = new Date()
 
-    // Manually insert a "stuck" event (status active, timed out)
     const db = client.db(DB_NAME)
     await db.collection("outbox_events").insertOne({
       eventId: eventId,
@@ -247,7 +224,6 @@ describe("MongoMongodbOutbox E2E", () => {
     const clientsToClose: MongoClient[] = []
 
     for (let i = 0; i < workerCount; i++) {
-      // New client for each worker to simulate separate processes
       const workerClient = new MongoClient(MONGO_URL)
       await workerClient.connect()
       clientsToClose.push(workerClient)

@@ -1,6 +1,6 @@
-import type { IOutbox } from "../interfaces"
-import { PollingService } from "../polling-service"
-import type { BusEvent, FailedBusEvent, ErrorHandler } from "../types"
+import type { IOutbox } from "../types/interfaces"
+import { PollingService } from "../services/polling-service"
+import type { BusEvent, FailedBusEvent, ErrorHandler } from "../types/types"
 import { reportEventError } from "../utils/error-reporting"
 
 const IN_MEMORY_POLL_INTERVAL_MS = 10
@@ -27,7 +27,7 @@ export class InMemoryOutbox implements IOutbox<unknown> {
       pollIntervalMs: IN_MEMORY_POLL_INTERVAL_MS,
       baseBackoffMs: IN_MEMORY_BASE_BACKOFF_MS,
       maxErrorBackoffMs: IN_MEMORY_MAX_ERROR_BACKOFF_MS,
-      processBatch: (handler) => this.processBatch(handler),
+      processBatch: (handler: (event: BusEvent) => Promise<void>) => this.processBatch(handler),
     })
   }
 
@@ -41,7 +41,7 @@ export class InMemoryOutbox implements IOutbox<unknown> {
   ): void {
     this.handler = handler
     this.onError = onError
-    this.poller.start(handler, onError)
+    void this.poller.start(handler, onError)
   }
 
   async stop(): Promise<void> {
@@ -54,19 +54,21 @@ export class InMemoryOutbox implements IOutbox<unknown> {
   }
 
   async getFailedEvents(): Promise<FailedBusEvent[]> {
-    return this.deadLetterQueue.map(e => ({
-      ...e,
-      retryCount: this.retryCounts.get(e.id) ?? this.maxRetries ?? 0,
-      error: 'Max retries exceeded' // capture actual error if possible
+    return this.deadLetterQueue.map((event): FailedBusEvent => ({
+      ...event,
+      retryCount: this.retryCounts.get(event.id ?? '') ?? this.maxRetries ?? 0,
+      error: 'Max retries exceeded'
     }))
   }
 
   async retryEvents(eventIds: string[]): Promise<void> {
-    const eventsToRetry = this.deadLetterQueue.filter(e => eventIds.includes(e.id))
-    this.deadLetterQueue = this.deadLetterQueue.filter(e => !eventIds.includes(e.id))
+    const eventsToRetry = this.deadLetterQueue.filter(event => eventIds.includes(event.id ?? ''))
+    this.deadLetterQueue = this.deadLetterQueue.filter(event => !eventIds.includes(event.id ?? ''))
     
     for (const event of eventsToRetry) {
-      this.retryCounts.set(event.id, 0)
+      if (event.id) {
+        this.retryCounts.set(event.id, 0)
+      }
       this.events.push(event)
     }
   }
@@ -85,7 +87,7 @@ export class InMemoryOutbox implements IOutbox<unknown> {
         if (event.id) {
           this.retryCounts.delete(event.id)
         }
-      } catch (error) {
+      } catch (error: unknown) {
         let shouldRetry = true
         if (this.maxRetries !== undefined && event.id) {
           const currentRetries = this.retryCounts.get(event.id) ?? 0
@@ -102,7 +104,9 @@ export class InMemoryOutbox implements IOutbox<unknown> {
             this.retryCounts.set(event.id, nextRetryCount)
           }
         } else {
-          this.onError?.(error, event)
+          if (this.onError) {
+            this.onError(error, event)
+          }
         }
 
         if (shouldRetry) {

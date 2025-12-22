@@ -11,7 +11,7 @@ The main orchestrator for event emission and handling. The API is inspired by [t
 ```typescript
 new OutboxEventBus<TTransaction = unknown>(
   outbox: IOutbox<TTransaction>,
-  onError: (error: unknown, event?: BusEvent) => void
+  onError: ErrorHandler
 )
 ```
 
@@ -71,7 +71,7 @@ Registers a handler for a specific event type.
 bus.on(
   eventType: string,
   handler: (event: BusEvent) => Promise<void>
-): void
+): this
 ```
 
 **Note:** Only one handler per event type (1:1 Command Bus pattern).
@@ -80,7 +80,10 @@ bus.on(
 Removes the handler for a specific event type.
 
 ```typescript
-bus.off(eventType: string): void
+bus.off(
+  eventType: string, 
+  handler: (event: BusEvent) => Promise<void>
+): this
 ```
 
 > [!TIP]
@@ -90,7 +93,7 @@ bus.off(eventType: string): void
 Removes all registered handlers.
 
 ```typescript
-bus.removeAllListeners(): void
+bus.removeAllListeners(eventType?: string): this
 ```
 
 ##### `waitFor()`
@@ -228,6 +231,18 @@ type FailedBusEvent<T extends string = string, P = unknown> = BusEvent<T, P> & {
 }
 ```
 
+### `EventStatus`
+Possible states for an event in the outbox.
+
+```typescript
+const EventStatus = {
+  CREATED: 'created',
+  ACTIVE: 'active',
+  FAILED: 'failed',
+  COMPLETED: 'completed',
+} as const;
+```
+
 ## Adapters
 
 ### PostgresPrismaOutbox
@@ -247,10 +262,10 @@ interface PostgresPrismaOutboxConfig extends OutboxConfig {
   prisma: PrismaClient;
   getTransaction?: () => PrismaClient | undefined; // Optional context getter
   models?: {
-    outbox?: string;
-    archive?: string;
+    outbox?: string;   // Default: "outboxEvent"
+    archive?: string;  // Default: "outboxEventArchive"
   };
-  tableName?: string;
+  tableName?: string;  // Default: "outbox_events"
 }
 ```
 
@@ -271,7 +286,7 @@ interface DynamoDBAwsSdkOutboxConfig extends OutboxConfig {
   client: DynamoDBClient;
   tableName: string;
   statusIndexName?: string; // Default: "status-gsiSortKey-index"
-  processingTimeoutMs?: number; // Time before stuck events are retried
+  processingTimeoutMs?: number; // Time before stuck events are retried (default: 30000ms)
   getCollector?: () => DynamoDBAwsSdkTransactionCollector | undefined;
 }
 ```
@@ -336,7 +351,7 @@ new RedisIoRedisOutbox(config: RedisIoRedisOutboxConfig)
 interface RedisIoRedisOutboxConfig extends OutboxConfig {
   redis: Redis;
   keyPrefix?: string; // Default: "outbox"
-  processingTimeoutMs?: number;
+  processingTimeoutMs?: number; // Default: 30000ms
   getPipeline?: () => ChainableCommander | undefined;
 }
 ```
@@ -358,8 +373,26 @@ interface SqliteBetterSqlite3OutboxConfig extends OutboxConfig {
   dbPath?: string;
   db?: Database.Database;
   getTransaction?: () => Database.Database | undefined;
-  tableName?: string;
-  archiveTableName?: string;
+  tableName?: string;        // Default: "outbox_events"
+  archiveTableName?: string; // Default: "outbox_events_archive"
+}
+```
+
+### InMemoryOutbox
+
+Simple in-memory adapter for testing and development. Does not provide persistence across restarts.
+
+#### Constructor
+
+```typescript
+new InMemoryOutbox(config?: InMemoryOutboxConfig)
+```
+
+#### Configuration
+
+```typescript
+interface InMemoryOutboxConfig extends OutboxConfig {
+  maxEvents?: number; // Optional limit for memory safety
 }
 ```
 
@@ -524,20 +557,22 @@ interface OutboxConfig {
 All publishers inherit from `PublisherConfig`.
 
 ```typescript
-interface PublisherConfig {
+type PublisherConfig = {
   retryConfig?: RetryOptions;
-  batchConfig?: BatchOptions;
+  processingConfig?: ProcessingOptions;
 }
 
-interface RetryOptions {
-  maxAttempts?: number;
-  initialDelayMs?: number;
-  maxDelayMs?: number;
+type RetryOptions = {
+  maxAttempts?: number;    // Default: 3
+  initialDelayMs?: number; // Default: 1000ms
+  maxDelayMs?: number;     // Default: 10000ms
 }
 
-interface BatchOptions {
-  batchSize?: number;        // Max events per batch
-  batchTimeoutMs?: number;   // Max wait time for batch fill
+type ProcessingOptions = {
+  bufferSize?: number;        // Max events to buffer before processing (default: 50)
+  bufferTimeoutMs?: number;   // Max wait time for buffer to fill (default: 100ms)
+  concurrency?: number;      // Max concurrent batch requests (default: 5)
+  maxBatchSize?: number;     // Max items per downstream batch (e.g. SQS limit)
 }
 ```
 

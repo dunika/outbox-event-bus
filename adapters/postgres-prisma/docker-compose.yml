@@ -6,6 +6,7 @@ services:
       POSTGRES_USER: test_user
       POSTGRES_PASSWORD: test_password
       POSTGRES_DB: outbox_test
+      DATABASE_URL: postgresql://test_user:test_password@localhost:5432/outbox_test
     ports:
       - "5434:5432"
     healthcheck:
