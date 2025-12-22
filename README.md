@@ -14,11 +14,16 @@
 
 **The Problem**: You save data to your database and attempt to emit a relevant event. If your process crashes or the network fails before the event is sent, your system becomes inconsistent.
 
-![The Dual Write Problem](https://raw.githubusercontent.com/dunika/outbox-event-bus/main/docs/images/problem.png)
+<div align="center">
+<img src="https://raw.githubusercontent.com/dunika/outbox-event-bus/main/docs/images/problem.png" alt="The Dual Write Problem" width="600">
+</div>
+
 
 **The Solution**: `outbox-event-bus` stores events in your database *within the same transaction* as your data. A background worker then reliably delivers them.
 
-![The Outbox Solution](https://raw.githubusercontent.com/dunika/outbox-event-bus/main/docs/images/solution.png)
+<div align="center">
+<img src="https://raw.githubusercontent.com/dunika/outbox-event-bus/main/docs/images/solution.png" alt="The Outbox Solution" width="600">
+</div>
 
 ## Quick Start (Postgres + Drizzle ORM + SQS Example)
 
@@ -127,7 +132,9 @@ bus.on('send.analytics', async (event) => {
 
 Events flow through several states from creation to completion:
 
-![Event Lifecycle](https://raw.githubusercontent.com/dunika/outbox-event-bus/main/docs/images/event_life_cycle.png)
+<div align="center">
+<img src="https://raw.githubusercontent.com/dunika/outbox-event-bus/main/docs/images/event_life_cycle.png" alt="Event Lifecycle" width="600">
+</div>
 
 **State Descriptions:**
 
@@ -427,7 +434,9 @@ These send your events to the world.
 
 ### Choosing the Right Publisher
 
-![Choose Publisher](https://raw.githubusercontent.com/dunika/outbox-event-bus/main/docs/images/choose_publisher.png)
+<div align="center">
+<img src="https://raw.githubusercontent.com/dunika/outbox-event-bus/main/docs/images/choose_publisher.png" alt="Choose Publisher" width="600">
+</div>
 
 ## Production Guide
 
