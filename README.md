@@ -1,14 +1,9 @@
 # outbox-event-bus
 
-<div align="center">
-
 ![version](https://img.shields.io/npm/v/outbox-event-bus?style=flat-square&color=2563eb)
 ![size](https://img.shields.io/bundlephobia/minzip/outbox-event-bus?style=flat-square&color=2563eb)
-![deps](https://img.shields.io/librariesio/release/npm/outbox-event-bus?style=flat-square&color=2563eb)
+![deps](https://img.shields.io/badge/dependencies-0-2563eb?style=flat-square)
 ![license](https://img.shields.io/npm/l/outbox-event-bus?style=flat-square&color=2563eb)
-
-
-</div>
 
 > **Never Lose an Event Again**
 >
