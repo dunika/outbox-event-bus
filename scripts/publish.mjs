@@ -23,11 +23,11 @@ if (!IS_CI) {
     } else {
       echo(chalk.red("✗ Authentication failed\n"))
       echo(chalk.bold("Choose an authentication method:\n"))
-      echo("  1. " + chalk.cyan("Interactive Login") + " (persists across sessions)")
-      echo("     Run: " + chalk.yellow("npm login") + "\n")
-      echo("  2. " + chalk.cyan("Environment Variable") + " (for automation or temporary use)")
-      echo("     Set: " + chalk.yellow("export NPM_TOKEN=your_token_here"))
-      echo("     Get token from: " + chalk.blue("https://www.npmjs.com/") + " → Access Tokens\n")
+      echo(`  1. ${chalk.cyan("Interactive Login")} (persists across sessions)`)
+      echo(`     Run: ${chalk.yellow("npm login")}\n`)
+      echo(`  2. ${chalk.cyan("Environment Variable")} (for automation or temporary use)`)
+      echo(`     Set: ${chalk.yellow("export NPM_TOKEN=your_token_here")}`)
+      echo(`     Get token from: ${chalk.blue("https://www.npmjs.com/")} → Access Tokens\n`)
 
       const response = await question(chalk.bold("Would you like to run npm login now? (y/n): "))
 

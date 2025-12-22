@@ -93,7 +93,31 @@ importers:
         specifier: ^8.8.5
         version: 8.8.5
 
-  adapters/dynamodb-aws-sdk:
+  config:
+    dependencies:
+      '@eslint/js':
+        specifier: 'catalog:'
+        version: 9.39.2
+      eslint-plugin-import:
+        specifier: 'catalog:'
+        version: 2.32.0(@typescript-eslint/parser@8.50.0(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))
+      eslint-plugin-vitest:
+        specifier: 'catalog:'
+        version: 0.5.4(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)(vitest@4.0.16(@types/node@25.0.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2))
+      tsdown:
+        specifier: 'catalog:'
+        version: 0.18.2(typescript@5.9.3)
+      typescript-eslint:
+        specifier: 'catalog:'
+        version: 8.50.0(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)
+      vite-tsconfig-paths:
+        specifier: 'catalog:'
+        version: 6.0.3(typescript@5.9.3)(vite@7.3.0(@types/node@25.0.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2))
+      vitest:
+        specifier: 'catalog:'
+        version: 4.0.16(@types/node@25.0.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)
+
+  packages/adapters/dynamodb-aws-sdk:
     dependencies:
       outbox-event-bus:
         specifier: workspace:*
@@ -107,7 +131,7 @@ importers:
         version: 3.956.0(@aws-sdk/client-dynamodb@3.956.0)
       '@outbox-event-bus/config':
         specifier: workspace:*
-        version: link:../../config
+        version: link:../../../config
       '@types/node':
         specifier: 'catalog:'
         version: 25.0.3
@@ -124,7 +148,7 @@ importers:
         specifier: 'catalog:'
         version: 4.0.16(@types/node@25.0.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)
 
-  adapters/mongo-mongodb:
+  packages/adapters/mongo-mongodb:
     dependencies:
       outbox-event-bus:
         specifier: workspace:*
@@ -132,7 +156,7 @@ importers:
     devDependencies:
       '@outbox-event-bus/config':
         specifier: workspace:*
-        version: link:../../config
+        version: link:../../../config
       '@types/node':
         specifier: 'catalog:'
         version: 25.0.3
@@ -149,7 +173,7 @@ importers:
         specifier: 'catalog:'
         version: 4.0.16(@types/node@25.0.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)
 
-  adapters/postgres-drizzle:
+  packages/adapters/postgres-drizzle:
     dependencies:
       outbox-event-bus:
         specifier: workspace:*
@@ -157,7 +181,7 @@ importers:
     devDependencies:
       '@outbox-event-bus/config':
         specifier: workspace:*
-        version: link:../../config
+        version: link:../../../config
       '@types/node':
         specifier: 'catalog:'
         version: 25.0.3
@@ -180,7 +204,7 @@ importers:
         specifier: 'catalog:'
         version: 4.0.16(@types/node@25.0.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)
 
-  adapters/postgres-prisma:
+  packages/adapters/postgres-prisma:
     dependencies:
       outbox-event-bus:
         specifier: workspace:*
@@ -188,7 +212,7 @@ importers:
     devDependencies:
       '@outbox-event-bus/config':
         specifier: workspace:*
-        version: link:../../config
+        version: link:../../../config
       '@prisma/adapter-pg':
         specifier: ^7.2.0
         version: 7.2.0
@@ -223,7 +247,7 @@ importers:
         specifier: 'catalog:'
         version: 4.0.16(@types/node@25.0.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)
 
-  adapters/redis-ioredis:
+  packages/adapters/redis-ioredis:
     dependencies:
       outbox-event-bus:
         specifier: workspace:*
@@ -231,7 +255,7 @@ importers:
     devDependencies:
       '@outbox-event-bus/config':
         specifier: workspace:*
-        version: link:../../config
+        version: link:../../../config
       '@types/node':
         specifier: 'catalog:'
         version: 25.0.3
@@ -254,7 +278,7 @@ importers:
         specifier: 'catalog:'
         version: 4.0.16(@types/node@25.0.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)
 
-  adapters/sqlite-better-sqlite3:
+  packages/adapters/sqlite-better-sqlite3:
     dependencies:
       outbox-event-bus:
         specifier: workspace:*
@@ -262,7 +286,7 @@ importers:
     devDependencies:
       '@outbox-event-bus/config':
         specifier: workspace:*
-        version: link:../../config
+        version: link:../../../config
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
@@ -282,35 +306,11 @@ importers:
         specifier: 'catalog:'
         version: 4.0.16(@types/node@25.0.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)
 
-  config:
-    dependencies:
-      '@eslint/js':
-        specifier: 'catalog:'
-        version: 9.39.2
-      eslint-plugin-import:
-        specifier: 'catalog:'
-        version: 2.32.0(@typescript-eslint/parser@8.50.0(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))
-      eslint-plugin-vitest:
-        specifier: 'catalog:'
-        version: 0.5.4(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)(vitest@4.0.16(@types/node@25.0.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2))
-      tsdown:
-        specifier: 'catalog:'
-        version: 0.18.2(typescript@5.9.3)
-      typescript-eslint:
-        specifier: 'catalog:'
-        version: 8.50.0(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)
-      vite-tsconfig-paths:
-        specifier: 'catalog:'
-        version: 6.0.3(typescript@5.9.3)(vite@7.3.0(@types/node@25.0.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2))
-      vitest:
-        specifier: 'catalog:'
-        version: 4.0.16(@types/node@25.0.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)
-
-  core:
+  packages/core:
     devDependencies:
       '@outbox-event-bus/config':
         specifier: workspace:*
-        version: link:../config
+        version: link:../../config
       '@types/node':
         specifier: 'catalog:'
         version: 25.0.3
@@ -327,7 +327,7 @@ importers:
         specifier: 'catalog:'
         version: 4.0.16(@types/node@25.0.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)
 
-  publishers/eventbridge:
+  packages/publishers/eventbridge:
     dependencies:
       outbox-event-bus:
         specifier: workspace:*
@@ -338,7 +338,7 @@ importers:
         version: 3.956.0
       '@outbox-event-bus/config':
         specifier: workspace:*
-        version: link:../../config
+        version: link:../../../config
       '@types/node':
         specifier: 'catalog:'
         version: 25.0.3
@@ -352,7 +352,7 @@ importers:
         specifier: 'catalog:'
         version: 4.0.16(@types/node@25.0.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)
 
-  publishers/kafka:
+  packages/publishers/kafka:
     dependencies:
       outbox-event-bus:
         specifier: workspace:*
@@ -360,7 +360,7 @@ importers:
     devDependencies:
       '@outbox-event-bus/config':
         specifier: workspace:*
-        version: link:../../config
+        version: link:../../../config
       '@types/node':
         specifier: 'catalog:'
         version: 25.0.3
@@ -377,7 +377,7 @@ importers:
         specifier: 'catalog:'
         version: 4.0.16(@types/node@25.0.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)
 
-  publishers/rabbitmq:
+  packages/publishers/rabbitmq:
     dependencies:
       amqplib:
         specifier: ^0.10.9
@@ -388,7 +388,7 @@ importers:
     devDependencies:
       '@outbox-event-bus/config':
         specifier: workspace:*
-        version: link:../../config
+        version: link:../../../config
       '@types/amqplib':
         specifier: ^0.10.8
         version: 0.10.8
@@ -405,7 +405,7 @@ importers:
         specifier: 'catalog:'
         version: 4.0.16(@types/node@25.0.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)
 
-  publishers/redis-streams:
+  packages/publishers/redis-streams:
     dependencies:
       outbox-event-bus:
         specifier: workspace:*
@@ -413,7 +413,7 @@ importers:
     devDependencies:
       '@outbox-event-bus/config':
         specifier: workspace:*
-        version: link:../../config
+        version: link:../../../config
       '@types/node':
         specifier: 'catalog:'
         version: 25.0.3
@@ -430,7 +430,7 @@ importers:
         specifier: 'catalog:'
         version: 4.0.16(@types/node@25.0.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)
 
-  publishers/sns:
+  packages/publishers/sns:
     dependencies:
       outbox-event-bus:
         specifier: workspace:*
@@ -441,7 +441,7 @@ importers:
         version: 3.956.0
       '@outbox-event-bus/config':
         specifier: workspace:*
-        version: link:../../config
+        version: link:../../../config
       '@types/node':
         specifier: 'catalog:'
         version: 25.0.3
@@ -455,7 +455,7 @@ importers:
         specifier: 'catalog:'
         version: 4.0.16(@types/node@25.0.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)
 
-  publishers/sqs:
+  packages/publishers/sqs:
     dependencies:
       outbox-event-bus:
         specifier: workspace:*
@@ -466,7 +466,7 @@ importers:
         version: 3.956.0
       '@outbox-event-bus/config':
         specifier: workspace:*
-        version: link:../../config
+        version: link:../../../config
       '@types/node':
         specifier: 'catalog:'
         version: 25.0.3

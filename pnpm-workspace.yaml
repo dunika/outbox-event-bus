@@ -1,7 +1,7 @@
 packages:
-  - core
-  - adapters/*
-  - publishers/*
+  - packages/core
+  - packages/adapters/*
+  - packages/publishers/*
   - config
 
 catalog:
