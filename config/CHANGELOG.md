@@ -1,5 +1,11 @@
 # @outbox-event-bus/config
 
+## 2.0.0
+
+### Major Changes
+
+- Update middleware
+
 ## 1.1.2
 
 ### Patch Changes

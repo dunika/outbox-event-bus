@@ -1,5 +1,16 @@
 # @outbox-event-bus/sqs-publisher
 
+## 2.0.0
+
+### Major Changes
+
+- Update middleware
+
+### Patch Changes
+
+- Updated dependencies
+  - outbox-event-bus@2.0.0
+
 ## 1.1.2
 
 ### Patch Changes
