@@ -179,7 +179,7 @@ WHERE status = 'active'
 
 ## Middleware
 
-`outbox-event-bus` supports middleware to intercept and process events during the **Emit** and **Consume** phases. This is useful for logging, observability, modifying events, or enforcing policies.
+`outbox-event-bus` supports middleware to intercept and process events during the **Emit** and **Handler** phases. This is useful for logging, observability, modifying events, or enforcing policies.
 
 ### Usage
 
@@ -257,12 +257,9 @@ These store your events. Choose one that matches your primary database.
 | **Redis** | [ioredis](./adapters/redis-ioredis/README.md) | Atomic (Multi/Exec) | Distributed Lock |
 | **SQLite** | [better-sqlite3](./adapters/sqlite-better-sqlite3/README.md) | Full (ACID) | Serialized |
 
-**Legend:**
-
 - **Full**: ACID transactions with atomicity guarantees
-- **Limited**: Single-document transactions or optimistic locking
-- **None**: No transaction support (events saved separately)
 - **SKIP LOCKED**: High-performance non-blocking reads for multiple workers
+- **Limited**: Single-document transactions or optimistic locking
 
 ### Publishers
 
@@ -277,6 +274,7 @@ These send your events to the world.
 | **[Kafka](./publishers/kafka/README.md)** | Streaming | Yes (Configurable) | `@outbox-event-bus/kafka-publisher` |
 | **[Redis Streams](./publishers/redis-streams/README.md)** | Lightweight Stream | Yes (Configurable) | `@outbox-event-bus/redis-streams-publisher` |
 
+<br>
 
 ### Choosing the Right Publisher
 
@@ -289,6 +287,7 @@ These send your events to the world.
 ## How-To Guides
 
 ### Working with Transactions (Prisma + Postgres Example)
+<br>
 
 ```typescript
 import { PrismaClient } from '@prisma/client';
@@ -353,6 +352,8 @@ async function createUser(userData: any) {
 
 > **Note:** Similar helpers (`withPrismaTransaction`, `withDrizzleTransaction`, `withMongodbTransaction`, etc.) are available in other adapters to simplify transaction management and avoid passing transaction objects manually.
 
+<br>
+
 ### Environment-Specific Adapters
 
 ```typescript
@@ -406,7 +407,7 @@ The library provides typed errors to help you handle specific failure scenarios 
 - **Validation Errors**: `BatchSizeLimitError`
 - **Operational Errors**: `TimeoutError`, `BackpressureError`, `MaxRetriesExceededError`, `HandlerError`
 
-#### Example
+<br>
 
 ```typescript
 import { OutboxEventBus, MaxRetriesExceededError } from 'outbox-event-bus';
