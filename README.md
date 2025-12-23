@@ -257,9 +257,7 @@ These store your events. Choose one that matches your primary database.
 | **Redis** | [ioredis](./adapters/redis-ioredis/README.md) | Atomic (Multi/Exec) | Distributed Lock |
 | **SQLite** | [better-sqlite3](./adapters/sqlite-better-sqlite3/README.md) | Full (ACID) | Serialized |
 
-- **Full**: ACID transactions with atomicity guarantees
-- **SKIP LOCKED**: High-performance non-blocking reads for multiple workers
-- **Limited**: Single-document transactions or optimistic locking
+<br>
 
 ### Publishers
 
