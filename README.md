@@ -87,6 +87,7 @@ await db.transaction(async (transaction) => {
 - **Storage Agnostic**: Works with any database. **Use our built-in adapters** for Postgres, MongoDB, DynamoDB, Redis, and SQLite, or create your own.
 - **Guaranteed Delivery**: At-least-once semantics with exponential backoff and dead letter handling.
 - **Safe Retries**: Strict 1:1 command bus pattern prevents duplicate side-effects.
+- **Distributed Sagas**: Orchestrate long-running workflows with automatic compensation and timeouts.
 - **Built-in Publishers**: Comes with optional publishers for SQS, SNS, Kafka, RabbitMQ, Redis Streams, and EventBridge
 - **Middleware Support**: Intercept and process events with custom middleware for cross-cutting concerns like logging, observability, and enrichment.
 - **Typed Error Handling**: Comprehensive typed errors for precise control over failure scenarios and recovery strategies.
@@ -96,6 +97,7 @@ await db.transaction(async (transaction) => {
 
 - [Concepts](#concepts)
 - [Middleware](#middleware)
+- [Distributed Sagas](#distributed-sagas)
 - [Adapters & Publishers](#adapters--publishers)
 - [How-To Guides](#how-to-guides)
 - [API Reference](./docs/API_REFERENCE.md)
@@ -179,7 +181,7 @@ WHERE status = 'active'
 
 ## Middleware
 
-`outbox-event-bus` supports middleware to intercept and process events during the **Emit** and **Consume** phases. This is useful for logging, observability, modifying events, or enforcing policies.
+`outbox-event-bus` supports middleware to intercept and process events during the **Emit** and **Handler** phases. This is useful for logging, observability, modifying events, or enforcing policies.
 
 ### Usage
 
@@ -241,6 +243,34 @@ bus.addEmitMiddleware(async (ctx, next) => {
 
 <br>
 
+## Distributed Sagas (Experimental)
+
+Implement long-running, distributed transactions using the **Routing Slip** pattern. Distributed Sagas ensure that complex workflows across multiple services or database operations are handled reliably with automatic compensation (rollbacks) on failure.
+
+- **Stateless**: Saga state (itinerary, log, variables) is carried entirely in the event payload.
+- **Atomic Transitions**: Integrates with the outbox to ensure local DB changes and next-step emissions are atomic.
+- **Automatic Compensation**: LIFO (Last-In, First-Out) compensation on failure.
+- **Passive Timeouts**: Automatic expiration and compensation for stuck workflows.
+
+```typescript
+import { RoutingSlipBuilder, SagaEngine } from '@outbox-event-bus/saga';
+
+// 1. Define your workflow
+const slip = new RoutingSlipBuilder()
+  .addActivity('reserve-inventory', { sku: 'ABC', qty: 1 })
+  .addActivity('process-payment', { amount: 100 })
+  .withTimeout(60000)
+  .build();
+
+// 2. Execute it via the engine
+const engine = new SagaEngine({ bus, registry });
+await engine.execute(slip);
+```
+
+For more details, see the [@outbox-event-bus/saga](./packages/saga/README.md) documentation.
+
+<br>
+
 ## Adapters & Publishers
 
 Mix and match any storage adapter with any publisher.
@@ -252,7 +282,7 @@ These store your events. Choose one that matches your primary database.
 | Database | Adapters | Transaction Support | Concurrency |
 |:---|:---|:---:|:---|
 | **Postgres** | [Prisma](./adapters/postgres-prisma/README.md), [Drizzle](./adapters/postgres-drizzle/README.md) | Full (ACID) | `SKIP LOCKED` |
-| **MongoDB** | [Native Driver](./adapters/mongo-mongodb/README.md) | Full (Replica Set) | Optimistic Locking |
+| **MongoDB** | [Native Driver](./adapters/mongodb/README.md) | Full (Replica Set) | Optimistic Locking |
 | **DynamoDB** | [AWS SDK](./adapters/dynamodb-aws-sdk/README.md) | Full (TransactWrite) | Optimistic Locking |
 | **Redis** | [ioredis](./adapters/redis-ioredis/README.md) | Atomic (Multi/Exec) | Distributed Lock |
 | **SQLite** | [better-sqlite3](./adapters/sqlite-better-sqlite3/README.md) | Full (ACID) | Serialized |
@@ -542,9 +572,9 @@ bus.addMiddleware(async (ctx, next) => {
   try {
     await next();
     eventCounter.inc({ type: ctx.event.type, phase: ctx.phase, status: 'success' });
-  } catch (err) {
+  } catch (error) {
     eventCounter.inc({ type: ctx.event.type, phase: ctx.phase, status: 'error' });
-    throw err;
+    throw error;
   } finally {
     processingDuration.observe({ type: ctx.event.type }, (Date.now() - start) / 1000);
   }

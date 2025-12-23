@@ -37,7 +37,8 @@
     "test:e2e": "vitest run -c vitest.e2e.config.ts"
   },
   "dependencies": {
-    "outbox-event-bus": "workspace:*"
+    "outbox-event-bus": "workspace:*",
+    "@outbox-event-bus/saga": "workspace:*"
   },
   "peerDependencies": {
     "better-sqlite3": "^12.5.0"

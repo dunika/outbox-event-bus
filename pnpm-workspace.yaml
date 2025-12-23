@@ -1,5 +1,6 @@
 packages:
   - packages/core
+  - packages/saga
   - packages/adapters/*
   - packages/publishers/*
   - config

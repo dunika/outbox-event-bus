@@ -30,6 +30,7 @@ const outbox = new RedisIoRedisOutbox({
   - [With Transactions (AsyncLocalStorage)](#with-transactions-asynclocalstorage)
   - [With Transactions (Explicit)](#with-transactions-explicit)
   - [With Redis Cluster](#with-redis-cluster)
+  - [Saga Storage](#saga-storage)
 - [API Methods](#api-methods)
 - [Manual Event Management](#manual-event-management)
 - [Features](#features)
@@ -343,6 +344,20 @@ const outbox = new RedisIoRedisOutbox({ redis });
 > ```typescript
 > { keyPrefix: '{myapp}:outbox' }  // All keys go to same slot
 > ```
+
+### Saga Storage
+
+The Redis adapter provides a `RedisIoredisSagaStore` implementation for the `@outbox-event-bus/saga` package. It leverages Redis native TTL for automatic cleanup of routing slips.
+
+```typescript
+import Redis from 'ioredis';
+import { RedisIoredisSagaStore } from '@outbox-event-bus/redis-ioredis-outbox';
+
+const sagaStore = new RedisIoredisSagaStore({
+  redis: new Redis(),
+  keyPrefix: 'saga:store' // optional
+});
+```
 
 ## API Methods
 

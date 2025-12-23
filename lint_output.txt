@@ -1,0 +1,26 @@
+Scope: 15 of 16 workspace projects
+packages/core lint$ eslint .
+packages/core lint: Done
+packages/saga lint$ eslint .
+packages/saga lint: /Users/dunika/workspace/outbox-event-bus/packages/saga/src/engine/activity-registry.ts
+packages/saga lint:   4:3  error  The generic type arguments should be specified as part of the constructor type arguments  @typescript-eslint/consistent-generic-constructors
+packages/saga lint: /Users/dunika/workspace/outbox-event-bus/packages/saga/src/engine/saga-engine.ts
+packages/saga lint:     2:3  error  'BusEvent' is defined but never used. Allowed unused vars must match /^_/u         @typescript-eslint/no-unused-vars
+packages/saga lint:   287:5  error  Unexpected console statement. Only these console methods are allowed: warn, error  no-console
+packages/saga lint: /Users/dunika/workspace/outbox-event-bus/packages/saga/tests/e2e/rabbitmq-saga.test.ts
+packages/saga lint:    85:5   error  Promises must be awaited, end with a call to .catch, end with a call to .then with a rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+packages/saga lint:    85:31  error  Promise returned in function argument where a void return was expected                                                                                              @typescript-eslint/no-misused-promises
+packages/saga lint:    94:5   error  Promises must be awaited, end with a call to .catch, end with a call to .then with a rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+packages/saga lint:    94:31  error  Promise returned in function argument where a void return was expected                                                                                              @typescript-eslint/no-misused-promises
+packages/saga lint:   159:5   error  Promises must be awaited, end with a call to .catch, end with a call to .then with a rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+packages/saga lint:   159:31  error  Promise returned in function argument where a void return was expected                                                                                              @typescript-eslint/no-misused-promises
+packages/saga lint:   167:5   error  Promises must be awaited, end with a call to .catch, end with a call to .then with a rejection handler or be explicitly marked as ignored with the `void` operator  @typescript-eslint/no-floating-promises
+packages/saga lint:   167:31  error  Promise returned in function argument where a void return was expected                                                                                              @typescript-eslint/no-misused-promises
+packages/saga lint: /Users/dunika/workspace/outbox-event-bus/packages/saga/tests/integration/linear-execution.test.ts
+packages/saga lint:   56:24  error  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+packages/saga lint: ✖ 12 problems (12 errors, 0 warnings)
+packages/saga lint:   1 error and 0 warnings potentially fixable with the `--fix` option.
+packages/saga lint: Failed
+/Users/dunika/workspace/outbox-event-bus/packages/saga:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @outbox-event-bus/saga@0.1.0 lint: `eslint .`
+Exit status 1

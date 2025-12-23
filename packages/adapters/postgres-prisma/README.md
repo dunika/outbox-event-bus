@@ -127,6 +127,14 @@ model OutboxEventArchive {
 
   @@map("outbox_events_archive")
 }
+
+model SagaStore {
+  id        String   @id
+  data      Bytes
+  expiresAt DateTime @map("expires_at")
+
+  @@map("saga_store")
+}
 ```
 
 ### Step 3: Run Migration
@@ -171,6 +179,21 @@ async function createUser(userData: any) {
     }, tx);
   });
 }
+```
+
+## Saga Storage
+
+The Prisma adapter provides a `PostgresPrismaSagaStore` implementation for the `@outbox-event-bus/saga` package. It supports transactional atomicity by sharing the Prisma transaction client.
+
+```typescript
+import { PrismaClient } from '@prisma/client';
+import { PostgresPrismaSagaStore } from '@outbox-event-bus/postgres-prisma-outbox';
+
+const prisma = new PrismaClient();
+const sagaStore = new PostgresPrismaSagaStore({
+  prisma,
+  modelName: 'sagaStore' // optional
+});
 ```
 
 ## Prisma Schema

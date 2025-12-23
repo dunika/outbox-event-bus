@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import type { ClientSession, MongoClient } from "mongodb"
 
-export const mongoMongodbTransactionStorage = new AsyncLocalStorage<ClientSession>()
+export const mongodbTransactionStorage = new AsyncLocalStorage<ClientSession>()
 
 export async function withMongodbTransaction<T>(
   client: MongoClient,
@@ -9,7 +9,7 @@ export async function withMongodbTransaction<T>(
 ): Promise<T> {
   const session = client.startSession()
   try {
-    return await mongoMongodbTransactionStorage.run(session, async () => {
+    return await mongodbTransactionStorage.run(session, async () => {
       let result: T
       await session.withTransaction(async () => {
         result = await fn(session)
@@ -22,5 +22,5 @@ export async function withMongodbTransaction<T>(
 }
 
 export function getMongodbSession(): () => ClientSession | undefined {
-  return () => mongoMongodbTransactionStorage.getStore()
+  return () => mongodbTransactionStorage.getStore()
 }

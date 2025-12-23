@@ -9,6 +9,7 @@ import {
   type OutboxConfig,
   PollingService,
   reportEventError,
+  resolveExecutor,
 } from "outbox-event-bus"
 import { RedisFields } from "./constants"
 import { pollEventsScript, recoverEventsScript } from "./scripts"
@@ -79,9 +80,11 @@ export class RedisIoRedisOutbox implements IOutbox<ChainableCommander> {
   async publish(events: BusEvent[], transaction?: unknown): Promise<void> {
     if (events.length === 0) return
 
-    const externalExecutor = (transaction ?? this.config.getPipeline?.()) as
-      | ChainableCommander
-      | undefined
+    const externalExecutor = resolveExecutor<ChainableCommander | undefined>(
+      transaction as ChainableCommander | undefined,
+      this.config.getPipeline,
+      undefined
+    )
     const pipeline = externalExecutor ?? this.redis.pipeline()
 
     for (const event of events) {

@@ -1,13 +1,13 @@
 import { MongoClient } from "mongodb"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest"
-import { MongoMongodbOutbox } from "./index"
+import { MongodbOutbox } from "./index"
 
 const MONGO_URL = "mongodb://localhost:27017"
 const DB_NAME = "outbox_test"
 
-describe("MongoMongodbOutbox E2E", () => {
+describe("MongodbOutbox E2E", () => {
   let client: MongoClient
-  let outbox: MongoMongodbOutbox | null = null
+  let outbox: MongodbOutbox | null = null
 
   beforeAll(async () => {
     client = new MongoClient(MONGO_URL)
@@ -33,7 +33,7 @@ describe("MongoMongodbOutbox E2E", () => {
   })
 
   it("should process events end-to-end", async () => {
-    outbox = new MongoMongodbOutbox({
+    outbox = new MongodbOutbox({
       client,
       dbName: DB_NAME,
       pollIntervalMs: 100, // fast polling for test
@@ -72,7 +72,7 @@ describe("MongoMongodbOutbox E2E", () => {
   })
 
   it("should retry failed events", async () => {
-    outbox = new MongoMongodbOutbox({
+    outbox = new MongodbOutbox({
       client,
       dbName: DB_NAME,
       pollIntervalMs: 100,
@@ -108,7 +108,7 @@ describe("MongoMongodbOutbox E2E", () => {
   })
 
   it("should support manual management of failed events", async () => {
-    outbox = new MongoMongodbOutbox({
+    outbox = new MongodbOutbox({
       client,
       dbName: DB_NAME,
       pollIntervalMs: 100,
@@ -161,7 +161,7 @@ describe("MongoMongodbOutbox E2E", () => {
   })
 
   it("should recover from stuck events", async () => {
-    outbox = new MongoMongodbOutbox({
+    outbox = new MongodbOutbox({
       client,
       dbName: DB_NAME,
       pollIntervalMs: 100,
@@ -204,7 +204,7 @@ describe("MongoMongodbOutbox E2E", () => {
       occurredAt: new Date(),
     }))
 
-    outbox = new MongoMongodbOutbox({
+    outbox = new MongodbOutbox({
       client,
       dbName: DB_NAME,
       pollIntervalMs: 100,
@@ -214,7 +214,7 @@ describe("MongoMongodbOutbox E2E", () => {
 
     const workerCount = 5
     const processedEvents: any[] = []
-    const workers: MongoMongodbOutbox[] = []
+    const workers: MongodbOutbox[] = []
 
     const handler = async (event: any) => {
       await new Promise((resolve) => setTimeout(resolve, Math.random() * 50))
@@ -228,7 +228,7 @@ describe("MongoMongodbOutbox E2E", () => {
       await workerClient.connect()
       clientsToClose.push(workerClient)
 
-      const worker = new MongoMongodbOutbox({
+      const worker = new MongodbOutbox({
         client: workerClient,
         dbName: DB_NAME,
         pollIntervalMs: 100 + Math.random() * 50,

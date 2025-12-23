@@ -11,7 +11,7 @@ Implement `@outbox-event-bus/saga`, a library for managing distributed transacti
 
 **Language/Version**: TypeScript (latest stable)
 **Primary Dependencies**: `@outbox-event-bus/core` (internal)
-**Storage**: Stateless (carried in message), relies on `outbox-event-bus` adapters for persistence.
+**Storage**: Stateless by default; uses `SagaStoreAdapter` for Claim Check offloading.
 **Testing**: Vitest (unit, integration), Testcontainers (E2E)
 **Target Platform**: Node.js (LTS)
 **Project Type**: Monorepo package (`packages/saga`)
@@ -21,9 +21,7 @@ Implement `@outbox-event-bus/saga`, a library for managing distributed transacti
 
 **NEEDS CLARIFICATION**:
 
-1. Integration Pattern: Should the Saga Engine be implemented as a middleware for `OutboxEventBus` or a separate service that registers handlers for routing slip commands?
-2. Compensation Flow: How does the engine signal the transition from "Forward" to "Compensation" mode in the message payload?
-3. Payload Size: What are the best practices for serializing the `RoutingSlip` to avoid exceeding transport limits (e.g., SQS 256KB)?
+1. Compensation Flow: How does the engine signal the transition from "Forward" to "Compensation" mode in the message payload?
 
 ## Constitution Check
 

@@ -9,6 +9,7 @@ import {
   type OutboxConfig,
   PollingService,
   reportEventError,
+  resolveExecutor,
 } from "outbox-event-bus"
 
 const DEFAULT_EXPIRE_IN_SECONDS = 300
@@ -75,6 +76,11 @@ export class SqliteBetterSqlite3Outbox implements IOutbox<Database.Database> {
   private readonly db: Database.Database
   private readonly poller: PollingService
 
+  private archiveStatement!: Database.Statement
+  private deleteStatement!: Database.Statement
+  private fetchStatement!: Database.Statement
+  private failStatement!: Database.Statement
+
   constructor(config: SqliteBetterSqlite3OutboxConfig) {
     if (config.db) {
       this.db = config.db
@@ -110,12 +116,37 @@ export class SqliteBetterSqlite3Outbox implements IOutbox<Database.Database> {
 
   private init() {
     this.db.exec(getOutboxSchema(this.config.tableName, this.config.archiveTableName))
+
+    this.archiveStatement = this.db.prepare(`
+      INSERT INTO ${this.config.archiveTableName} (
+        id, type, payload, occurred_at, status, retry_count, last_error, created_on, started_on, completed_on
+      ) VALUES (?, ?, ?, ?, '${EventStatus.COMPLETED}', ?, ?, ?, ?, ?)
+    `)
+
+    this.deleteStatement = this.db.prepare(`DELETE FROM ${this.config.tableName} WHERE id = ?`)
+
+    this.fetchStatement = this.db.prepare(`
+      SELECT * FROM ${this.config.tableName}
+      WHERE status = '${EventStatus.CREATED}'
+      OR (status = '${EventStatus.FAILED}' AND retry_count < ? AND next_retry_at <= ?)
+      OR (status = '${EventStatus.ACTIVE}' AND datetime(keep_alive, '+' || expire_in_seconds || ' seconds') < datetime(?))
+      LIMIT ?
+    `)
+
+    this.failStatement = this.db.prepare(`
+      UPDATE ${this.config.tableName}
+      SET status = '${EventStatus.FAILED}',
+          retry_count = ?,
+          last_error = ?,
+          next_retry_at = ?
+      WHERE id = ?
+    `)
   }
 
   async publish(events: BusEvent[], transaction?: Database.Database): Promise<void> {
     if (events.length === 0) return
 
-    const executor = transaction ?? this.config.getTransaction?.() ?? this.db
+    const executor = resolveExecutor(transaction, this.config.getTransaction, this.db)
 
     const insert = executor.prepare(`
       INSERT INTO ${this.config.tableName} (id, type, payload, occurred_at, status)
@@ -183,23 +214,44 @@ export class SqliteBetterSqlite3Outbox implements IOutbox<Database.Database> {
   }
 
   private async processBatch(handler: (event: BusEvent) => Promise<void>) {
+    const lockedEvents = this.lockBatch()
+    if (lockedEvents.length === 0) return
+
     const now = new Date().toISOString()
     const msNow = Date.now()
+    const completedEvents: OutboxRow[] = []
 
-    const lockedEvents = this.db.transaction(() => {
-      // Select events that are ready to process:
-      // 1. New events (status = 'created')
-      // 2. Failed events that can be retried (retry_count < max AND next_retry_at has passed)
-      // 3. Stuck events (status = 'active' but keepAlive + expire_in_seconds < now)
-      const rows = this.db
-        .prepare(`
-        SELECT * FROM ${this.config.tableName}
-        WHERE status = '${EventStatus.CREATED}'
-        OR (status = '${EventStatus.FAILED}' AND retry_count < ? AND next_retry_at <= ?)
-        OR (status = '${EventStatus.ACTIVE}' AND datetime(keep_alive, '+' || expire_in_seconds || ' seconds') < datetime(?))
-        LIMIT ?
-      `)
-        .all(this.config.maxRetries, now, now, this.config.batchSize) as OutboxRow[]
+    for (const lockedEvent of lockedEvents) {
+      const event: BusEvent = {
+        id: lockedEvent.id,
+        type: lockedEvent.type,
+        payload: JSON.parse(lockedEvent.payload),
+        occurredAt: new Date(lockedEvent.occurred_at),
+      }
+
+      try {
+        await handler(event)
+        completedEvents.push(lockedEvent)
+      } catch (error) {
+        this.handleEventFailure(lockedEvent, event, error, msNow)
+      }
+    }
+
+    if (completedEvents.length > 0) {
+      this.archiveBatch(completedEvents, now)
+    }
+  }
+
+  private lockBatch(): OutboxRow[] {
+    const now = new Date().toISOString()
+
+    return this.db.transaction(() => {
+      const rows = this.fetchStatement.all(
+        this.config.maxRetries,
+        now,
+        now,
+        this.config.batchSize
+      ) as OutboxRow[]
 
       if (rows.length === 0) return []
 
@@ -218,74 +270,45 @@ export class SqliteBetterSqlite3Outbox implements IOutbox<Database.Database> {
 
       return rows
     })()
+  }
 
-    if (lockedEvents.length === 0) return
+  private handleEventFailure(
+    lockedEvent: OutboxRow,
+    event: BusEvent,
+    error: unknown,
+    msNow: number
+  ) {
+    const retryCount = lockedEvent.retry_count + 1
+    reportEventError(this.poller.onError, error, event, retryCount, this.config.maxRetries)
 
-    const busEvents: BusEvent[] = lockedEvents.map((row) => ({
-      id: row.id,
-      type: row.type,
-      payload: JSON.parse(row.payload),
-      occurredAt: new Date(row.occurred_at),
-    }))
+    const delay = this.poller.calculateBackoff(retryCount)
 
-    const completedEvents: { event: BusEvent; lockedEvent: OutboxRow }[] = []
+    this.failStatement.run(
+      retryCount,
+      formatErrorMessage(error),
+      new Date(msNow + delay).toISOString(),
+      lockedEvent.id
+    )
+  }
 
-    for (let index = 0; index < busEvents.length; index++) {
-      const event = busEvents[index]!
-      const lockedEvent = lockedEvents[index]!
+  private archiveBatch(completedEvents: OutboxRow[], now: string) {
+    const completionTime = new Date().toISOString()
 
-      try {
-        await handler(event)
-        completedEvents.push({ event, lockedEvent })
-      } catch (error) {
-        const retryCount = lockedEvent.retry_count + 1
-        reportEventError(this.poller.onError, error, event, retryCount, this.config.maxRetries)
-
-        const delay = this.poller.calculateBackoff(retryCount)
-
-        this.db
-          .prepare(`
-          UPDATE ${this.config.tableName}
-          SET status = '${EventStatus.FAILED}',
-              retry_count = ?,
-              last_error = ?,
-              next_retry_at = ?
-          WHERE id = ?
-        `)
-          .run(
-            retryCount,
-            formatErrorMessage(error),
-            new Date(msNow + delay).toISOString(),
-            lockedEvent.id
-          )
+    this.db.transaction(() => {
+      for (const lockedEvent of completedEvents) {
+        this.archiveStatement.run(
+          lockedEvent.id,
+          lockedEvent.type,
+          lockedEvent.payload,
+          lockedEvent.occurred_at,
+          lockedEvent.retry_count,
+          lockedEvent.last_error,
+          lockedEvent.created_on,
+          now,
+          completionTime
+        )
+        this.deleteStatement.run(lockedEvent.id)
       }
-    }
-
-    if (completedEvents.length > 0) {
-      this.db.transaction(() => {
-        const insertArchive = this.db.prepare(`
-          INSERT INTO ${this.config.archiveTableName} (
-            id, type, payload, occurred_at, status, retry_count, last_error, created_on, started_on, completed_on
-          ) VALUES (?, ?, ?, ?, '${EventStatus.COMPLETED}', ?, ?, ?, ?, ?)
-        `)
-        const deleteEvent = this.db.prepare(`DELETE FROM ${this.config.tableName} WHERE id = ?`)
-
-        const completionTime = new Date().toISOString()
-        for (const { lockedEvent } of completedEvents) {
-          insertArchive.run(
-            lockedEvent.id,
-            lockedEvent.type,
-            lockedEvent.payload,
-            lockedEvent.occurred_at,
-            lockedEvent.retry_count,
-            lockedEvent.last_error,
-            lockedEvent.created_on,
-            now,
-            completionTime
-          )
-          deleteEvent.run(lockedEvent.id)
-        }
-      })()
-    }
+    })()
   }
 }

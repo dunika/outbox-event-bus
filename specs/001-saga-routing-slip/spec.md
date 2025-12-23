@@ -93,13 +93,13 @@ As a developer, I want to define retry policies for individual activities, so th
 - **FR-008**: The engine MUST be initialized with an explicit registry mapping activity names to their implementations.
 - **FR-009**: The engine MUST pass the entire updated `RoutingSlip` state as the payload for the next activity's command message.
 - **FR-010**: Any uncaught exception thrown by an activity's `execute` method (after all retries are exhausted) MUST trigger the automatic compensation flow.
-- **FR-011**: If a `compensate` method fails, the engine MUST stop the compensation flow, emit a `RoutingSlipFaulted` event, and move the slip to a Dead Letter Queue (DLQ) state for manual intervention.
-- **FR-004**: The `execute` method MUST be able to return "Variables" that are merged into the slip's global state.
+- **FR-011**: If a `compensate` method fails, the engine MUST stop the compensation flow, emit a `RoutingSlipFaulted` event, and mark the slip as `Terminated` (logical DLQ) to prevent further automated processing.
+- **FR-004**: The `execute` method MUST be able to return "Variables" that are merged into the slip's global state using a shallow merge (Object.assign).
 - **FR-005**: The engine MUST support a "Compensation Mode" that processes the `ActivityLog` in reverse order (LIFO).
 - **FR-006**: The system MUST emit standard `OutboxEvent` types for observability: `RoutingSlipCreated`, `ActivityCompleted`, `ActivityFaulted`, `RoutingSlipCompleted`, and `RoutingSlipFaulted`. These events MUST be emitted via the `OutboxEventBus`.
 - **FR-007**: The engine MUST perform a passive timeout check before executing any activity.
-- **FR-012**: The engine MUST implement a "Claim Check" pattern to handle large payloads that exceed transport limits (e.g., > 256KB), offloading the state to temporary storage if necessary.
-- **FR-013**: The Saga Engine MUST be implemented as a `HandlerMiddleware` for the `OutboxEventBus` to intercept and process routing slip commands transparently.
+- **FR-012**: The engine MUST implement a "Claim Check" pattern to handle large payloads that exceed transport limits (e.g., > 256KB), offloading the state to an external store via a `SagaStoreAdapter` (e.g., S3, Redis) to maintain storage agnosticism.
+- **FR-013**: The Saga Engine MUST be implemented as a `HandlerMiddleware` for the `OutboxEventBus` to intercept and process routing slip commands (identified by the presence of a `routingSlip` property in the message body) transparently.
 - **FR-014**: The engine MUST ensure idempotency by checking the `ActivityLog` before executing an activity to prevent duplicate processing of the same step.
 
 ### Non-Functional Requirements (Constitution Alignment)

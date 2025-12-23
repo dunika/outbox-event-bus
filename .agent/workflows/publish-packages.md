@@ -69,7 +69,7 @@ All packages are published under the `@outbox-event-bus` scope:
 - `outbox-event-bus` (core package)
 - `@outbox-event-bus/redis-ioredis-outbox`
 - `@outbox-event-bus/dynamodb-aws-sdk-outbox`
-- `@outbox-event-bus/mongo-mongodb-outbox`
+- `@outbox-event-bus/mongodb-outbox`
 - `@outbox-event-bus/postgres-drizzle-outbox`
 - `@outbox-event-bus/postgres-prisma-outbox`
 - `@outbox-event-bus/sqlite-better-sqlite3-outbox`

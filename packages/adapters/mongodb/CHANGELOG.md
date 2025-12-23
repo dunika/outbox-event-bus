@@ -1,4 +1,4 @@
-# @outbox-event-bus/mongo-mongodb-outbox
+# @outbox-event-bus/mongodb-outbox
 
 ## 1.1.2
 

@@ -1,14 +1,13 @@
 {
-  "name": "@outbox-event-bus/mongo-mongodb-outbox",
-  "version": "1.1.2",
-  "private": false,
+  "name": "@outbox-event-bus/saga",
+  "version": "0.1.0",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/dunika/outbox-event-bus.git",
-    "directory": "packages/adapters/mongo-mongodb"
+    "directory": "packages/saga"
   },
-  "homepage": "https://github.com/dunika/outbox-event-bus/tree/main/packages/adapters/mongo-mongodb#readme",
+  "homepage": "https://github.com/dunika/outbox-event-bus/tree/main/packages/saga#readme",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -23,6 +22,10 @@
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
       }
+    },
+    "./tests": {
+      "import": "./src/tests/storage-test-suite.ts",
+      "types": "./src/tests/storage-test-suite.ts"
     }
   },
   "files": [
@@ -33,21 +36,25 @@
   ],
   "scripts": {
     "build": "tsdown",
+    "lint": "eslint .",
     "test": "vitest run",
-    "test:e2e": "docker-compose up -d --wait && vitest run -c vitest.e2e.config.ts; status=$?; docker-compose down; exit $status"
+    "format": "biome check --write .",
+    "format:check": "biome check ."
   },
   "dependencies": {
     "outbox-event-bus": "workspace:*"
   },
-  "peerDependencies": {
-    "mongodb": "^7.0.0"
-  },
   "devDependencies": {
     "@outbox-event-bus/config": "workspace:*",
+    "@outbox-event-bus/rabbitmq-publisher": "workspace:*",
+    "@testcontainers/rabbitmq": "^11.10.0",
+    "@types/amqplib": "^0.10.8",
     "@types/node": "catalog:",
-    "mongodb": "^7.0.0",
+    "amqplib": "^0.10.9",
+    "testcontainers": "^10.16.0",
     "tsdown": "catalog:",
     "typescript": "catalog:",
+    "vite-tsconfig-paths": "catalog:",
     "vitest": "catalog:"
   }
 }

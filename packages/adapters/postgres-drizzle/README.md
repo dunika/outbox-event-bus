@@ -210,6 +210,21 @@ async function createUser(user: any) {
 > [!TIP]
 > AsyncLocalStorage eliminates the need to pass transactions through your call stack, improving code clarity.
 
+## Saga Storage
+
+The Drizzle adapter provides a `PostgresDrizzleSagaStore` implementation for the `@outbox-event-bus/saga` package. It supports transactional atomicity by sharing the Drizzle transaction client.
+
+```typescript
+import { drizzle } from 'drizzle-orm/postgres-js';
+import { PostgresDrizzleSagaStore } from '@outbox-event-bus/postgres-drizzle-outbox';
+
+const db = drizzle(...);
+const sagaStore = new PostgresDrizzleSagaStore({
+  db,
+  table: sagaStoreTable // optional, defaults to 'outbox_saga_store'
+});
+```
+
 ## Custom Table Schemas
 
 The adapter supports custom table definitions, enabling:

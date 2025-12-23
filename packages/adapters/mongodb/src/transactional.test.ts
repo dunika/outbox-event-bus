@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
-import { MongoMongodbOutbox } from "./mongo-mongodb-outbox"
+import { MongodbOutbox } from "./mongodb-outbox"
 
-describe("MongoMongodbOutbox Transactional Support", () => {
+describe("MongodbOutbox Transactional Support", () => {
   it("should pass session to insertMany when getSession provides one", async () => {
     const mockCollection = {
       insertMany: vi.fn().mockResolvedValue({}),
@@ -14,7 +14,7 @@ describe("MongoMongodbOutbox Transactional Support", () => {
     }
     const mockSession = { session: "mock-session" } as any
 
-    const outbox = new MongoMongodbOutbox({
+    const outbox = new MongodbOutbox({
       client: mockClient as any,
       dbName: "test-db",
       getSession: () => mockSession,
@@ -39,7 +39,7 @@ describe("MongoMongodbOutbox Transactional Support", () => {
       db: vi.fn().mockReturnValue(mockDb),
     }
 
-    const outbox = new MongoMongodbOutbox({
+    const outbox = new MongodbOutbox({
       client: mockClient as any,
       dbName: "test-db",
       getSession: () => undefined,

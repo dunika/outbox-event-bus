@@ -14,9 +14,10 @@ npm install outbox-event-bus
 
 The library consists of three main components:
 
-1.  **[OutboxEventBus](https://github.com/dunika/outbox-event-bus/blob/main/docs/API_REFERENCE.md#outboxeventbus)**: The main entry point. It manages event listeners and delegates storage to the `IOutbox` adapter.
+1.  **[OutboxEventBus](https://github.com/dunika/outbox-event-bus/blob/main/docs/API_REFERENCE.md#outboxeventbus)**: The main orchestrator. It manages event listeners and delegates storage to the `IOutbox` adapter.
 2.  **[IOutbox](https://github.com/dunika/outbox-event-bus/blob/main/docs/API_REFERENCE.md#ioutbox-interface) (Adapter)**: Responsible for persisting events to the database and polling for new events.
 3.  **[IPublisher](https://github.com/dunika/outbox-event-bus/blob/main/docs/API_REFERENCE.md#publishers)**: Optional component that subscribes to the bus and forwards events to external systems (SQS, Kafka, etc.).
+4.  **[@outbox-event-bus/saga](./packages/saga)**: Lightweight distributed transaction engine using the Routing Slip pattern.
 
 ## Project Structure
 
@@ -42,7 +43,7 @@ import { OutboxEventBus, InMemoryOutbox } from "outbox-event-bus";
 const outbox = new InMemoryOutbox();
 
 // 2. Create Bus
-const bus = new OutboxEventBus(outbox, (err) => console.error(err));
+const bus = new OutboxEventBus(outbox, (error) => console.error(error));
 
 // 3. Start
 bus.start();

@@ -13,7 +13,7 @@ import {
 
 const DEFAULT_EXPIRE_IN_SECONDS = 60
 
-export interface MongoMongodbOutboxConfig extends OutboxConfig {
+export interface MongodbOutboxConfig extends OutboxConfig {
   client: MongoClient
   dbName: string
   collectionName?: string
@@ -36,13 +36,13 @@ interface OutboxDocument {
   keepAlive: Date
 }
 
-export class MongoMongodbOutbox implements IOutbox<ClientSession> {
-  private readonly config: Required<MongoMongodbOutboxConfig>
+export class MongodbOutbox implements IOutbox<ClientSession> {
+  private readonly config: Required<MongodbOutboxConfig>
   private readonly collection: Collection<OutboxDocument>
   private readonly poller: PollingService
   private onError?: ErrorHandler
 
-  constructor(config: MongoMongodbOutboxConfig) {
+  constructor(config: MongodbOutboxConfig) {
     this.config = {
       batchSize: config.batchSize ?? 50,
       pollIntervalMs: config.pollIntervalMs ?? 1000,
@@ -159,7 +159,6 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
   private async processBatch(handler: (event: BusEvent) => Promise<void>) {
     const now = new Date()
 
-    // Identify events ready for processing (created, retryable, or stuck).
     const query = {
       $or: [
         { status: EventStatus.CREATED },
@@ -231,7 +230,7 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
       }
     }
 
-    // Batch completion
+
     if (completedEventIds.length > 0) {
       await this.collection.updateMany(
         { eventId: { $in: completedEventIds } },
@@ -243,5 +242,6 @@ export class MongoMongodbOutbox implements IOutbox<ClientSession> {
         }
       )
     }
+
   }
 }

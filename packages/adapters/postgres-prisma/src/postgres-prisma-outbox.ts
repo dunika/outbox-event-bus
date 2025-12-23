@@ -8,6 +8,7 @@ import {
   type OutboxConfig,
   PollingService,
   reportEventError,
+  resolveExecutor,
 } from "outbox-event-bus"
 
 export interface PostgresPrismaOutboxConfig extends OutboxConfig {
@@ -50,7 +51,7 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
   }
 
   async publish(events: BusEvent[], transaction?: PrismaClient): Promise<void> {
-    const executor = transaction ?? this.config.getTransaction?.() ?? this.config.prisma
+    const executor = resolveExecutor(transaction, this.config.getTransaction, this.config.prisma)
 
     await (executor as any)[this.config.models!.outbox!].createMany({
       data: events.map((event) => ({
@@ -111,10 +112,6 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
       // Use raw query to support SKIP LOCKED which is not available in standard Prisma API.
       // SKIP LOCKED is critical for concurrent processing - it allows multiple workers to
       // process different events simultaneously without blocking each other.
-      // Select events that are:
-      // 1. New (status = created)
-      // 2. Failed but can be retried
-      // 3. Active but stuck/timed out
       const rawEvents = await transaction.$queryRawUnsafe<any[]>(
         `
         SELECT * FROM "${this.config.tableName}"
@@ -196,7 +193,6 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
         const retryCount = event.retryCount + 1
         reportEventError(this.poller.onError, error, busEvent, retryCount, this.config.maxRetries)
 
-        // Mark this specific event as failed
         const delay = this.poller.calculateBackoff(retryCount)
         await (this.config.prisma as any)[this.config.models!.outbox!].update({
           where: { id: event.id },

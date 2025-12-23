@@ -110,6 +110,21 @@ db.transaction(() => {
 })();  // Both committed together or both rolled back
 ```
 
+### 🧬 Saga Storage
+
+The SQLite adapter provides a `SqliteBetterSqlite3SagaStore` implementation for the `@outbox-event-bus/saga` package. It supports transactional atomicity by sharing the SQLite database connection.
+
+```typescript
+import Database from 'better-sqlite3';
+import { SqliteBetterSqlite3SagaStore } from '@outbox-event-bus/sqlite-better-sqlite3-outbox';
+
+const db = new Database('app.db');
+const sagaStore = new SqliteBetterSqlite3SagaStore({
+  db,
+  tableName: 'outbox_saga_store' // optional
+});
+```
+
 ### 📦 Auto-Archiving
 
 Completed events are automatically moved to `outbox_events_archive` for audit trails without bloating the active table.

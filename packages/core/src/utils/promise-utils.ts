@@ -6,13 +6,15 @@ export async function promiseMap<T, R>(
   let cursor = 0
   const results = new Array<R>(items.length)
 
-  const workers = Array.from({ length: concurrency }, async () => {
-    while (cursor < items.length) {
-      const index = cursor++
-      if (index >= items.length) break
-      results[index] = await mapper(items[index] as T, index)
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (cursor < items.length) {
+        const index = cursor++
+        results[index] = await mapper(items[index] as T, index)
+      }
     }
-  })
+  )
   await Promise.all(workers)
 
   return results

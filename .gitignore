@@ -1,5 +1,17 @@
 node_modules
 dist
+build
 .DS_Store
 coverage
 .npmrc
+*.log
+.env*
+.venv
+venv
+*.pyc
+__pycache__
+.idea
+.vscode
+*.tmp
+*.swp
+Thumbs.db

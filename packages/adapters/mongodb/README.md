@@ -1,7 +1,7 @@
 # MongoDB Adapter
 
-![npm version](https://img.shields.io/npm/v/@outbox-event-bus/mongo-mongodb-outbox?style=flat-square&color=2563eb)
-![npm downloads](https://img.shields.io/npm/dm/@outbox-event-bus/mongo-mongodb-outbox?style=flat-square&color=2563eb)
+![npm version](https://img.shields.io/npm/v/@outbox-event-bus/mongodb-outbox?style=flat-square&color=2563eb)
+![npm downloads](https://img.shields.io/npm/dm/@outbox-event-bus/mongodb-outbox?style=flat-square&color=2563eb)
 
 > **Transactional Event Persistence for MongoDB**  
 > Leverage MongoDB's ACID transactions and flexible document model to reliably persist and process events with the Outbox pattern.
@@ -13,18 +13,18 @@ MongoDB adapter for [outbox-event-bus](https://github.com/dunika/outbox-event-bu
 ## Quick Start
 
 ```bash
-npm install @outbox-event-bus/mongo-mongodb-outbox
+npm install @outbox-event-bus/mongodb-outbox
 ```
 
 ```typescript
 import { MongoClient } from 'mongodb';
-import { MongoMongodbOutbox } from '@outbox-event-bus/mongo-mongodb-outbox';
+import { MongodbOutbox } from '@outbox-event-bus/mongodb-outbox';
 import { OutboxEventBus } from 'outbox-event-bus';
 
 const client = new MongoClient('mongodb://localhost:27017');
 await client.connect();
 
-const outbox = new MongoMongodbOutbox({
+const outbox = new MongodbOutbox({
   client,
   dbName: 'myapp',
   collectionName: 'outbox_events' // optional, defaults to 'outbox_events'
@@ -65,7 +65,7 @@ await bus.emit({
 ```mermaid
 graph LR
     A[Your Application] -->|emit events| B[OutboxEventBus]
-    B -->|publish| C[MongoMongodbOutbox]
+    B -->|publish| C[MongodbOutbox]
     C -->|insertMany| D[(MongoDB Collection)]
     C -->|poll & claim| D
     C -->|process| E[Event Handlers]
@@ -96,13 +96,13 @@ This adapter uses **Optimistic Locking** via `findOneAndUpdate` to ensure safe c
 
 ```typescript
 import { MongoClient } from 'mongodb';
-import { MongoMongodbOutbox } from '@outbox-event-bus/mongo-mongodb-outbox';
+import { MongodbOutbox } from '@outbox-event-bus/mongodb-outbox';
 import { OutboxEventBus } from 'outbox-event-bus';
 
 const client = new MongoClient('mongodb://localhost:27017');
 await client.connect();
 
-const outbox = new MongoMongodbOutbox({
+const outbox = new MongodbOutbox({
   client,
   dbName: 'myapp'
 });
@@ -118,7 +118,7 @@ Use `AsyncLocalStorage` to manage MongoDB `ClientSession` across your applicatio
 ```typescript
 import { MongoClient, ClientSession } from 'mongodb';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { MongoMongodbOutbox } from '@outbox-event-bus/mongo-mongodb-outbox';
+import { MongodbOutbox } from '@outbox-event-bus/mongodb-outbox';
 import { OutboxEventBus } from 'outbox-event-bus';
 
 const client = new MongoClient('mongodb://localhost:27017');
@@ -129,7 +129,7 @@ function getMongodbSession() {
   return () => als.getStore();
 }
 
-const outbox = new MongoMongodbOutbox({
+const outbox = new MongodbOutbox({
   client,
   dbName: 'myapp',
   getSession: getMongodbSession()
@@ -178,6 +178,25 @@ await session.withTransaction(async () => {
 session.endSession();
 ```
 
+## Saga Storage
+
+The MongoDB adapter provides a `MongodbSagaStore` implementation for the `@outbox-event-bus/saga` package. It uses MongoDB's native TTL index for automatic cleanup.
+
+```typescript
+import { MongoClient } from 'mongodb';
+import { MongodbSagaStore } from '@outbox-event-bus/mongodb-outbox';
+
+const client = new MongoClient('mongodb://localhost:27017');
+const sagaStore = new MongodbSagaStore({
+  client,
+  dbName: 'myapp',
+  collectionName: 'outbox_saga_store' // optional
+});
+
+// Ensure TTL index is created
+await sagaStore.initialize();
+```
+
 ### With Replica Set
 
 MongoDB transactions require a replica set. Configure your connection string accordingly:
@@ -192,20 +211,20 @@ const client = new MongoClient(
 
 ## API Reference
 
-### `MongoMongodbOutbox`
+### `MongodbOutbox`
 
 The MongoDB adapter for the Outbox Event Bus.
 
 #### Constructor
 
 ```typescript
-new MongoMongodbOutbox(config: MongoMongodbOutboxConfig)
+new MongodbOutbox(config: MongodbOutboxConfig)
 ```
 
-#### `MongoMongodbOutboxConfig`
+#### `MongodbOutboxConfig`
 
 ```typescript
-interface MongoMongodbOutboxConfig {
+interface MongodbOutboxConfig {
   client: MongoClient;                           // MongoDB client instance
   dbName: string;                                // Database name
   collectionName?: string;                       // Collection name (default: 'outbox_events')
@@ -364,7 +383,7 @@ Monitor the following metrics:
 Adjust `processingTimeoutMs` based on your event handler complexity:
 
 ```typescript
-const outbox = new MongoMongodbOutbox({
+const outbox = new MongodbOutbox({
   client,
   dbName: 'myapp',
   processingTimeoutMs: 60000 // 60 seconds for long-running handlers
@@ -437,7 +456,7 @@ const events = await client.db('myapp').collection('outbox_events').find({
 Yes! Pass `collectionName` in the config:
 
 ```typescript
-const outbox = new MongoMongodbOutbox({
+const outbox = new MongodbOutbox({
   client,
   dbName: 'myapp',
   collectionName: 'my_custom_outbox'

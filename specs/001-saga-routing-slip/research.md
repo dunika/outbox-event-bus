@@ -98,3 +98,44 @@ Instead of an active "Reaper" process that polls a database for timed-out sagas,
   - **Maintain Portability**: Adheres to Principle II: Storage Agnosticism by avoiding a central state database.
   - **Built-in Compression**: Use Node.js native `zlib` to compress large slips before emission.
   - **Claim Check Fallback**: Support an optional "Claim Check" pattern where the slip is stored in the outbox's underlying storage if it exceeds transport limits.
+
+## 7. SagaStoreAdapter Implementation Research
+
+For scenarios where the Routing Slip exceeds transport limits (e.g., 256KB for SQS/SNS) or requires persistence for long-running sagas, a `SagaStoreAdapter` is used.
+
+### 7.1 DynamoDB (AWS SDK)
+
+- **Decision**: Use native **TTL** with a `Number` attribute (Unix timestamp in seconds) and **S3-based Claim Check** for payloads > 400KB.
+- **Rationale**:
+  - **TTL**: DynamoDB's native TTL is cost-effective (no extra WCUs) and handles cleanup automatically.
+  - **Payloads**: DynamoDB has a strict 400KB limit per item. S3 is the industry-standard "Claim Check" store for AWS.
+- **Alternatives considered**:
+  - **Item Splitting**: Too complex to maintain atomicity across multiple items.
+  - **Compression**: Already implemented in core, but may still exceed 400KB for massive sagas.
+
+### 7.2 MongoDB
+
+- **Decision**: Use **TTL Indexes** on a `Date` field and **BSON BinData** for binary storage.
+- **Rationale**:
+  - **TTL**: `createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })` is the standard MongoDB way to handle expiration.
+  - **Storage**: BSON `BinData` supports up to 16MB, which is more than enough for saga states. It is more performant than GridFS for this use case.
+- **Alternatives considered**:
+  - **GridFS**: Overkill for saga states; adds complexity by splitting data into chunks.
+
+### 7.3 Prisma & Drizzle (Postgres)
+
+- **Decision**: Use a **Transaction Injection** pattern via a `getTransaction` configuration or direct parameter passing.
+- **Rationale**:
+  - **Atomicity**: To ensure the saga state is saved only if the business logic succeeds, the adapter must use the same transaction.
+  - **Consistency**: Both Prisma and Drizzle support passing a transaction client (`tx`) to their respective methods.
+- **Alternatives considered**:
+  - **Two-Phase Commit**: Too complex and prone to failure in distributed environments.
+
+### 7.4 SQLite (better-sqlite3)
+
+- **Decision**: **Manual Cleanup** triggered during the Outbox maintenance cycle and shared database connection for transactions.
+- **Rationale**:
+  - **TTL**: SQLite lacks native TTL. Hooking into the existing `PollingService` maintenance task ensures cleanup without extra background processes.
+  - **Integrity**: `better-sqlite3` is synchronous; using the same database handle within a `BEGIN/COMMIT` block ensures transactional integrity.
+- **Alternatives considered**:
+  - **Separate Cleanup Thread**: Unnecessary overhead for SQLite's typical use cases.

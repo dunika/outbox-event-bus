@@ -5,6 +5,8 @@ Auto-generated from all feature plans. Last updated: 2025-12-23
 ## Active Technologies
 - TypeScript (latest stable) + `@outbox-event-bus/core` (internal) (001-saga-routing-slip)
 - Stateless (carried in message), relies on `outbox-event-bus` adapters for persistence. (001-saga-routing-slip)
+- TypeScript (latest stable) + `@outbox-event-bus/core`, `@outbox-event-bus/saga` (001-saga-storage-adapters)
+- Redis, PostgreSQL, SQLite, DynamoDB, MongoDB (001-saga-storage-adapters)
 
 - TypeScript 5.9+ + `@outbox-event-bus/core`, `vitest` (001-saga-routing-slip)
 
@@ -24,6 +26,7 @@ npm test && npm run lint
 TypeScript 5.9+: Follow standard conventions
 
 ## Recent Changes
+- 001-saga-storage-adapters: Added TypeScript (latest stable) + `@outbox-event-bus/core`, `@outbox-event-bus/saga`
 - 001-saga-routing-slip: Added TypeScript (latest stable) + `@outbox-event-bus/core` (internal)
 
 - 001-saga-routing-slip: Added TypeScript 5.9+ + `@outbox-event-bus/core`, `vitest`

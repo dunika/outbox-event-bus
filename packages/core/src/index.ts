@@ -9,3 +9,5 @@ export * from "./types/interfaces"
 export * from "./types/middleware"
 export * from "./types/types"
 export * from "./utils/time-utils"
+export * from "./utils/adapter-utils"
+

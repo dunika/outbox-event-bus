@@ -48,3 +48,11 @@ model OutboxEventArchive {
 
   @@map("outbox_events_archive")
 }
+
+model SagaStore {
+  id        String   @id
+  data      Bytes
+  expiresAt DateTime @map("expires_at")
+
+  @@map("saga_store")
+}

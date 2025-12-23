@@ -1,4 +1,19 @@
-import { integer, jsonb, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
+import {
+  customType,
+  integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core"
+
+const bytea = customType<{ data: Buffer }>({
+  dataType() {
+    return "bytea"
+  },
+})
 
 export const outboxStatusEnum = pgEnum("outbox_status", [
   "created",
@@ -34,4 +49,10 @@ export const outboxEventsArchive = pgTable("outbox_events_archive", {
   createdOn: timestamp("created_on").notNull(),
   startedOn: timestamp("started_on"),
   completedOn: timestamp("completed_on").notNull(),
+})
+
+export const sagaStore = pgTable("saga_store", {
+  id: text("id").primaryKey(),
+  data: bytea("data").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
 })

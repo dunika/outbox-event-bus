@@ -190,23 +190,6 @@ Resets the status of failed events to 'created' so they can be retried.
 bus.retryEvents(eventIds: string[]): Promise<void>
 ```
 
-### InMemoryOutbox
-
-A lightweight in-memory outbox, primarily useful for testing or non-persistent workflows.
-
-#### Constructor
-
-```typescript
-new InMemoryOutbox(config?: InMemoryOutboxConfig)
-```
-
-#### Configuration
-
-```typescript
-interface InMemoryOutboxConfig {
-  maxRetries?: number; // Default: 3
-}
-```
 
 ### IOutbox Interface
 
@@ -451,20 +434,20 @@ interface DynamoDBAwsSdkOutboxConfig extends OutboxConfig {
 }
 ```
 
-### MongoMongodbOutbox
+### MongodbOutbox
 
 Adapter for MongoDB.
 
 #### Constructor
 
 ```typescript
-new MongoMongodbOutbox(config: MongoMongodbOutboxConfig)
+new MongodbOutbox(config: MongodbOutboxConfig)
 ```
 
 #### Configuration
 
 ```typescript
-interface MongoMongodbOutboxConfig extends OutboxConfig {
+interface MongodbOutboxConfig extends OutboxConfig {
   client: MongoClient;
   dbName: string;
   collectionName?: string; // Default: "outbox_events"
@@ -551,10 +534,11 @@ new InMemoryOutbox(config?: InMemoryOutboxConfig)
 #### Configuration
 
 ```typescript
-interface InMemoryOutboxConfig extends OutboxConfig {
-  maxEvents?: number; // Optional limit for memory safety
+interface InMemoryOutboxConfig {
+  maxRetries?: number; // Default: 3
 }
 ```
+
 
 ## Publishers
 
@@ -691,6 +675,63 @@ interface RedisStreamsPublisherConfig extends PublisherConfig {
   streamKey: string;
 }
 ```
+
+## Sagas (Experimental)
+
+The `@outbox-event-bus/saga` package provides a distributed transaction engine using the **Routing Slip** pattern.
+
+### SagaEngine
+
+The core engine responsible for executing routing slips and managing transitions.
+
+#### Constructor
+
+```typescript
+new SagaEngine(config: SagaEngineConfig)
+```
+
+**SagaEngineConfig:**
+- `bus`: `OutboxEventBus<unknown>` - The event bus instance.
+- `registry`: `ActivityRegistry` - Registry containing available activities.
+- `compressionThreshold?`: `number` - Payload size (bytes) to trigger compression (default: 10KB).
+- `claimCheckStore?`: `SagaStoreAdapter` - Optional store for large payloads.
+- `claimCheckThreshold?`: `number` - Payload size (bytes) to trigger claim check (default: 200KB).
+
+#### Methods
+
+- `execute(slip: RoutingSlip): Promise<void>`: Starts or continues the execution of a routing slip.
+- `middleware(): HandlerMiddleware`: Returns a middleware that automatically intercepts and processes routing slips.
+
+### RoutingSlipBuilder
+
+Fluent API for creating routing slips.
+
+#### Methods
+
+- `addActivity(name: string, args: any, retryPolicy?: RetryPolicy)`: Adds an activity to the itinerary.
+- `withVariables(vars: Record<string, any>)`: Sets initial variables for the saga.
+- `withTimeout(ms: number)`: Sets an expiration time relative to now.
+- `build(): RoutingSlip`: Generates the final `RoutingSlip` object.
+
+### ActivityRegistry
+
+Registry for mapping activity names to implementations.
+
+#### Methods
+
+- `register(activity: Activity)`: Registers an activity implementation.
+
+### Activity Interface
+
+```typescript
+interface Activity {
+  name: string;
+  execute: (args: any, variables: any) => Promise<any>;
+  compensate: (logEntry: ActivityLogEntry, variables: any) => Promise<void>;
+}
+```
+
+For more details on Sagas, see the [Saga Package README](../packages/saga/README.md).
 
 ## Global Configuration
 
@@ -836,4 +877,87 @@ class EventPublisher<TTransaction = unknown> {
     handler: (events: BusEvent[]) => Promise<void>
   ): void;
 }
+```
+
+## Saga Store Adapters
+
+Saga store adapters are used by the `@outbox-event-bus/saga` package to store routing slips (Claim Check pattern).
+
+### `RedisIoredisSagaStore`
+
+Redis-based storage with native TTL support.
+
+```typescript
+import { RedisIoredisSagaStore } from '@outbox-event-bus/redis-ioredis-outbox';
+
+const store = new RedisIoredisSagaStore({
+  redis: ioredisInstance,
+  keyPrefix: 'saga:store'
+});
+```
+
+### `PostgresPrismaSagaStore`
+
+Prisma-based storage for PostgreSQL.
+
+```typescript
+import { PostgresPrismaSagaStore } from '@outbox-event-bus/postgres-prisma-outbox';
+
+const store = new PostgresPrismaSagaStore({
+  prisma: prismaClient,
+  modelName: 'sagaStore'
+});
+```
+
+### `PostgresDrizzleSagaStore`
+
+Drizzle-based storage for PostgreSQL.
+
+```typescript
+import { PostgresDrizzleSagaStore } from '@outbox-event-bus/postgres-drizzle-outbox';
+
+const store = new PostgresDrizzleSagaStore({
+  db: drizzleDb,
+  table: sagaStoreTable
+});
+```
+
+### `SqliteBetterSqlite3SagaStore`
+
+SQLite-based storage using `better-sqlite3`.
+
+```typescript
+import { SqliteBetterSqlite3SagaStore } from '@outbox-event-bus/sqlite-better-sqlite3-outbox';
+
+const store = new SqliteBetterSqlite3SagaStore({
+  db: sqliteDb,
+  tableName: 'saga_store'
+});
+```
+
+### `DynamoDBAwsSdkSagaStore`
+
+DynamoDB-based storage with native TTL support.
+
+```typescript
+import { DynamoDBAwsSdkSagaStore } from '@outbox-event-bus/dynamodb-aws-sdk-outbox';
+
+const store = new DynamoDBAwsSdkSagaStore({
+  client: dynamoDbClient,
+  tableName: 'SagaStore'
+});
+```
+
+### `MongodbSagaStore`
+
+MongoDB-based storage with TTL index support.
+
+```typescript
+import { MongodbSagaStore } from '@outbox-event-bus/mongodb-outbox';
+
+const store = new MongodbSagaStore({
+  client: mongoClient,
+  dbName: 'my_db',
+  collectionName: 'saga_store'
+});
 ```

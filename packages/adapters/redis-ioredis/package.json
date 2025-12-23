@@ -37,7 +37,8 @@
     "test:e2e": "docker-compose up -d --wait && vitest run -c vitest.e2e.config.ts; status=$?; docker-compose down; exit $status"
   },
   "dependencies": {
-    "outbox-event-bus": "workspace:*"
+    "outbox-event-bus": "workspace:*",
+    "@outbox-event-bus/saga": "workspace:*"
   },
   "peerDependencies": {
     "ioredis": "catalog:"

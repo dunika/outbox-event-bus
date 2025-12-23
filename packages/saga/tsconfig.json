@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@outbox-event-bus/saga": [
+        "src/index.ts"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*",
+    "tests/**/*",
+    "*.config.js",
+    "*.config.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}

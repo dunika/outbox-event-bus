@@ -134,6 +134,21 @@ await bus.emit({ type: 'item.updated', payload: { id: 1 } }, items);
 await client.send(new TransactWriteCommand({ TransactItems: items }));
 ```
 
+## Saga Storage
+
+The DynamoDB adapter provides a `DynamoDBAwsSdkSagaStore` implementation for the `@outbox-event-bus/saga` package. It uses DynamoDB's native TTL feature for automatic cleanup.
+
+```typescript
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBAwsSdkSagaStore } from '@outbox-event-bus/dynamodb-aws-sdk-outbox';
+
+const client = new DynamoDBClient({});
+const sagaStore = new DynamoDBAwsSdkSagaStore({
+  client,
+  tableName: 'outbox_saga_store' // optional
+});
+```
+
 ---
 
 ## Configuration Reference
