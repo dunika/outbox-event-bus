@@ -1,4 +1,4 @@
-import type { Middleware } from "./middleware"
+import type { EmitMiddleware, HandlerMiddleware, Middleware } from "./middleware"
 import type { AnyListener, BusEvent, BusEventInput, ErrorHandler, FailedBusEvent } from "./types"
 
 export interface IOutbox<TTransaction> {
@@ -10,7 +10,6 @@ export interface IOutbox<TTransaction> {
 }
 
 export interface IOutboxEventBus<TTransaction> {
-  use: (...middlewares: Middleware<TTransaction>[]) => this
   emit: <T extends string, P>(
     event: BusEventInput<T, P>,
     transaction?: TTransaction
@@ -40,6 +39,9 @@ export interface IOutboxEventBus<TTransaction> {
     handler: (event: BusEvent<T, P>) => Promise<void>
   ) => this
   removeAllListeners: <T extends string>(eventType?: T) => this
+  addMiddleware: (...middlewares: Middleware<TTransaction>[]) => this
+  addEmitMiddleware: (...middlewares: EmitMiddleware<TTransaction>[]) => this
+  addHandlerMiddleware: (...middlewares: HandlerMiddleware<TTransaction>[]) => this
   getSubscriptionCount: () => number
   listenerCount: (eventType: string) => number
   getListener: (eventType: string) => AnyListener | undefined

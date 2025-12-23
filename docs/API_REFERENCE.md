@@ -36,11 +36,25 @@ import type { OutboxBusConfig } from 'outbox-event-bus';
 
 #### Methods
 
-##### `use()`
-Registers middleware to be executed during event emission and consumption.
+##### `addEmitMiddleware()`
+Registers middleware to intercept and process events before they are persisted to the outbox.
 
 ```typescript
-bus.use(...middlewares: Middleware<TTransaction>[]): this
+bus.addEmitMiddleware(...middlewares: EmitMiddleware<TTransaction>[]): this
+```
+
+##### `addHandlerMiddleware()`
+Registers middleware to intercept and process events before they are dispatched to handlers.
+
+```typescript
+bus.addHandlerMiddleware(...middlewares: HandlerMiddleware<TTransaction>[]): this
+```
+
+##### `addMiddleware()`
+Registers middleware for both emit and handler phases.
+
+```typescript
+bus.addMiddleware(...middlewares: Middleware<TTransaction>[]): this
 ```
 
 ##### `start()`
@@ -214,7 +228,6 @@ Public interface for the event bus, useful for dependency injection.
 
 ```typescript
 interface IOutboxEventBus<TTransaction> {
-  use(...middlewares: Middleware<TTransaction>[]): this;
   emit<T extends string, P>(
     event: BusEventInput<T, P>,
     transaction?: TTransaction
@@ -244,6 +257,8 @@ interface IOutboxEventBus<TTransaction> {
     handler: (event: BusEvent<T, P>) => Promise<void>
   ): this;
   removeAllListeners<T extends string>(eventType?: T): this;
+  addEmitMiddleware(...middlewares: EmitMiddleware<TTransaction>[]): this;
+  addHandlerMiddleware(...middlewares: HandlerMiddleware<TTransaction>[]): this;
   getSubscriptionCount(): number;
   listenerCount(eventType: string): number;
   getListener(eventType: string): AnyListener | undefined;
@@ -327,11 +342,30 @@ const EventStatus = {
 ## Middleware Types
 
 ### `Middleware`
-A function that intercepts event processing.
+Generic union of all middleware types.
 
 ```typescript
-type Middleware<TTransaction = unknown> = (
-  ctx: MiddlewareContext<TTransaction>,
+type Middleware<TTransaction = unknown> = 
+  | EmitMiddleware<TTransaction>
+  | HandlerMiddleware<TTransaction>;
+```
+
+### `EmitMiddleware`
+Middleware that intercepts and processes events before they are persisted to the outbox.
+
+```typescript
+type EmitMiddleware<TTransaction = unknown> = (
+  ctx: EmitMiddlewareContext<TTransaction>,
+  next: Next
+) => Promise<void>;
+```
+
+### `HandlerMiddleware`
+Middleware that intercepts and processes events before they are dispatched to handlers.
+
+```typescript
+type HandlerMiddleware<TTransaction = unknown> = (
+  ctx: HandlerMiddlewareContext<TTransaction>,
   next: Next
 ) => Promise<void>;
 ```
@@ -342,7 +376,7 @@ Context passed to middleware.
 ```typescript
 type MiddlewareContext<TTransaction = unknown> =
   | EmitMiddlewareContext<TTransaction>
-  | ConsumeMiddlewareContext<TTransaction>;
+  | HandlerMiddlewareContext<TTransaction>;
 
 type EmitMiddlewareContext<TTransaction = unknown> = {
   phase: 'emit';
@@ -350,19 +384,24 @@ type EmitMiddlewareContext<TTransaction = unknown> = {
   transaction?: TTransaction | undefined;
 }
 
-type ConsumeMiddlewareContext<TTransaction = unknown> = {
-  phase: 'consume';
+type HandlerMiddlewareContext<TTransaction = unknown> = {
+  phase: 'handler';
   event: BusEvent;
   transaction?: TTransaction | undefined;
 }
 ```
 
 ### `Next`
+
 Function to call the next middleware or the actual handler.
 
 ```typescript
-type Next = () => Promise<void>;
+type Next = (options?: { dropEvent?: boolean }) => Promise<void>;
 ```
+
+**Parameters:**
+- `options`: Optional configuration object
+  - `dropEvent`: If true, stops the middleware chain and prevents the event from being processed/persisted.
 
 ## Adapters
 

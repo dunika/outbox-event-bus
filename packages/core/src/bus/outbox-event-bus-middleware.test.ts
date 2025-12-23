@@ -26,16 +26,16 @@ describe("OutboxEventBus Middleware", () => {
   it("should execute middleware in onion order during emit", async () => {
     const order: string[] = []
 
-    eventBus.use(async (ctx, next) => {
-      order.push(`m1 start ${ctx.phase}`)
+    eventBus.addEmitMiddleware(async (_, next) => {
+      order.push(`m1 start emit`)
       await next()
-      order.push(`m1 end ${ctx.phase}`)
+      order.push(`m1 end emit`)
     })
 
-    eventBus.use(async (ctx, next) => {
-      order.push(`m2 start ${ctx.phase}`)
+    eventBus.addEmitMiddleware(async (_, next) => {
+      order.push(`m2 start emit`)
       await next()
-      order.push(`m2 end ${ctx.phase}`)
+      order.push(`m2 end emit`)
     })
 
     await eventBus.emit({ type: "test", payload: {} })
@@ -43,31 +43,47 @@ describe("OutboxEventBus Middleware", () => {
     expect(order).toEqual(["m1 start emit", "m2 start emit", "m2 end emit", "m1 end emit"])
   })
 
-  it("should execute middleware in onion order during consume", async () => {
+  it("should register middleware for both phases using addMiddleware", async () => {
+    const order: string[] = []
+
+    eventBus.addMiddleware(async (ctx, next) => {
+      order.push(ctx.phase)
+      await next()
+    })
+
+    const handler = vi.fn()
+    eventBus.on("test-event", handler)
+    eventBus.start()
+
+    await eventBus.emit({ type: "test-event", payload: {} })
+    await outboxHandler({
+      id: "1",
+      type: "test-event",
+      payload: {},
+      occurredAt: new Date(),
+    })
+
+    expect(order).toEqual(["emit", "handler"])
+    expect(handler).toHaveBeenCalled()
+  })
+
+  it("should execute middleware in onion order during handler phase", async () => {
     eventBus.start()
     const handler = vi.fn().mockResolvedValue(undefined)
     eventBus.on("test-event", handler)
 
     const order: string[] = []
 
-    eventBus.use(async (ctx, next) => {
-      if (ctx.phase === "consume") {
-        order.push("m1 start")
-        await next()
-        order.push("m1 end")
-      } else {
-        await next()
-      }
+    eventBus.addHandlerMiddleware(async (_, next) => {
+      order.push("m1 start")
+      await next()
+      order.push("m1 end")
     })
 
-    eventBus.use(async (ctx, next) => {
-      if (ctx.phase === "consume") {
-        order.push("m2 start")
-        await next()
-        order.push("m2 end")
-      } else {
-        await next()
-      }
+    eventBus.addHandlerMiddleware(async (_, next) => {
+      order.push("m2 start")
+      await next()
+      order.push("m2 end")
     })
 
     const event: BusEvent = {
@@ -84,10 +100,8 @@ describe("OutboxEventBus Middleware", () => {
   })
 
   it("should allow middleware to modify event during emit", async () => {
-    eventBus.use(async (ctx, next) => {
-      if (ctx.phase === "emit") {
-        ctx.event.metadata = { ...ctx.event.metadata, modified: true }
-      }
+    eventBus.addEmitMiddleware(async (ctx, next) => {
+      ctx.event.metadata = { ...ctx.event.metadata, modified: true }
       await next()
     })
 
@@ -102,8 +116,9 @@ describe("OutboxEventBus Middleware", () => {
     const handler = vi.fn()
     eventBus.on("test-event", handler)
 
-    eventBus.use(async (ctx, next) => {
-      if (ctx.phase === "consume" && ctx.event.id === "skip-me") {
+    eventBus.addHandlerMiddleware(async (ctx, next) => {
+      if (ctx.event.id === "skip-me") {
+        await next({ dropEvent: true })
         return
       }
       await next()
@@ -127,7 +142,7 @@ describe("OutboxEventBus Middleware", () => {
   })
 
   it("should propagate errors from middleware", async () => {
-    eventBus.use(async () => {
+    eventBus.addEmitMiddleware(async () => {
       throw new Error("middleware error")
     })
 
@@ -136,7 +151,7 @@ describe("OutboxEventBus Middleware", () => {
   })
 
   it("should throw error if next() is called multiple times", async () => {
-    eventBus.use(async (_ctx, next) => {
+    eventBus.addEmitMiddleware(async (_ctx, next) => {
       await next()
       await next()
     })
@@ -150,10 +165,8 @@ describe("OutboxEventBus Middleware", () => {
     const transaction = { id: "tx1" }
     let seenTransaction: any
 
-    eventBus.use(async (ctx, next) => {
-      if (ctx.phase === "emit") {
-        seenTransaction = ctx.transaction
-      }
+    eventBus.addEmitMiddleware(async (ctx, next) => {
+      seenTransaction = ctx.transaction
       await next()
     })
 
@@ -162,11 +175,9 @@ describe("OutboxEventBus Middleware", () => {
   })
 
   it("should allow modifying deep payload properties", async () => {
-    eventBus.use(async (ctx, next) => {
-      if (ctx.phase === "emit") {
-        const payload = ctx.event.payload as any
-        payload.nested = { ...payload.nested, added: true }
-      }
+    eventBus.addEmitMiddleware(async (ctx, next) => {
+      const payload = ctx.event.payload as any
+      payload.nested = { ...payload.nested, added: true }
       await next()
     })
 
@@ -177,11 +188,9 @@ describe("OutboxEventBus Middleware", () => {
   })
 
   it("should validate events in middleware", async () => {
-    eventBus.use(async (ctx, next) => {
-      if (ctx.phase === "emit") {
-        if (!ctx.event.payload || Object.keys(ctx.event.payload as object).length === 0) {
-          throw new Error("Payload required")
-        }
+    eventBus.addEmitMiddleware(async (ctx, next) => {
+      if (!ctx.event.payload || Object.keys(ctx.event.payload as object).length === 0) {
+        throw new Error("Payload required")
       }
       await next()
     })
@@ -193,9 +202,10 @@ describe("OutboxEventBus Middleware", () => {
   })
 
   it("should allow middleware to filter events during emit", async () => {
-    eventBus.use(async (ctx, next) => {
+    eventBus.addEmitMiddleware(async (ctx, next) => {
       // Filter out events with type "filter-me"
-      if (ctx.phase === "emit" && ctx.event.type === "filter-me") {
+      if (ctx.event.type === "filter-me") {
+        await next({ dropEvent: true })
         return
       }
       await next()
@@ -213,10 +223,8 @@ describe("OutboxEventBus Middleware", () => {
   })
 
   it("should allow middleware to replace events during emit", async () => {
-    eventBus.use(async (ctx, next) => {
-      if (ctx.phase === "emit") {
-        ctx.event = { ...ctx.event, type: "replaced" }
-      }
+    eventBus.addEmitMiddleware(async (ctx, next) => {
+      ctx.event = { ...ctx.event, type: "replaced" }
       await next()
     })
 
@@ -225,15 +233,13 @@ describe("OutboxEventBus Middleware", () => {
     const published = (outbox.publish as any).mock.calls[0][0][0]
     expect(published.type).toBe("replaced")
   })
-  it("should allow middleware to replace events during consume", async () => {
+  it("should allow middleware to replace events during handler phase", async () => {
     eventBus.start()
     const handler = vi.fn().mockResolvedValue(undefined)
     eventBus.on("test-event", handler)
 
-    eventBus.use(async (ctx, next) => {
-      if (ctx.phase === "consume") {
-        ctx.event = { ...ctx.event, payload: { replaced: true } }
-      }
+    eventBus.addHandlerMiddleware(async (ctx, next) => {
+      ctx.event = { ...ctx.event, payload: { replaced: true } }
       await next()
     })
 
@@ -252,8 +258,8 @@ describe("OutboxEventBus Middleware", () => {
   })
 
   it("should ensure events get unique Date instances to avoid shared reference mutation", async () => {
-    eventBus.use(async (ctx, next) => {
-      if (ctx.phase === "emit" && ctx.event.type === "mutate-date") {
+    eventBus.addEmitMiddleware(async (ctx, next) => {
+      if (ctx.event.type === "mutate-date") {
         ctx.event.occurredAt.setFullYear(2000)
       }
       await next()
@@ -281,9 +287,9 @@ describe("OutboxEventBus Middleware", () => {
   it("should snapshot middlewares to ensure pipeline stability", async () => {
     const order: string[] = []
 
-    eventBus.use(async (_ctx, next) => {
+    eventBus.addEmitMiddleware(async (_ctx, next) => {
       order.push("m1 start")
-      eventBus.use(async (_ctx2, next2) => {
+      eventBus.addEmitMiddleware(async (_ctx2, next2) => {
         order.push("m-dynamic")
         await next2()
       })
@@ -302,12 +308,10 @@ describe("OutboxEventBus Middleware", () => {
     expect(order).toEqual(["m1 start", "m-dynamic", "m1 end"])
   })
 
-  it("should run middleware during consume even if no handler is registered", async () => {
+  it("should run middleware during handler phase even if no handler is registered", async () => {
     let middlewareRan = false
-    eventBus.use(async (ctx, next) => {
-      if (ctx.phase === "consume") {
-        middlewareRan = true
-      }
+    eventBus.addHandlerMiddleware(async (_, next) => {
+      middlewareRan = true
       await next()
     })
 
@@ -323,7 +327,7 @@ describe("OutboxEventBus Middleware", () => {
     expect(middlewareRan).toBe(true)
   })
 
-  it("should correctly route to new handler if middleware modifies event type during consume", async () => {
+  it("should correctly route to new handler if middleware modifies event type during handler phase", async () => {
     eventBus.start()
     const originalHandler = vi.fn()
     const newHandler = vi.fn()
@@ -331,8 +335,8 @@ describe("OutboxEventBus Middleware", () => {
     eventBus.on("original-type", originalHandler)
     eventBus.on("new-type", newHandler)
 
-    eventBus.use(async (ctx, next) => {
-      if (ctx.phase === "consume" && ctx.event.type === "original-type") {
+    eventBus.addHandlerMiddleware(async (ctx, next) => {
+      if (ctx.event.type === "original-type") {
         ctx.event = { ...ctx.event, type: "new-type" }
       }
       await next()
@@ -350,16 +354,13 @@ describe("OutboxEventBus Middleware", () => {
     expect(newHandler.mock.calls[0]?.[0].type).toBe("new-type")
   })
 
-  it("should propagate errors from middleware during consume phase", async () => {
+  it("should propagate errors from middleware during handler phase", async () => {
     eventBus.start()
     const handler = vi.fn()
     eventBus.on("test-event", handler)
 
-    eventBus.use(async (ctx, next) => {
-      if (ctx.phase === "consume") {
-        throw new Error("consume middleware error")
-      }
-      await next()
+    eventBus.addHandlerMiddleware(async () => {
+      throw new Error("handler middleware error")
     })
 
     await expect(
@@ -369,7 +370,7 @@ describe("OutboxEventBus Middleware", () => {
         payload: {},
         occurredAt: new Date(),
       })
-    ).rejects.toThrow("consume middleware error")
+    ).rejects.toThrow("handler middleware error")
 
     expect(handler).not.toHaveBeenCalled()
   })
@@ -377,11 +378,9 @@ describe("OutboxEventBus Middleware", () => {
   it("should process multiple events through middleware with emitMany", async () => {
     const processedEvents: string[] = []
 
-    eventBus.use(async (ctx, next) => {
-      if (ctx.phase === "emit") {
-        processedEvents.push(ctx.event.type)
-        ctx.event.metadata = { ...ctx.event.metadata, processed: true }
-      }
+    eventBus.addEmitMiddleware(async (ctx, next) => {
+      processedEvents.push(ctx.event.type)
+      ctx.event.metadata = { ...ctx.event.metadata, processed: true }
       await next()
     })
 
@@ -410,5 +409,42 @@ describe("OutboxEventBus Middleware", () => {
         occurredAt: new Date(),
       })
     ).resolves.toBeUndefined()
+  })
+  it("should throw error if middleware does not call next()", async () => {
+    eventBus.addEmitMiddleware(async () => {
+      // Forgot to call next()
+    })
+
+    await expect(eventBus.emit({ type: "test", payload: {} })).rejects.toThrow("must call next()")
+  })
+
+  it("should stop propagation when dropEvent: true is passed", async () => {
+    eventBus.addEmitMiddleware(async (ctx, next) => {
+      await next({ dropEvent: true })
+    })
+
+    const nextMiddleware = vi.fn(async (_ctx, next) => next())
+    eventBus.addEmitMiddleware(nextMiddleware)
+
+    await eventBus.emit({ type: "test", payload: {} })
+
+    expect(nextMiddleware).not.toHaveBeenCalled()
+    expect(outbox.publish).not.toHaveBeenCalled()
+  })
+
+  it("should drop event if downstream middleware drops it", async () => {
+    eventBus.addEmitMiddleware(async (ctx, next) => {
+      // Upstream middleware blindly calls next
+      await next()
+    })
+
+    eventBus.addEmitMiddleware(async (ctx, next) => {
+      // Downstream middleware drops it
+      await next({ dropEvent: true })
+    })
+
+    await eventBus.emit({ type: "test", payload: {} })
+
+    expect(outbox.publish).not.toHaveBeenCalled()
   })
 })

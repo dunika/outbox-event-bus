@@ -49,17 +49,30 @@ bus.start();
 
 ## Middleware
 
-The event bus supports middleware for intercepting events during **emit** and **consume** phases. Middleware is useful for logging, observability, validation, encryption, and other cross-cutting concerns.
+The event bus supports **emit middleware** (runs before events are persisted to the outbox) and **handler middleware** (runs before event handlers process the event).
+
+You can add middleware using `bus.addEmitMiddleware()`, `bus.addHandlerMiddleware()`, or the unified `bus.addMiddleware()` method to apply middlewares across both phases.
 
 ```typescript
+
 import { Middleware } from "outbox-event-bus";
 
 const loggingMiddleware: Middleware = async (ctx, next) => {
-  console.log(`[${ctx.phase}] ${ctx.event.type}`);
+  const prefix = ctx.phase === 'emit' ? '[emit]' : '[handler]';
+  console.log(`${prefix} ${ctx.event.type}`);
   await next();
 };
 
-bus.use(loggingMiddleware);
+const filterMiddleware: Middleware = async (ctx, next) => {
+  if (ctx.event.type === 'ignore.me') {
+    await next({ dropEvent: true });
+    return;
+  }
+
+  await next()
+};
+
+bus.addMiddleware(loggingMiddleware, filterMiddleware);
 ```
 
 For comprehensive middleware documentation, see the [root README](https://github.com/dunika/outbox-event-bus#middleware).

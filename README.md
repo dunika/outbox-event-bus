@@ -57,7 +57,7 @@ bus.on('send.welcome', async (event) => {
 });
 
 // Middleware 
-bus.use(async (ctx, next) => {
+bus.addHandlerMiddleware(async (ctx, next) => {
   console.log('Processing:', ctx.event.type);
   await next();
 });
@@ -142,7 +142,7 @@ bus.on('send.analytics', async (event) => {
 
 ### Event Lifecycle
 
-Events flow through several states from creation to completion:
+Events flow through several states from creation to completion
 
 <div align="center">
 <img src="https://raw.githubusercontent.com/dunika/outbox-event-bus/main/docs/images/event_life_cycle.png" alt="Event Lifecycle" width="600">
@@ -183,24 +183,21 @@ WHERE status = 'active'
 
 ### Usage
 
-Use the `bus.use()` method to register middleware. Middleware is executed in the order it is registered (onion model).
+Register middleware based on your needs: use `bus.addEmitMiddleware()` to intercept events before persistence, `bus.addHandlerMiddleware()` to process them before they reach handlers, or `bus.addMiddleware()` to apply logic across both phases.
+
+Each `add*` method accepts one or more middleware functions.
 
 ```typescript
-import { Middleware } from 'outbox-event-bus';
-
-// Define middleware
-const loggingMiddleware: Middleware = async (ctx, next) => {
-  console.log(`[${ctx.phase}] Processing event: ${ctx.event.type}`);
+bus.addMiddleware(async (ctx, next) => {
+  const prefix = ctx.phase === 'emit' ? '[emit]' : '[handler]';
+  console.log(`${prefix} Processing event: ${ctx.event.type}`);
+  
   const start = Date.now();
-  
   await next();
-  
   const duration = Date.now() - start;
-  console.log(`[${ctx.phase}] Completed in ${duration}ms`);
-};
-
-// Register middleware
-bus.use(loggingMiddleware);
+  
+  console.log(`${prefix} Completed in ${duration}ms`);
+});
 ```
 
 ### Middleware Phases
@@ -210,7 +207,7 @@ bus.use(loggingMiddleware);
   - **Note**: Modifying `ctx.event` affects what IS stored in the database.
   - You can filter events by not calling `next()` (or throwing an error).
 
-- **Consume Phase** (`phase: 'consume'`): Runs when a worker picks up an event, *before* the handler is invoked.
+- **Handler Phase** (`phase: 'handler'`): Runs when a worker picks up an event, *before* the handler is invoked.
   - Useful for: Logging, setting up AsyncLocalStorage, error reporting contexts (Sentry, etc.), decryption.
 
 ### Modifying Events
@@ -218,16 +215,28 @@ bus.use(loggingMiddleware);
 You can modify events in transit.
 
 ```typescript
-const correlationMiddleware: Middleware = async (ctx, next) => {
-  if (ctx.phase === 'emit') {
-    // Add correlation ID if missing
-    ctx.event.metadata = { 
-      ...ctx.event.metadata, 
-      correlationId: ctx.event.metadata?.correlationId || crypto.randomUUID() 
-    };
+bus.addEmitMiddleware(async (ctx, next) => {
+  // Add correlation ID if missing
+  ctx.event.metadata = { 
+    ...ctx.event.metadata, 
+    correlationId: ctx.event.metadata?.correlationId || crypto.randomUUID() 
+  };
+  await next();
+});
+```
+
+### Filtering Events
+
+You can explicitly drop an event by passing `{ dropEvent: true }` to `next()`. This stops the middleware chain and prevents the event from being persisted (emit phase) or processed (handler phase).
+
+```typescript
+bus.addEmitMiddleware(async (ctx, next) => {
+  if (ctx.event.type === 'sensitive.data') {
+    await next({ dropEvent: true });
+    return;
   }
   await next();
-};
+});
 ```
 
 <br>
@@ -528,7 +537,7 @@ const processingDuration = new Histogram({
   labelNames: ['type']
 });
 
-bus.use(async (ctx, next) => {
+bus.addMiddleware(async (ctx, next) => {
   const start = Date.now();
   try {
     await next();
@@ -537,9 +546,7 @@ bus.use(async (ctx, next) => {
     eventCounter.inc({ type: ctx.event.type, phase: ctx.phase, status: 'error' });
     throw err;
   } finally {
-    if (ctx.phase === 'consume') {
-      processingDuration.observe({ type: ctx.event.type }, (Date.now() - start) / 1000);
-    }
+    processingDuration.observe({ type: ctx.event.type }, (Date.now() - start) / 1000);
   }
 });
 ```
@@ -553,28 +560,26 @@ import { trace } from '@opentelemetry/api';
 
 const tracer = trace.getTracer('outbox-event-bus');
 
-bus.use(async (ctx, next) => {
-  if (ctx.phase === 'consume') {
-    return tracer.startActiveSpan(`consume ${ctx.event.type}`, async (span) => {
-      span.setAttributes({
-        'messaging.system': 'outbox',
-        'messaging.destination': ctx.event.type,
-        'messaging.message_id': ctx.event.id
-      });
-
-      try {
-        await next();
-        span.setStatus({ code: 1 }); // OK
-      } catch (err) {
-        span.recordException(err as Error);
-        span.setStatus({ code: 2 }); // ERROR
-        throw err;
-      } finally {
-        span.end();
-      }
+bus.addMiddleware(async (ctx, next) => {
+  return tracer.startActiveSpan(`${ctx.phase} ${ctx.event.type}`, async (span) => {
+    span.setAttributes({
+      'messaging.system': 'outbox',
+      'messaging.destination': ctx.event.type,
+      'messaging.message_id': ctx.event.id,
+      'messaging.phase': ctx.phase
     });
-  }
-  await next();
+
+    try {
+      await next();
+      span.setStatus({ code: 1 }); // OK
+    } catch (err) {
+      span.recordException(err as Error);
+      span.setStatus({ code: 2 }); // ERROR
+      throw err;
+    } finally {
+      span.end();
+    }
+  });
 });
 ```
 
@@ -630,17 +635,14 @@ Essential when forwarding events to external systems (SQS, Kafka) or to protect 
 ```typescript
 import { encrypt, decrypt } from './crypto';
 
-// Encryption Middleware
-bus.use(async (ctx, next) => {
+// Encryption Middleware (applies to both phases, encryption logic inside handles direction)
+bus.addMiddleware(async (ctx, next) => {
   if (ctx.phase === 'emit') {
     ctx.event.payload = encrypt(ctx.event.payload);
-  }
-  
-  await next();
-  
-  if (ctx.phase === 'consume') {
+  } else {
     ctx.event.payload = decrypt(ctx.event.payload);
   }
+  await next();
 });
 
 // Usage (Transparent encryption/decryption)

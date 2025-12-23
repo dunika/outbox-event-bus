@@ -1,8 +1,10 @@
 import { DuplicateListenerError, TimeoutError, UnsupportedOperationError } from "../errors/errors"
 import type { IOutbox, IOutboxEventBus } from "../types/interfaces"
 import type {
-  ConsumeMiddlewareContext,
+  EmitMiddleware,
   EmitMiddlewareContext,
+  HandlerMiddleware,
+  HandlerMiddlewareContext,
   Middleware,
 } from "../types/middleware"
 import type {
@@ -30,7 +32,8 @@ export type OutboxBusConfig = {
 
 export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransaction> {
   private readonly handlers = new Map<string, EventHandler<string, unknown>>()
-  private readonly middlewares: Middleware<TTransaction>[] = []
+  private readonly emitMiddlewares: EmitMiddleware<TTransaction>[] = []
+  private readonly handlerMiddlewares: HandlerMiddleware<TTransaction>[] = []
   private readonly onError: ErrorHandler
   private readonly middlewareConcurrency: number
 
@@ -47,10 +50,23 @@ export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransactio
     }
   }
 
-  use(...middlewares: Middleware<TTransaction>[]): this {
-    this.middlewares.push(...middlewares)
+  addEmitMiddleware(...middlewares: EmitMiddleware<TTransaction>[]): this {
+    this.emitMiddlewares.push(...middlewares)
     return this
   }
+
+  addHandlerMiddleware(...middlewares: HandlerMiddleware<TTransaction>[]): this {
+    this.handlerMiddlewares.push(...middlewares)
+    return this
+  }
+
+  addMiddleware(...middlewares: Middleware<TTransaction>[]): this {
+    this.emitMiddlewares.push(...(middlewares as EmitMiddleware<TTransaction>[]))
+    this.handlerMiddlewares.push(...(middlewares as HandlerMiddleware<TTransaction>[]))
+    return this
+  }
+
+
 
   async emit<T extends string, P>(
     event: BusEventInput<T, P>,
@@ -67,7 +83,7 @@ export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransactio
 
     const eventsWithDefaults = this.prepareEvents(events)
 
-    const middlewareSnapshot = [...this.middlewares]
+    const middlewareSnapshot = [...this.emitMiddlewares]
     if (middlewareSnapshot.length === 0) {
       await this.outbox.publish(eventsWithDefaults, transaction)
       return
@@ -95,19 +111,16 @@ export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransactio
 
   private async runEmitMiddleware(
     event: BusEvent,
-    middlewares: Middleware<TTransaction>[],
+    middlewares: EmitMiddleware<TTransaction>[],
     transaction?: TTransaction
   ): Promise<BusEvent | null> {
-    let shouldPublish = false
     const ctx: EmitMiddlewareContext<TTransaction> = {
       event,
       phase: "emit",
       transaction,
     }
 
-    await executeMiddleware(middlewares, ctx, async () => {
-      shouldPublish = true
-    })
+    const shouldPublish = await executeMiddleware(middlewares, ctx)
 
     return shouldPublish ? ctx.event : null
   }
@@ -225,7 +238,7 @@ export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransactio
   }
 
   private processEvent = async (event: BusEvent): Promise<void> => {
-    const middlewareSnapshot = [...this.middlewares]
+    const middlewareSnapshot = [...this.handlerMiddlewares]
 
     if (middlewareSnapshot.length === 0) {
       const handler = this.handlers.get(event.type)
@@ -235,12 +248,14 @@ export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransactio
       return
     }
 
-    const ctx: ConsumeMiddlewareContext<TTransaction> = { event, phase: "consume" }
-    await executeMiddleware(middlewareSnapshot, ctx, async () => {
+    const ctx: HandlerMiddlewareContext<TTransaction> = { event, phase: "handler" }
+    const shouldProcess = await executeMiddleware(middlewareSnapshot, ctx)
+
+    if (shouldProcess) {
       const handler = this.handlers.get(ctx.event.type)
       if (handler) {
         await handler(ctx.event)
       }
-    })
+    }
   }
 }
