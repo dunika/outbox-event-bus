@@ -1,5 +1,13 @@
 # @outbox-event-bus/postgres-drizzle-outbox
 
+## 2.0.2
+
+### Patch Changes
+
+- Update docs
+- Updated dependencies
+  - outbox-event-bus@2.0.2
+
 ## 2.0.1
 
 ### Patch Changes
