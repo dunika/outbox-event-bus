@@ -78,7 +78,8 @@ As a developer, I want to define retry policies for individual activities, so th
 ### Edge Cases
 
 - **Duplicate Messages**: How does the system handle receiving the same routing slip message twice? (Idempotency check against the ActivityLog).
-- **Compensation Failure**: What happens if a `compensate` action itself fails? (Should probably move to a Dead Letter Queue or emit a `RoutingSlipFaulted` event for manual intervention).
+- **Compensation Failure**: What happens if a `compensate` action itself fails? (Stop compensation, emit `RoutingSlipFaulted`, and move to DLQ).
+- **Activity Failure**: What happens if an `execute` action fails? (Emit `ActivityFaulted` and begin compensation).
 - **Empty Itinerary**: What happens if a slip is created with no activities? (Should be a validation error at build time).
 - **Missing Activity Implementation**: What happens if the engine encounters an activity name it doesn't have a handler for? (Should trigger compensation and log a critical error).
 
@@ -95,8 +96,11 @@ As a developer, I want to define retry policies for individual activities, so th
 - **FR-011**: If a `compensate` method fails, the engine MUST stop the compensation flow, emit a `RoutingSlipFaulted` event, and move the slip to a Dead Letter Queue (DLQ) state for manual intervention.
 - **FR-004**: The `execute` method MUST be able to return "Variables" that are merged into the slip's global state.
 - **FR-005**: The engine MUST support a "Compensation Mode" that processes the `ActivityLog` in reverse order (LIFO).
-- **FR-006**: The system MUST emit standard events for observability: `RoutingSlipCreated`, `ActivityCompleted`, `ActivityFaulted`, `RoutingSlipCompleted`, `RoutingSlipFaulted`.
+- **FR-006**: The system MUST emit standard `OutboxEvent` types for observability: `RoutingSlipCreated`, `ActivityCompleted`, `ActivityFaulted`, `RoutingSlipCompleted`, and `RoutingSlipFaulted`. These events MUST be emitted via the `OutboxEventBus`.
 - **FR-007**: The engine MUST perform a passive timeout check before executing any activity.
+- **FR-012**: The engine MUST implement a "Claim Check" pattern to handle large payloads that exceed transport limits (e.g., > 256KB), offloading the state to temporary storage if necessary.
+- **FR-013**: The Saga Engine MUST be implemented as a `HandlerMiddleware` for the `OutboxEventBus` to intercept and process routing slip commands transparently.
+- **FR-014**: The engine MUST ensure idempotency by checking the `ActivityLog` before executing an activity to prevent duplicate processing of the same step.
 
 ### Non-Functional Requirements (Constitution Alignment)
 

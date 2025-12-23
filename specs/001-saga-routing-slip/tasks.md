@@ -130,6 +130,17 @@
 - [ ] T029 [P] Finalize `packages/saga/README.md` and `packages/saga/docs/API_REFERENCE.md`
 - [ ] T030 [P] Add comprehensive unit tests for all engine components in `packages/saga/tests/unit/`
 - [ ] T031 Run `quickstart.md` validation to ensure developer experience
+- [ ] T032 [P] Implement structured logging for all state transitions (Next Step, Compensation, Completion, Fault) using the `RoutingSlipId` in `SagaEngine`.
+
+---
+
+## Phase 8: End-to-End Testing (Constitution Principle IV)
+
+**Purpose**: Verify full system integration under realistic failure conditions.
+
+- [ ] T033 Setup Testcontainers for E2E testing in `packages/saga/tests/e2e/`
+- [ ] T034 Implement E2E test for a multi-service linear workflow using a real transport (e.g., RabbitMQ)
+- [ ] T035 Implement E2E test for a full compensation flow under simulated network failure
 
 ---
 
