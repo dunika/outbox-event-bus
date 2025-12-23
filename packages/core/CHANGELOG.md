@@ -1,5 +1,11 @@
 # outbox-event-bus
 
+## 2.0.1
+
+### Patch Changes
+
+- Update docs
+
 ## 2.0.0
 
 ### Major Changes

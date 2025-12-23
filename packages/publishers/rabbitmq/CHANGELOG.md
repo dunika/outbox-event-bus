@@ -1,5 +1,13 @@
 # @outbox-event-bus/rabbitmq-publisher
 
+## 2.0.1
+
+### Patch Changes
+
+- Update docs
+- Updated dependencies
+  - outbox-event-bus@2.0.1
+
 ## 2.0.0
 
 ### Major Changes
