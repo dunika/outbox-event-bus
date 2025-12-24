@@ -4,8 +4,8 @@
 
 ```bash
 # Local
-pnpm publish:interactive --dry-run  # test first
-pnpm publish:interactive            # publish (handles auth automatically)
+pnpm run publish --dry-run  # test first
+pnpm run publish            # publish (handles auth automatically)
 
 # CI/CD
 # Automated via "Version Packages" PR and GitHub Actions
@@ -39,7 +39,7 @@ Before publishing, you need to version your packages using Changesets.
 **Step 1: Test with Dry-run**
 
 ```bash
-pnpm publish:interactive --dry-run
+pnpm run publish --dry-run
 ```
 
 This will:
@@ -50,7 +50,7 @@ This will:
 **Step 2: Publish**
 
 ```bash
-pnpm publish:interactive
+pnpm run publish
 ```
 
 The script will:
@@ -147,8 +147,8 @@ pnpm -r test
 
 | Script | Description |
 |--------|-------------|
-| `pnpm publish:interactive` | Full publish pipeline wrapper (auth → build → lint → test → publish) |
-| `pnpm release` | Alias for `pnpm publish:interactive` |
+| `pnpm run publish` | Full publish pipeline wrapper (auth → build → lint → test → publish) |
+| `pnpm release` | Alias for `pnpm run publish` |
 | `pnpm changeset` | Create a new changeset |
 | `pnpm version-packages` | Consume changesets and update versions |
 
