@@ -5,6 +5,13 @@ import "zx/globals"
 const isDryRun = Boolean(argv["dry-run"] ?? argv.dryRun ?? false)
 const IS_CI = process.env.CI === "true"
 
+// Filter out zx-specific args and our custom args to pass the rest to changeset
+const extraArgs = process.argv.slice(2).filter(arg => 
+  !arg.includes("dry-run") && 
+  !arg.includes("dryRun") &&
+  arg !== "scripts/publish.mjs"
+)
+
 echo(chalk.blue("\n📦 Publishing outbox-event-bus packages...\n"))
 
 if (isDryRun) {
@@ -101,7 +108,7 @@ if (!isDryRun) {
 
     // Using changeset publish directly to avoid recursion
     // The package.json release script now points to this script for a safe, comprehensive release process.
-    await $`changeset publish`
+    await $`changeset publish ${extraArgs}`
 
     echo(chalk.green("\n✓ Packages published successfully! 🎉\n"))
   } catch (error) {
