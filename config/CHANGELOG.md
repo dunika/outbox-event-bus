@@ -1,5 +1,11 @@
 # @outbox-event-bus/config
 
+## 2.0.3
+
+### Patch Changes
+
+- Cleanup
+
 ## 2.0.2
 
 ### Patch Changes

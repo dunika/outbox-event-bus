@@ -1,5 +1,13 @@
 # @outbox-event-bus/dynamodb-aws-sdk-outbox
 
+## 2.0.3
+
+### Patch Changes
+
+- Cleanup
+- Updated dependencies
+  - outbox-event-bus@2.0.3
+
 ## 2.0.2
 
 ### Patch Changes

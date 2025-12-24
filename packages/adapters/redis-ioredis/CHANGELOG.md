@@ -1,5 +1,13 @@
 # @outbox-event-bus/redis-ioredis-outbox
 
+## 2.0.3
+
+### Patch Changes
+
+- Cleanup
+- Updated dependencies
+  - outbox-event-bus@2.0.3
+
 ## 2.0.2
 
 ### Patch Changes

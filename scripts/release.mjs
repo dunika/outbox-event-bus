@@ -9,7 +9,9 @@ const IS_CI = process.env.CI === "true"
 const extraArgs = process.argv.slice(2).filter(arg => 
   !arg.includes("dry-run") && 
   !arg.includes("dryRun") &&
-  arg !== "scripts/publish.mjs"
+  !arg.endsWith("release.mjs") &&
+  !arg.endsWith("publish.mjs") &&
+  arg !== "--"
 )
 
 echo(chalk.blue("\n📦 Publishing outbox-event-bus packages...\n"))
