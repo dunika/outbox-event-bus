@@ -110,13 +110,9 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
   }
 
   private async processBatch(handler: (event: BusEvent) => Promise<void>) {
-    await this.config.db.transaction(async (transaction) => {
-      const now = new Date()
+    const now = new Date()
 
-      // Select events that are:
-      // 1. New (status = created)
-      // 2. Failed but can be retried (retry count < max AND retry time has passed)
-      // 3. Active but stuck/timed out (keepAlive is older than now - expireInSeconds)
+    const lockedEvents = await this.config.db.transaction(async (transaction) => {
       const events = await transaction
         .select()
         .from(this.config.tables.outboxEvents)
@@ -130,8 +126,6 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
             ),
             and(
               eq(this.config.tables.outboxEvents.status, EventStatus.ACTIVE),
-              // Check if event is stuck: keepAlive is older than (now - expireInSeconds)
-              // This uses PostgreSQL's make_interval to subtract expireInSeconds from current timestamp
               lt(
                 this.config.tables.outboxEvents.keepAlive,
                 sql`${now.toISOString()}::timestamp - make_interval(secs => ${this.config.tables.outboxEvents.expireInSeconds})`
@@ -142,7 +136,7 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
         .limit(this.config.batchSize)
         .for("update", { skipLocked: true })
 
-      if (events.length === 0) return
+      if (events.length === 0) return []
 
       const eventIds = events.map((event) => event.id)
 
@@ -155,14 +149,22 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
         })
         .where(inArray(this.config.tables.outboxEvents.id, eventIds))
 
-      for (const event of events) {
-        try {
-          await handler(event)
-          // Archive successful event immediately
+      return events
+    })
+
+    if (lockedEvents.length === 0) return
+
+    // 2. Process events outside of the transaction
+    for (const event of lockedEvents) {
+      try {
+        await handler(event)
+
+        // use the main db connection for individual updates to avoid long transactions
+        await this.config.db.transaction(async (transaction) => {
           await transaction.insert(this.config.tables.outboxEventsArchive).values({
             id: event.id,
             type: event.type,
-            payload: event.payload,
+            payload: event.payload as any,
             occurredAt: event.occurredAt,
             status: EventStatus.COMPLETED,
             retryCount: event.retryCount,
@@ -173,23 +175,22 @@ export class PostgresDrizzleOutbox implements IOutbox<PostgresJsDatabase<Record<
           await transaction
             .delete(this.config.tables.outboxEvents)
             .where(eq(this.config.tables.outboxEvents.id, event.id))
-        } catch (error: unknown) {
-          const retryCount = event.retryCount + 1
-          reportEventError(this.poller.onError, error, event, retryCount, this.config.maxRetries)
+        })
+      } catch (error: unknown) {
+        const retryCount = event.retryCount + 1
+        reportEventError(this.poller.onError, error, event, retryCount, this.config.maxRetries)
 
-          // Mark this specific event as failed
-          const delay = this.poller.calculateBackoff(retryCount)
-          await transaction
-            .update(this.config.tables.outboxEvents)
-            .set({
-              status: EventStatus.FAILED,
-              retryCount,
-              lastError: formatErrorMessage(error),
-              nextRetryAt: new Date(Date.now() + delay),
-            })
-            .where(eq(this.config.tables.outboxEvents.id, event.id))
-        }
+        const delay = this.poller.calculateBackoff(retryCount)
+        await this.config.db
+          .update(this.config.tables.outboxEvents)
+          .set({
+            status: EventStatus.FAILED,
+            retryCount,
+            lastError: formatErrorMessage(error),
+            nextRetryAt: new Date(Date.now() + delay),
+          })
+          .where(eq(this.config.tables.outboxEvents.id, event.id))
       }
-    })
+    }
   }
 }

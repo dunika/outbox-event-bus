@@ -27,30 +27,38 @@ if (!IS_CI) {
       echo(chalk.green("✓ .npmrc file with auth token found\n"))
     } else {
       echo(chalk.red("✗ Authentication failed\n"))
-      echo(chalk.bold("Choose an authentication method:\n"))
-      echo(`  1. ${chalk.cyan("Interactive Login")} (persists across sessions)`)
-      echo(`     Run: ${chalk.yellow("npm login")}\n`)
-      echo(`  2. ${chalk.cyan("Environment Variable")} (for automation or temporary use)`)
-      echo(`     Set: ${chalk.yellow("export NPM_TOKEN=your_token_here")}`)
-      echo(`     Get token from: ${chalk.blue("https://www.npmjs.com/")} → Access Tokens\n`)
 
-      const response = await question(chalk.bold("Would you like to run npm login now? (y/n): "))
+      if (isDryRun) {
+        echo(chalk.yellow("⚠ Skipping interactive login because this is a dry run.\n"))
+        echo(chalk.bold("In a real run, you would need to authenticate using one of these methods:\n"))
+        echo(`  1. ${chalk.cyan("Interactive Login")}: Run ${chalk.yellow("npm login")}`)
+        echo(`  2. ${chalk.cyan("Environment Variable")}: Set ${chalk.yellow("export NPM_TOKEN=your_token_here")}\n`)
+      } else {
+        echo(chalk.bold("Choose an authentication method:\n"))
+        echo(`  1. ${chalk.cyan("Interactive Login")} (persists across sessions)`)
+        echo(`     Run: ${chalk.yellow("npm login")}\n`)
+        echo(`  2. ${chalk.cyan("Environment Variable")} (for automation or temporary use)`)
+        echo(`     Set: ${chalk.yellow("export NPM_TOKEN=your_token_here")}`)
+        echo(`     Get token from: ${chalk.blue("https://www.npmjs.com/")} → Access Tokens\n`)
 
-      if (["y", "yes"].includes(response.toLowerCase())) {
-        echo(chalk.cyan("\n🔐 Starting npm login...\n"))
-        await $`npm login`
+        const response = await question(chalk.bold("Would you like to run npm login now? (y/n): "))
 
-        // Verify login succeeded
-        try {
-          const { stdout } = await $`npm whoami`
-          echo(chalk.green(`\n✓ Successfully logged in as: ${stdout.trim()}\n`))
-        } catch (_error) {
-          echo(chalk.red("\n✗ Login failed. Please try again.\n"))
+        if (["y", "yes"].includes(response.toLowerCase())) {
+          echo(chalk.cyan("\n🔐 Starting npm login...\n"))
+          await $`npm login`
+
+          // Verify login succeeded
+          try {
+            const { stdout } = await $`npm whoami`
+            echo(chalk.green(`\n✓ Successfully logged in as: ${stdout.trim()}\n`))
+          } catch (_error) {
+            echo(chalk.red("\n✗ Login failed. Please try again.\n"))
+            process.exit(1)
+          }
+        } else {
+          echo(chalk.yellow("\n⚠ Skipping authentication. Please authenticate and try again.\n"))
           process.exit(1)
         }
-      } else {
-        echo(chalk.yellow("\n⚠ Skipping authentication. Please authenticate and try again.\n"))
-        process.exit(1)
       }
     }
   }
@@ -91,11 +99,8 @@ if (!isDryRun) {
     // Check if there are changesets to publish
     // changeset status or just running release and letting it handle it
 
-    // Using pnpm release which maps to "pnpm build && changeset publish"
-    // Since we already built, we could just run changeset publish, but using the script is safer or we just run changeset publish directly.
-    // The package.json release script is: "pnpm build && changeset publish"
-    // We can just run `pnpm exec changeset publish` here to avoid rebuilding if we want, or just `pnpm release`
-
+    // Using changeset publish directly to avoid recursion
+    // The package.json release script now points to this script for a safe, comprehensive release process.
     await $`changeset publish`
 
     echo(chalk.green("\n✓ Packages published successfully! 🎉\n"))

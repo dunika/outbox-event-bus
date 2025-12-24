@@ -61,12 +61,10 @@ export class OutboxEventBus<TTransaction> implements IOutboxEventBus<TTransactio
   }
 
   addMiddleware(...middlewares: Middleware<TTransaction>[]): this {
-    this.emitMiddlewares.push(...(middlewares as EmitMiddleware<TTransaction>[]))
-    this.handlerMiddlewares.push(...(middlewares as HandlerMiddleware<TTransaction>[]))
+    this.addEmitMiddleware(...(middlewares as EmitMiddleware<TTransaction>[]))
+    this.addHandlerMiddleware(...(middlewares as HandlerMiddleware<TTransaction>[]))
     return this
   }
-
-
 
   async emit<T extends string, P>(
     event: BusEventInput<T, P>,

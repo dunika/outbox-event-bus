@@ -9,7 +9,7 @@ const IN_MEMORY_BASE_BACKOFF_MS = 10
 const IN_MEMORY_MAX_ERROR_BACKOFF_MS = 50
 const IN_MEMORY_DEFAULT_MAX_RETRIES = 3
 
-export interface InMemoryOutboxConfig {
+export type InMemoryOutboxConfig = {
   maxRetries?: number
 }
 

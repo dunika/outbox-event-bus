@@ -14,7 +14,7 @@ npm install outbox-event-bus
 
 The library consists of three main components:
 
-1.  **[OutboxEventBus](https://github.com/dunika/outbox-event-bus/blob/main/docs/API_REFERENCE.md#outboxeventbus)**: The main entry point. It manages event listeners and delegates storage to the `IOutbox` adapter.
+1.  **[OutboxEventBus](https://github.com/dunika/outbox-event-bus/blob/main/docs/API_REFERENCE.md#outboxeventbus)**: The main orchestrator. It manages event listeners and delegates storage to the `IOutbox` adapter.
 2.  **[IOutbox](https://github.com/dunika/outbox-event-bus/blob/main/docs/API_REFERENCE.md#ioutbox-interface) (Adapter)**: Responsible for persisting events to the database and polling for new events.
 3.  **[IPublisher](https://github.com/dunika/outbox-event-bus/blob/main/docs/API_REFERENCE.md#publishers)**: Optional component that subscribes to the bus and forwards events to external systems (SQS, Kafka, etc.).
 
@@ -36,16 +36,16 @@ core/src/
 ## Usage
 
 ```typescript
-import { OutboxEventBus, InMemoryOutbox } from "outbox-event-bus";
+import { OutboxEventBus, InMemoryOutbox } from "outbox-event-bus"
 
 // 1. Initialize Storage
-const outbox = new InMemoryOutbox();
+const outbox = new InMemoryOutbox()
 
 // 2. Create Bus
-const bus = new OutboxEventBus(outbox, (err) => console.error(err));
+const bus = new OutboxEventBus(outbox, (error) => console.error(error))
 
 // 3. Start
-bus.start();
+bus.start()
 
 ## Middleware
 
@@ -55,24 +55,24 @@ You can add middleware using `bus.addEmitMiddleware()`, `bus.addHandlerMiddlewar
 
 ```typescript
 
-import { Middleware } from "outbox-event-bus";
+import { Middleware } from "outbox-event-bus"
 
 const loggingMiddleware: Middleware = async (ctx, next) => {
-  const prefix = ctx.phase === 'emit' ? '[emit]' : '[handler]';
-  console.log(`${prefix} ${ctx.event.type}`);
-  await next();
-};
+  const prefix = ctx.phase === 'emit' ? '[emit]' : '[handler]'
+  console.log(`${prefix} ${ctx.event.type}`)
+  await next()
+}
 
 const filterMiddleware: Middleware = async (ctx, next) => {
   if (ctx.event.type === 'ignore.me') {
-    await next({ dropEvent: true });
-    return;
+    await next({ dropEvent: true })
+    return
   }
 
   await next()
-};
+}
 
-bus.addMiddleware(loggingMiddleware, filterMiddleware);
+bus.addMiddleware(loggingMiddleware, filterMiddleware)
 ```
 
 For comprehensive middleware documentation, see the [root README](https://github.com/dunika/outbox-event-bus#middleware).
@@ -82,13 +82,13 @@ For comprehensive middleware documentation, see the [root README](https://github
 The library provides a structured error hierarchy with typed errors for different failure scenarios:
 
 ```typescript
-import { OutboxEventBus, MaxRetriesExceededError } from "outbox-event-bus";
+import { OutboxEventBus, MaxRetriesExceededError } from "outbox-event-bus"
 
 const bus = new OutboxEventBus(outbox, (error) => {
   if (error instanceof MaxRetriesExceededError) {
-    console.error(`Event ${error.event.id} failed after ${error.retryCount} retries`);
+    console.error(`Event ${error.event.id} failed after ${error.retryCount} retries`)
   }
-});
+})
 ```
 
 For the complete error hierarchy and handling strategies, see the [API Reference](https://github.com/dunika/outbox-event-bus/blob/main/docs/API_REFERENCE.md#error-handling).
@@ -106,7 +106,7 @@ import {
   BusEvent,
   FailedBusEvent,
   ErrorHandler 
-} from "outbox-event-bus";
+} from "outbox-event-bus"
 
 export class MyCustomOutbox implements IOutbox<MyTransactionType> {
   
@@ -149,7 +149,7 @@ To forward events to a new external system, implement `IPublisher`.
 import { 
   IPublisher,
   IOutboxEventBus
-} from "outbox-event-bus";
+} from "outbox-event-bus"
 
 export class MyCustomPublisher implements IPublisher {
   constructor(private bus: IOutboxEventBus<any>) {}
@@ -158,8 +158,8 @@ export class MyCustomPublisher implements IPublisher {
     // Subscribe to the bus for these events
     this.bus.subscribe(eventTypes, async (event) => {
       // Forward to external system
-      await this.sendToExternalSystem(event);
-    });
+      await this.sendToExternalSystem(event)
+    })
   }
 
   private async sendToExternalSystem(event: any) {

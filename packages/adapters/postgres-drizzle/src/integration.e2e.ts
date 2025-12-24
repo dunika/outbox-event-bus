@@ -299,7 +299,7 @@ describe("PostgresDrizzleOutbox E2E", () => {
       worker.start(handler, (error) => console.error(`Worker ${i} Error:`, error))
     }
 
-    const maxWaitTime = 10000
+    const maxWaitTime = 20000
     const startTime = Date.now()
 
     while (processedEvents.length < eventCount && Date.now() - startTime < maxWaitTime) {

@@ -1,5 +1,11 @@
 node_modules
 dist
+build
 .DS_Store
 coverage
 .npmrc
+*.log
+.env*
+*.tmp
+*.swp
+Thumbs.db

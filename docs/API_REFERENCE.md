@@ -190,23 +190,6 @@ Resets the status of failed events to 'created' so they can be retried.
 bus.retryEvents(eventIds: string[]): Promise<void>
 ```
 
-### InMemoryOutbox
-
-A lightweight in-memory outbox, primarily useful for testing or non-persistent workflows.
-
-#### Constructor
-
-```typescript
-new InMemoryOutbox(config?: InMemoryOutboxConfig)
-```
-
-#### Configuration
-
-```typescript
-interface InMemoryOutboxConfig {
-  maxRetries?: number; // Default: 3
-}
-```
 
 ### IOutbox Interface
 
@@ -551,10 +534,11 @@ new InMemoryOutbox(config?: InMemoryOutboxConfig)
 #### Configuration
 
 ```typescript
-interface InMemoryOutboxConfig extends OutboxConfig {
-  maxEvents?: number; // Optional limit for memory safety
+type InMemoryOutboxConfig = {
+  maxRetries?: number; // Default: 3
 }
 ```
+
 
 ## Publishers
 

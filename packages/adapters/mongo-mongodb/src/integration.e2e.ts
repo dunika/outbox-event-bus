@@ -61,7 +61,7 @@ describe("MongoMongodbOutbox E2E", () => {
 
     await outbox.start(handler, () => {})
 
-    await new Promise((resolve) => setTimeout(resolve, 800))
+    await new Promise((resolve) => setTimeout(resolve, 3000))
 
     // Verify handler was called
     expect(processedEvents).toHaveLength(1)

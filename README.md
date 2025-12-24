@@ -34,13 +34,13 @@ npm install outbox-event-bus @outbox-event-bus/postgres-drizzle-outbox drizzle-o
 ```
 
 ```typescript
-import { OutboxEventBus } from 'outbox-event-bus';
-import { PostgresDrizzleOutbox } from '@outbox-event-bus/postgres-drizzle-outbox';
-import { SQSPublisher } from '@outbox-event-bus/sqs-publisher';
+import { OutboxEventBus } from 'outbox-event-bus'
+import { PostgresDrizzleOutbox } from '@outbox-event-bus/postgres-drizzle-outbox'
+import { SQSPublisher } from '@outbox-event-bus/sqs-publisher'
 
 // Setup
-const outbox = new PostgresDrizzleOutbox({ db });
-const bus = new OutboxEventBus(outbox, (error: OutboxError) => console.error(error));
+const outbox = new PostgresDrizzleOutbox({ db })
+const bus = new OutboxEventBus(outbox, (error: OutboxError) => console.error(error))
 
 
 // Register handlers
@@ -49,34 +49,34 @@ bus.on('user.created', async (event) => {
   await bus.emitMany([
     { type: 'send.welcome', payload: event.payload },
     { type: 'sync-to-sqs', payload: event.payload }
-  ]);
-});
+  ])
+})
 
 bus.on('send.welcome', async (event) => {
-  await emailService.sendWelcome(event.payload.email);
-});
+  await emailService.sendWelcome(event.payload.email)
+})
 
 // Middleware 
 bus.addHandlerMiddleware(async (ctx, next) => {
-  console.log('Processing:', ctx.event.type);
-  await next();
-});
+  console.log('Processing:', ctx.event.type)
+  await next()
+})
 
 // Forward messages to SQS
-const sqsClient = new SQSClient({ region: 'us-east-1' });
-const publisher = new SQSPublisher(bus, { queueUrl: '...', sqsClient });
-publisher.subscribe(['sync-to-sqs']);
+const sqsClient = new SQSClient({ region: 'us-east-1' })
+const publisher = new SQSPublisher(bus, { queueUrl: '...', sqsClient })
+publisher.subscribe(['sync-to-sqs'])
 
 // Start the bus
-bus.start();
+bus.start()
 
 // Emit transactionally
 await db.transaction(async (transaction) => {
-  const [user] = await transaction.insert(users).values(newUser).returning();
+  const [user] = await transaction.insert(users).values(newUser).returning()
   
   // Both operations commit together or rollback together
-  await bus.emit({ type: 'user.created', payload: user }, transaction);
-});
+  await bus.emit({ type: 'user.created', payload: user }, transaction)
+})
 ```
 
 <br>
@@ -127,17 +127,17 @@ bus.on('user.created', async (event) => {
     { type: 'send.welcome', payload: event.payload },
     { type: 'send.analytics', payload: event.payload },
     { type: 'sync-to-sqs', payload: event.payload }
-  ]);
-});
+  ])
+})
 
 // Specialized handlers (1:1)
 bus.on('send.welcome', async (event) => {
-  await emailService.sendWelcome(event.payload.email);
-});
+  await emailService.sendWelcome(event.payload.email)
+})
 
 bus.on('send.analytics', async (event) => {
-  await analyticsService.track(event.payload);
-});
+  await analyticsService.track(event.payload)
+})
 ```
 
 ### Event Lifecycle
@@ -170,7 +170,7 @@ If a worker crashes while processing an event (status: `active`), the event beco
 -- Events stuck for more than 30 seconds are reclaimed
 SELECT * FROM outbox_events 
 WHERE status = 'active' 
-  AND keep_alive < NOW() - INTERVAL '30 seconds';
+  AND keep_alive < NOW() - INTERVAL '30 seconds'
 ```
 
 > **Note:** Non-SQL adapters (DynamoDB, Redis, Mongo) implement equivalent recovery mechanisms using their native features (TTL, Sorted Sets, etc).
@@ -189,15 +189,15 @@ Each `add*` method accepts one or more middleware functions.
 
 ```typescript
 bus.addMiddleware(async (ctx, next) => {
-  const prefix = ctx.phase === 'emit' ? '[emit]' : '[handler]';
-  console.log(`${prefix} Processing event: ${ctx.event.type}`);
+  const prefix = ctx.phase === 'emit' ? '[emit]' : '[handler]'
+  console.log(`${prefix} Processing event: ${ctx.event.type}`)
   
-  const start = Date.now();
-  await next();
-  const duration = Date.now() - start;
+  const start = Date.now()
+  await next()
+  const duration = Date.now() - start
   
-  console.log(`${prefix} Completed in ${duration}ms`);
-});
+  console.log(`${prefix} Completed in ${duration}ms`)
+})
 ```
 
 ### Middleware Phases
@@ -220,9 +220,9 @@ bus.addEmitMiddleware(async (ctx, next) => {
   ctx.event.metadata = { 
     ...ctx.event.metadata, 
     correlationId: ctx.event.metadata?.correlationId || crypto.randomUUID() 
-  };
-  await next();
-});
+  }
+  await next()
+})
 ```
 
 ### Filtering Events
@@ -232,11 +232,11 @@ You can explicitly drop an event by passing `{ dropEvent: true }` to `next()`. T
 ```typescript
 bus.addEmitMiddleware(async (ctx, next) => {
   if (ctx.event.type === 'sensitive.data') {
-    await next({ dropEvent: true });
-    return;
+    await next({ dropEvent: true })
+    return
   }
-  await next();
-});
+  await next()
+})
 ```
 
 <br>
@@ -251,11 +251,11 @@ These store your events. Choose one that matches your primary database.
 
 | Database | Adapters | Transaction Support | Concurrency |
 |:---|:---|:---:|:---|
-| **Postgres** | [Prisma](./adapters/postgres-prisma/README.md), [Drizzle](./adapters/postgres-drizzle/README.md) | Full (ACID) | `SKIP LOCKED` |
-| **MongoDB** | [Native Driver](./adapters/mongo-mongodb/README.md) | Full (Replica Set) | Optimistic Locking |
-| **DynamoDB** | [AWS SDK](./adapters/dynamodb-aws-sdk/README.md) | Full (TransactWrite) | Optimistic Locking |
-| **Redis** | [ioredis](./adapters/redis-ioredis/README.md) | Atomic (Multi/Exec) | Distributed Lock |
-| **SQLite** | [better-sqlite3](./adapters/sqlite-better-sqlite3/README.md) | Full (ACID) | Serialized |
+| **Postgres** | [Prisma](https://github.com/dunika/outbox-event-bus/tree/main/packages/adapters/postgres-prisma), [Drizzle](https://github.com/dunika/outbox-event-bus/tree/main/packages/adapters/postgres-drizzle) | Full (ACID) | `SKIP LOCKED` |
+| **MongoDB** | [Native Driver](https://github.com/dunika/outbox-event-bus/tree/main/packages/adapters/mongo-mongodb) | Full (Replica Set) | Optimistic Locking |
+| **DynamoDB** | [AWS SDK](https://github.com/dunika/outbox-event-bus/tree/main/packages/adapters/dynamodb-aws-sdk) | Full (TransactWrite) | Optimistic Locking |
+| **Redis** | [ioredis](https://github.com/dunika/outbox-event-bus/tree/main/packages/adapters/redis-ioredis) | Atomic (Multi/Exec) | Distributed Lock |
+| **SQLite** | [better-sqlite3](https://github.com/dunika/outbox-event-bus/tree/main/packages/adapters/sqlite-better-sqlite3) | Full (ACID) | Serialized |
 
 <br>
 
@@ -265,12 +265,12 @@ These send your events to the world.
 
 | Publisher | Target | Batching | Package |
 |:---|:---|:---:|:---|
-| **[AWS SQS](./publishers/sqs/README.md)** | Amazon SQS Queues | Yes (10) | `@outbox-event-bus/sqs-publisher` |
-| **[AWS SNS](./publishers/sns/README.md)** | Amazon SNS Topics | Yes (10) | `@outbox-event-bus/sns-publisher` |
-| **[EventBridge](./publishers/eventbridge/README.md)** | AWS Event Bus | Yes (10) | `@outbox-event-bus/eventbridge-publisher` |
-| **[RabbitMQ](./publishers/rabbitmq/README.md)** | AMQP Brokers | Yes (Configurable) | `@outbox-event-bus/rabbitmq-publisher` |
-| **[Kafka](./publishers/kafka/README.md)** | Streaming | Yes (Configurable) | `@outbox-event-bus/kafka-publisher` |
-| **[Redis Streams](./publishers/redis-streams/README.md)** | Lightweight Stream | Yes (Configurable) | `@outbox-event-bus/redis-streams-publisher` |
+| **[AWS SQS](https://github.com/dunika/outbox-event-bus/tree/main/packages/publishers/sqs)** | Amazon SQS Queues | Yes (10) | `@outbox-event-bus/sqs-publisher` |
+| **[AWS SNS](https://github.com/dunika/outbox-event-bus/tree/main/packages/publishers/sns)** | Amazon SNS Topics | Yes (10) | `@outbox-event-bus/sns-publisher` |
+| **[EventBridge](https://github.com/dunika/outbox-event-bus/tree/main/packages/publishers/eventbridge)** | AWS Event Bus | Yes (10) | `@outbox-event-bus/eventbridge-publisher` |
+| **[RabbitMQ](https://github.com/dunika/outbox-event-bus/tree/main/packages/publishers/rabbitmq)** | AMQP Brokers | Yes (Configurable) | `@outbox-event-bus/rabbitmq-publisher` |
+| **[Kafka](https://github.com/dunika/outbox-event-bus/tree/main/packages/publishers/kafka)** | Streaming | Yes (Configurable) | `@outbox-event-bus/kafka-publisher` |
+| **[Redis Streams](https://github.com/dunika/outbox-event-bus/tree/main/packages/publishers/redis-streams)** | Lightweight Stream | Yes (Configurable) | `@outbox-event-bus/redis-streams-publisher` |
 
 <br>
 
@@ -288,30 +288,30 @@ These send your events to the world.
 <br>
 
 ```typescript
-import { PrismaClient } from '@prisma/client';
-import { PostgresPrismaOutbox } from '@outbox-event-bus/postgres-prisma-outbox';
-import { OutboxEventBus } from 'outbox-event-bus';
+import { PrismaClient } from '@prisma/client'
+import { PostgresPrismaOutbox } from '@outbox-event-bus/postgres-prisma-outbox'
+import { OutboxEventBus } from 'outbox-event-bus'
 
-const prisma = new PrismaClient();
-const outbox = new PostgresPrismaOutbox({ prisma });
-const bus = new OutboxEventBus(outbox, (error) => console.error(error));
+const prisma = new PrismaClient()
+const outbox = new PostgresPrismaOutbox({ prisma })
+const bus = new OutboxEventBus(outbox, (error) => console.error(error))
 
-bus.start();
+bus.start()
 
 // Register handler
 bus.on('user.created', async (event) => {
-  await emailService.sendWelcome(event.payload.email);
-});
+  await emailService.sendWelcome(event.payload.email)
+})
 
 // Emit within a transaction
 async function createUser(userData: any) {
   await prisma.$transaction(async (transaction) => {
     // 1. Create user
-    const user = await transaction.user.create({ data: userData });
+    const user = await transaction.user.create({ data: userData })
     
     // 2. Emit event (will commit with the user creation)
-    await bus.emit({ type: 'user.created', payload: user }, transaction);
-  });
+    await bus.emit({ type: 'user.created', payload: user }, transaction)
+  })
 }
 ```
 
@@ -320,31 +320,31 @@ async function createUser(userData: any) {
 SQLite transactions are synchronous by default. To use `await` with the event bus, use the `withBetterSqlite3Transaction` helper which manages the transaction scope for you.
 
 ```typescript
-import Database from 'better-sqlite3';
-import { SqliteBetterSqlite3Outbox, withBetterSqlite3Transaction, getBetterSqlite3Transaction } from '@outbox-event-bus/sqlite-better-sqlite3-outbox';
-import { OutboxEventBus } from 'outbox-event-bus';
+import Database from 'better-sqlite3'
+import { SqliteBetterSqlite3Outbox, withBetterSqlite3Transaction, getBetterSqlite3Transaction } from '@outbox-event-bus/sqlite-better-sqlite3-outbox'
+import { OutboxEventBus } from 'outbox-event-bus'
 
-const db = new Database('app.db');
+const db = new Database('app.db')
 const outbox = new SqliteBetterSqlite3Outbox({ 
   dbPath: 'app.db',
   getTransaction: getBetterSqlite3Transaction() 
-});
-const bus = new OutboxEventBus(outbox, (error) => console.error(error));
+})
+const bus = new OutboxEventBus(outbox, (error) => console.error(error))
 
-bus.start();
+bus.start()
 
 async function createUser(userData: any) {
   return withBetterSqlite3Transaction(db, async (transaction) => {
-    const stmt = transaction.prepare('INSERT INTO users (name) VALUES (?)');
-    const info = stmt.run(userData.name);
+    const stmt = transaction.prepare('INSERT INTO users (name) VALUES (?)')
+    const info = stmt.run(userData.name)
     
     await bus.emit({ 
       type: 'user.created', 
       payload: { id: info.lastInsertRowid, ...userData } 
-    });
+    })
     
-    return info;
-  });
+    return info
+  })
 }
 ```
 
@@ -355,14 +355,14 @@ async function createUser(userData: any) {
 ### Environment-Specific Adapters
 
 ```typescript
-import { InMemoryOutbox } from 'outbox-event-bus';
-import { PostgresPrismaOutbox } from '@outbox-event-bus/postgres-prisma-outbox';
+import { InMemoryOutbox } from 'outbox-event-bus'
+import { PostgresPrismaOutbox } from '@outbox-event-bus/postgres-prisma-outbox'
 
 const outbox = process.env.NODE_ENV === 'production'
   ? new PostgresPrismaOutbox({ prisma })
-  : new InMemoryOutbox();
+  : new InMemoryOutbox()
 
-const bus = new OutboxEventBus(outbox, (error) => console.error(error));
+const bus = new OutboxEventBus(outbox, (error) => console.error(error))
 ```
 
 ### Testing Event Handlers
@@ -372,29 +372,29 @@ const bus = new OutboxEventBus(outbox, (error) => console.error(error));
 **Solution:** Use `InMemoryOutbox` and `waitFor`:
 
 ```typescript
-import { describe, it, expect } from 'vitest';
-import { OutboxEventBus, InMemoryOutbox } from 'outbox-event-bus';
+import { describe, it, expect } from 'vitest'
+import { OutboxEventBus, InMemoryOutbox } from 'outbox-event-bus'
 
 describe('User Creation', () => {
   it('sends welcome email when user is created', async () => {
-    const outbox = new InMemoryOutbox();
-    const bus = new OutboxEventBus(outbox, (error) => console.error(error));
+    const outbox = new InMemoryOutbox()
+    const bus = new OutboxEventBus(outbox, (error) => console.error(error))
     
-    let emailSent = false;
+    let emailSent = false
     bus.on('user.created', async (event) => {
-      emailSent = true;
-    });
+      emailSent = true
+    })
     
-    bus.start();
+    bus.start()
     
-    await bus.emit({ type: 'user.created', payload: { email: 'test@example.com' } });
-    await bus.waitFor('user.created');
+    await bus.emit({ type: 'user.created', payload: { email: 'test@example.com' } })
+    await bus.waitFor('user.created')
     
-    expect(emailSent).toBe(true);
+    expect(emailSent).toBe(true)
     
-    await bus.stop();
-  });
-});
+    await bus.stop()
+  })
+})
 ```
 
 ### Error Handling
@@ -408,18 +408,18 @@ The library provides typed errors to help you handle specific failure scenarios 
 <br>
 
 ```typescript
-import { OutboxEventBus, MaxRetriesExceededError } from 'outbox-event-bus';
+import { OutboxEventBus, MaxRetriesExceededError } from 'outbox-event-bus'
 
 // Simple initialization with error handler
 const bus = new OutboxEventBus(outbox, (error: OutboxError) => {
-  console.error('Bus error:', error);
-});
+  console.error('Bus error:', error)
+})
 
 // Advanced initialization with config object
 const bus = new OutboxEventBus(outbox, {
   onError: (error: OutboxError) => console.error(error),
   middlewareConcurrency: 20 // Custom concurrency for middleware
-});
+})
 ```
 
 For a complete list and usage examples, see the [API Reference](./docs/API_REFERENCE.md).
@@ -432,9 +432,9 @@ For a complete list and usage examples, see the [API Reference](./docs/API_REFER
 
 **Using API:**
 ```typescript
-const failedEvents = await bus.getFailedEvents();
-const idsToRetry = failedEvents.map(e => e.id);
-await bus.retryEvents(idsToRetry);
+const failedEvents = await bus.getFailedEvents()
+const idsToRetry = failedEvents.map(e => e.id)
+await bus.retryEvents(idsToRetry)
 ```
 
 **Using SQL:**
@@ -442,12 +442,12 @@ await bus.retryEvents(idsToRetry);
 -- Reset a specific event
 UPDATE outbox_events 
 SET status = 'created', retry_count = 0, last_error = NULL 
-WHERE id = 'event-id-here';
+WHERE id = 'event-id-here'
 
 -- Reset all failed events of a type
 UPDATE outbox_events 
 SET status = 'created', retry_count = 0, last_error = NULL 
-WHERE status = 'failed' AND type = 'user.created';
+WHERE status = 'failed' AND type = 'user.created'
 ```
 
 ### Schema Evolution
@@ -459,18 +459,18 @@ WHERE status = 'failed' AND type = 'user.created';
 ```typescript
 // Old handler (still processes legacy events)
 bus.on('user.created.v1', async (event) => {
-  const { firstName, lastName } = event.payload;
-  await emailService.send({ name: `${firstName} ${lastName}` });
-});
+  const { firstName, lastName } = event.payload
+  await emailService.send({ name: `${firstName} ${lastName}` })
+})
 
 // New handler (processes new events)
 bus.on('user.created.v2', async (event) => {
-  const { fullName } = event.payload;
-  await emailService.send({ name: fullName });
-});
+  const { fullName } = event.payload
+  await emailService.send({ name: fullName })
+})
 
 // Emit new version
-await bus.emit({ type: 'user.created.v2', payload: { fullName: 'John Doe' } });
+await bus.emit({ type: 'user.created.v2', payload: { fullName: 'John Doe' } })
 ```
 
 
@@ -505,16 +505,16 @@ The `onError` callback captures unexpected errors and permanent failures.
 
 ```typescript
 const bus = new OutboxEventBus(outbox, (error: OutboxError) => {
-  const event = error.context?.event;
+  const event = error.context?.event
   
   // Send to error tracking (e.g. Sentry)
   if (error instanceof MaxRetriesExceededError) {
     Sentry.captureException(error, {
       tags: { eventType: event?.type, retryCount: error.retryCount },
       extra: error.context
-    });
+    })
   }
-});
+})
 ```
 
 #### 2. Metrics (Prometheus Example)
@@ -522,32 +522,32 @@ const bus = new OutboxEventBus(outbox, (error: OutboxError) => {
 Use middleware to track event counts and processing duration.
 
 ```typescript
-import { Counter, Histogram } from 'prom-client';
+import { Counter, Histogram } from 'prom-client'
 
 const eventCounter = new Counter({
   name: 'outbox_events_total',
   help: 'Total events processed',
   labelNames: ['type', 'phase', 'status']
-});
+})
 
 const processingDuration = new Histogram({
   name: 'outbox_event_duration_seconds',
   help: 'Event processing duration',
   labelNames: ['type']
-});
+})
 
 bus.addMiddleware(async (ctx, next) => {
-  const start = Date.now();
+  const start = Date.now()
   try {
-    await next();
-    eventCounter.inc({ type: ctx.event.type, phase: ctx.phase, status: 'success' });
-  } catch (err) {
-    eventCounter.inc({ type: ctx.event.type, phase: ctx.phase, status: 'error' });
-    throw err;
+    await next()
+    eventCounter.inc({ type: ctx.event.type, phase: ctx.phase, status: 'success' })
+  } catch (error) {
+    eventCounter.inc({ type: ctx.event.type, phase: ctx.phase, status: 'error' })
+    throw error
   } finally {
-    processingDuration.observe({ type: ctx.event.type }, (Date.now() - start) / 1000);
+    processingDuration.observe({ type: ctx.event.type }, (Date.now() - start) / 1000)
   }
-});
+})
 ```
 
 #### 3. Tracing (OpenTelemetry Example)
@@ -555,9 +555,9 @@ bus.addMiddleware(async (ctx, next) => {
 Use middleware to start spans for distributed tracing.
 
 ```typescript
-import { trace } from '@opentelemetry/api';
+import { trace } from '@opentelemetry/api'
 
-const tracer = trace.getTracer('outbox-event-bus');
+const tracer = trace.getTracer('outbox-event-bus')
 
 bus.addMiddleware(async (ctx, next) => {
   return tracer.startActiveSpan(`${ctx.phase} ${ctx.event.type}`, async (span) => {
@@ -566,20 +566,20 @@ bus.addMiddleware(async (ctx, next) => {
       'messaging.destination': ctx.event.type,
       'messaging.message_id': ctx.event.id,
       'messaging.phase': ctx.phase
-    });
+    })
 
     try {
-      await next();
-      span.setStatus({ code: 1 }); // OK
+      await next()
+      span.setStatus({ code: 1 }) // OK
     } catch (err) {
-      span.recordException(err as Error);
-      span.setStatus({ code: 2 }); // ERROR
-      throw err;
+      span.recordException(err as Error)
+      span.setStatus({ code: 2 }) // ERROR
+      throw err
     } finally {
-      span.end();
+      span.end()
     }
-  });
-});
+  })
+})
 ```
 
 #### 4. Dead Letter Queue (DLQ)
@@ -588,12 +588,12 @@ Query the database for events that failed after all retries.
 
 ```typescript
 // Get failed events
-const failedEvents = await bus.getFailedEvents();
+const failedEvents = await bus.getFailedEvents()
 ```
 
 Or via SQL:
 ```sql
-SELECT * FROM outbox_events WHERE status = 'failed';
+SELECT * FROM outbox_events WHERE status = 'failed'
 ```
 
 ### Scaling
@@ -615,7 +615,7 @@ const outbox = new PostgresPrismaOutbox({
   prisma,
   batchSize: 100,        // Process 100 events per poll
   pollIntervalMs: 500    // Poll every 500ms
-});
+})
 ```
 
 ### Security
@@ -632,25 +632,25 @@ const outbox = new PostgresPrismaOutbox({
 Essential when forwarding events to external systems (SQS, Kafka) or to protect PII stored in the `outbox_events` table.
 
 ```typescript
-import { encrypt, decrypt } from './crypto';
+import { encrypt, decrypt } from './crypto'
 
 // Encryption Middleware (applies to both phases, encryption logic inside handles direction)
 bus.addMiddleware(async (ctx, next) => {
   if (ctx.phase === 'emit') {
-    ctx.event.payload = encrypt(ctx.event.payload);
+    ctx.event.payload = encrypt(ctx.event.payload)
   } else {
-    ctx.event.payload = decrypt(ctx.event.payload);
+    ctx.event.payload = decrypt(ctx.event.payload)
   }
-  await next();
-});
+  await next()
+})
 
 // Usage (Transparent encryption/decryption)
-await bus.emit({ type: 'user.created', payload: user });
+await bus.emit({ type: 'user.created', payload: user })
 
 bus.on('user.created', async (event) => {
   // event.payload is automatically decrypted
-  await emailService.send(event.payload.email);
-});
+  await emailService.send(event.payload.email)
+})
 ```
 
 ## License

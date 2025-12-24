@@ -1,4 +1,4 @@
-import { type OutboxEvent, OutboxStatus, type PrismaClient } from "@prisma/client"
+import { type OutboxEvent, OutboxStatus, type PrismaClient, type Prisma } from "@prisma/client"
 import {
   type BusEvent,
   type ErrorHandler,
@@ -9,6 +9,31 @@ import {
   PollingService,
   reportEventError,
 } from "outbox-event-bus"
+
+type RawOutboxEvent = {
+  id: string
+  type: string
+  payload: Prisma.JsonValue
+  occurred_at: Date
+  status: OutboxStatus
+  retry_count: number
+  last_error: string | null
+  next_retry_at: Date | null
+  created_on: Date
+  started_on: Date | null
+  completed_on: Date | null
+  keep_alive: Date | null
+  expire_in_seconds: number
+}
+
+type PrismaModelDelegate = {
+  create: (args: { data: unknown }) => Promise<unknown>
+  createMany: (args: { data: unknown[] }) => Promise<{ count: number }>
+  findMany: (args: { where?: unknown; orderBy?: unknown; take?: number }) => Promise<unknown[]>
+  update: (args: { where: unknown; data: unknown }) => Promise<unknown>
+  updateMany: (args: { where: unknown; data: unknown }) => Promise<{ count: number }>
+  delete: (args: { where: unknown }) => Promise<unknown>
+}
 
 export interface PostgresPrismaOutboxConfig extends OutboxConfig {
   prisma: PrismaClient
@@ -51,12 +76,14 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
 
   async publish(events: BusEvent[], transaction?: PrismaClient): Promise<void> {
     const executor = transaction ?? this.config.getTransaction?.() ?? this.config.prisma
+    const model = this.config.models.outbox ?? "outboxEvent"
 
-    await (executor as any)[this.config.models!.outbox!].createMany({
+    const delegate = this.getDelegate(executor, model)
+    await delegate.createMany({
       data: events.map((event) => ({
         id: event.id,
         type: event.type,
-        payload: event.payload as any,
+        payload: event.payload as Prisma.InputJsonValue,
         occurredAt: event.occurredAt,
         status: OutboxStatus.created,
       })),
@@ -64,17 +91,19 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
   }
 
   async getFailedEvents(): Promise<FailedBusEvent[]> {
-    const events = await (this.config.prisma as any)[this.config.models!.outbox!].findMany({
+    const model = this.config.models.outbox ?? "outboxEvent"
+    const delegate = this.getDelegate(this.config.prisma, model)
+    const events = await delegate.findMany({
       where: { status: OutboxStatus.failed },
       orderBy: { occurredAt: "desc" },
       take: 100,
     })
 
-    return events.map((event: any) => {
+    return (events as OutboxEvent[]).map((event) => {
       const failedEvent: FailedBusEvent = {
         id: event.id,
         type: event.type,
-        payload: event.payload as any,
+        payload: event.payload,
         occurredAt: event.occurredAt,
         retryCount: event.retryCount,
       }
@@ -85,7 +114,9 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
   }
 
   async retryEvents(eventIds: string[]): Promise<void> {
-    await (this.config.prisma as any)[this.config.models!.outbox!].updateMany({
+    const model = this.config.models.outbox ?? "outboxEvent"
+    const delegate = this.getDelegate(this.config.prisma, model)
+    await delegate.updateMany({
       where: { id: { in: eventIds } },
       data: {
         status: OutboxStatus.created,
@@ -104,18 +135,25 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
     await this.poller.stop()
   }
 
+  private getDelegate(
+    executor: PrismaClient | Prisma.TransactionClient,
+    modelName: string
+  ): PrismaModelDelegate {
+    const delegate = (executor as unknown as Record<string, PrismaModelDelegate>)[modelName]
+    if (!delegate) {
+      throw new Error(`Prisma model "${modelName}" not found on client`)
+    }
+    return delegate
+  }
+
   private async processBatch(handler: (event: BusEvent) => Promise<void>) {
-    const lockedEvents = await this.config.prisma.$transaction(async (transaction) => {
+    const lockedEvents = await this.config.prisma.$transaction(async (transaction: Prisma.TransactionClient) => {
       const now = new Date()
 
       // Use raw query to support SKIP LOCKED which is not available in standard Prisma API.
       // SKIP LOCKED is critical for concurrent processing - it allows multiple workers to
       // process different events simultaneously without blocking each other.
-      // Select events that are:
-      // 1. New (status = created)
-      // 2. Failed but can be retried
-      // 3. Active but stuck/timed out
-      const rawEvents = await transaction.$queryRawUnsafe<any[]>(
+      const rawEvents = await transaction.$queryRawUnsafe<RawOutboxEvent[]>(
         `
         SELECT * FROM "${this.config.tableName}"
         WHERE "status" = 'created'::outbox_status
@@ -147,8 +185,10 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
       }))
 
       const eventIds = events.map((event) => event.id)
+      const outboxModel = this.config.models.outbox ?? "outboxEvent"
 
-      await (transaction as any)[this.config.models!.outbox!].updateMany({
+      const delegate = this.getDelegate(transaction, outboxModel)
+      await delegate.updateMany({
         where: { id: { in: eventIds } },
         data: {
           status: OutboxStatus.active,
@@ -171,17 +211,23 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
     }))
 
     for (let index = 0; index < lockedEvents.length; index++) {
-      const event = lockedEvents[index]!
-      const busEvent = busEvents[index]!
+      const event = lockedEvents[index]
+      if (!event) continue
+      const busEvent = busEvents[index]
+      if (!busEvent) continue
 
       try {
         await handler(busEvent)
         await this.config.prisma.$transaction(async (tx) => {
-          await (tx as any)[this.config.models!.archive!].create({
+          const archiveModel = this.config.models.archive ?? "outboxEventArchive"
+          const outboxModel = this.config.models.outbox ?? "outboxEvent"
+
+          const archiveDelegate = this.getDelegate(tx, archiveModel)
+          await archiveDelegate.create({
             data: {
               id: event.id,
               type: event.type,
-              payload: event.payload as any,
+              payload: event.payload as Prisma.InputJsonValue,
               occurredAt: event.occurredAt,
               status: OutboxStatus.completed,
               retryCount: event.retryCount,
@@ -190,15 +236,18 @@ export class PostgresPrismaOutbox implements IOutbox<PrismaClient> {
               completedOn: new Date(),
             },
           })
-          await (tx as any)[this.config.models!.outbox!].delete({ where: { id: event.id } })
+
+          const outboxDelegate = this.getDelegate(tx, outboxModel)
+          await outboxDelegate.delete({ where: { id: event.id } })
         })
       } catch (error: unknown) {
         const retryCount = event.retryCount + 1
         reportEventError(this.poller.onError, error, busEvent, retryCount, this.config.maxRetries)
 
-        // Mark this specific event as failed
         const delay = this.poller.calculateBackoff(retryCount)
-        await (this.config.prisma as any)[this.config.models!.outbox!].update({
+        const outboxModel = this.config.models.outbox ?? "outboxEvent"
+        const outboxDelegate = this.getDelegate(this.config.prisma, outboxModel)
+        await outboxDelegate.update({
           where: { id: event.id },
           data: {
             status: OutboxStatus.failed,

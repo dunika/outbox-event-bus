@@ -239,11 +239,13 @@ export class DynamoDBAwsSdkOutbox implements IOutbox<DynamoDBAwsSdkTransactionCo
         TableName: this.config.tableName,
         Key: { id },
         UpdateExpression: "SET #status = :processing, gsiSortKey = :timeoutAt, startedOn = :now",
+        ConditionExpression: "#status = :created OR (#status = :processing AND gsiSortKey <= :now)",
         ExpressionAttributeNames: { "#status": "status" },
         ExpressionAttributeValues: {
           ":processing": EventStatus.ACTIVE,
           ":timeoutAt": now + this.config.processingTimeoutMs,
           ":now": now,
+          ":created": EventStatus.CREATED,
         },
       })
     )

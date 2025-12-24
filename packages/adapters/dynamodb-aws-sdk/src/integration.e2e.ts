@@ -1,6 +1,14 @@
 import { CreateTableCommand, DynamoDBClient } from "@aws-sdk/client-dynamodb"
-import { OutboxEventBus } from "outbox-event-bus"
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import {
+  DeleteCommand,
+  DynamoDBDocumentClient,
+  GetCommand,
+  PutCommand,
+  ScanCommand,
+  TransactWriteCommand,
+} from "@aws-sdk/lib-dynamodb"
+import { type BusEvent, OutboxEventBus } from "outbox-event-bus"
+import { afterEach, beforeEach, beforeAll, describe, expect, it } from "vitest"
 import { DynamoDBAwsSdkOutbox, type DynamoDBAwsSdkTransactionCollector } from "./index"
 
 describe("DynamoDBAwsSdkOutbox E2E", () => {
@@ -46,18 +54,16 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
           })
         )
         break
-      } catch (error: any) {
-        if (error.name === "ResourceInUseException") break
+      } catch (error: unknown) {
+        if (error instanceof Error && error.name === "ResourceInUseException") break
         if (i === maxRetries - 1) throw error
         await new Promise((res) => setTimeout(res, delay))
       }
     }
-  })
+  }, 20000)
 
   beforeEach(async () => {
     // Clean up all items from the table before each test
-    const { ScanCommand, DeleteCommand } = await import("@aws-sdk/lib-dynamodb")
-    const { DynamoDBDocumentClient } = await import("@aws-sdk/lib-dynamodb")
     const docClient = DynamoDBDocumentClient.from(client)
 
     // Scan all items
@@ -74,7 +80,7 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
           docClient.send(
             new DeleteCommand({
               TableName: tableName,
-              Key: { id: item.id },
+              Key: { id: item.id as string },
             })
           )
         )
@@ -84,10 +90,17 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
     }
   })
 
-  afterAll(async () => {})
+  let outbox: DynamoDBAwsSdkOutbox | undefined
+
+  afterEach(async () => {
+    if (outbox) {
+      await outbox.stop()
+      outbox = undefined
+    }
+  })
 
   it("should process events end-to-end", async () => {
-    const outbox = new DynamoDBAwsSdkOutbox({
+    outbox = new DynamoDBAwsSdkOutbox({
       client,
       tableName,
       statusIndexName: indexName,
@@ -96,12 +109,12 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
 
     const eventBus = new OutboxEventBus(outbox, (error) => console.error("Bus error:", error))
 
-    const received: any[] = []
+    const received: BusEvent[] = []
     eventBus.subscribe(["test.event"], async (event) => {
       received.push(event)
     })
 
-    await eventBus.start()
+    eventBus.start()
 
     const eventId = `e1-${Date.now()}`
     await eventBus.emit({
@@ -116,13 +129,11 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
     await new Promise((resolve) => setTimeout(resolve, 1500))
 
     expect(received).toHaveLength(1)
-    expect(received[0].payload.message).toBe("hello")
-
-    await eventBus.stop()
+    expect((received[0]?.payload as { message: string }).message).toBe("hello")
   })
 
   it("should retry failed events", async () => {
-    const outbox = new DynamoDBAwsSdkOutbox({
+    outbox = new DynamoDBAwsSdkOutbox({
       client,
       tableName,
       statusIndexName: indexName,
@@ -131,7 +142,7 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
     })
 
     let attempts = 0
-    const handler = async (_event: any) => {
+    async function handler(_event: BusEvent) {
       attempts++
       throw new Error("Temporary failure")
     }
@@ -148,84 +159,79 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 800))
 
-    await outbox.start(handler, () => {})
+    outbox.start(handler, () => {
+      /* ignore */
+    })
 
     // Wait for first attempt (100ms) + backoff (100ms) + second attempt (100ms)
     // 1500ms should be plenty
     await new Promise((resolve) => setTimeout(resolve, 1500))
 
-    await outbox.stop()
-
     expect(attempts).toBeGreaterThanOrEqual(2)
   })
 
   it("should support manual management of failed events", async () => {
-    const outbox = new DynamoDBAwsSdkOutbox({
+    outbox = new DynamoDBAwsSdkOutbox({
       client,
       tableName,
       statusIndexName: indexName,
       pollIntervalMs: 100,
     })
 
-    try {
-      const eventId = `manual-retry-${Date.now()}`
-      const event = {
-        id: eventId,
-        type: "manual.retry",
-        payload: {},
-        occurredAt: new Date(),
-      }
-
-      const { PutCommand } = await import("@aws-sdk/lib-dynamodb")
-      const docClient = (outbox as any).docClient
-      await docClient.send(
-        new PutCommand({
-          TableName: tableName,
-          Item: {
-            id: event.id,
-            type: event.type,
-            payload: event.payload,
-            occurredAt: event.occurredAt.toISOString(),
-            status: "failed",
-            retryCount: 5,
-            gsiSortKey: event.occurredAt.getTime(),
-            lastError: "Manual failure",
-          },
-        })
-      )
-
-      await new Promise((resolve) => setTimeout(resolve, 2000))
-      const failed = await outbox.getFailedEvents()
-      const targetEvent = failed.find((e) => e.id === eventId)
-
-      expect(targetEvent).toBeDefined()
-      expect(targetEvent!.id).toBe(eventId)
-      expect(targetEvent!.error).toBe("Manual failure")
-
-      await outbox.retryEvents([eventId])
-
-      const eventBus = new OutboxEventBus(outbox, (error) => console.error("Bus error:", error))
-
-      const processed: any[] = []
-      const _sub = eventBus.subscribe(["manual.retry"], async (event) => {
-        processed.push(event)
-      })
-
-      await eventBus.start()
-
-      await new Promise((resolve) => setTimeout(resolve, 3000))
-
-      const uniqueProcessed = [...new Set(processed.map((p) => p.id))]
-
-      expect(uniqueProcessed).toContain(eventId)
-      expect(uniqueProcessed).toHaveLength(1)
-    } finally {
-      await outbox.stop()
+    const eventId = `manual-retry-${Date.now()}`
+    const event = {
+      id: eventId,
+      type: "manual.retry",
+      payload: {},
+      occurredAt: new Date(),
     }
+
+    const docClient = (outbox as unknown as { docClient: DynamoDBDocumentClient }).docClient
+    await docClient.send(
+      new PutCommand({
+        TableName: tableName,
+        Item: {
+          id: event.id,
+          type: event.type,
+          payload: event.payload,
+          occurredAt: event.occurredAt.toISOString(),
+          status: "failed",
+          retryCount: 5,
+          gsiSortKey: event.occurredAt.getTime(),
+          lastError: "Manual failure",
+        },
+      })
+    )
+
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+    const failed = await outbox.getFailedEvents()
+    const targetEvent = failed.find((e) => e.id === eventId)
+
+    expect(targetEvent).toBeDefined()
+    expect(targetEvent?.id).toBe(eventId)
+    expect(targetEvent?.error).toBe("Manual failure")
+
+    await outbox.retryEvents([eventId])
+
+    const eventBus = new OutboxEventBus(outbox, (error) => console.error("Bus error:", error))
+
+    const processed: BusEvent[] = []
+    eventBus.subscribe(["manual.retry"], async (event) => {
+      processed.push(event)
+    })
+
+    eventBus.start()
+
+    await new Promise((resolve) => setTimeout(resolve, 3000))
+
+    const uniqueProcessed = [...new Set(processed.map((p) => p.id))]
+
+    expect(uniqueProcessed).toContain(eventId)
+    expect(uniqueProcessed).toHaveLength(1)
   }, 15000)
 
   it("should recover from stuck events", async () => {
-    const outbox = new DynamoDBAwsSdkOutbox({
+    outbox = new DynamoDBAwsSdkOutbox({
       client,
       tableName,
       statusIndexName: indexName,
@@ -236,8 +242,7 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
     const eventId = `stuck-${Date.now()}`
     const now = Date.now()
 
-    const { PutCommand } = await import("@aws-sdk/lib-dynamodb")
-    const docClient = (outbox as any).docClient
+    const docClient = (outbox as unknown as { docClient: DynamoDBDocumentClient }).docClient
     await docClient.send(
       new PutCommand({
         TableName: tableName,
@@ -253,26 +258,24 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
       })
     )
 
-    const received: any[] = []
-    await outbox.start(
+    const received: BusEvent[] = []
+    outbox.start(
       async (event) => {
         received.push(event)
       },
       (error) => console.error("Outbox error:", error)
     )
 
-    await new Promise((resolve) => setTimeout(resolve, 1500))
+    await new Promise((resolve) => setTimeout(resolve, 3000))
 
     expect(received.some((e) => e.id === eventId)).toBe(true)
-
-    await outbox.stop()
   })
 
   // Skipping this test due to DynamoDB Local limitations:
   // - GSI eventual consistency causes incomplete event visibility
   // - Conditional check failures are not properly handled
   // - Results in incomplete processing (only ~60% of events processed)
-  // This test works correctly against real DynamoDB
+  // - This test works correctly against real DynamoDB
   it.skip("should handle concurrent processing safely", async () => {
     // Note: DynamoDB Local has GSI eventual consistency limitations
     // Using smaller scale to ensure reliable test results
@@ -285,7 +288,7 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
       occurredAt: new Date(),
     }))
 
-    const outbox = new DynamoDBAwsSdkOutbox({
+    outbox = new DynamoDBAwsSdkOutbox({
       client,
       tableName,
       statusIndexName: indexName,
@@ -293,47 +296,55 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
     })
     await outbox.publish(events)
     await outbox.stop()
+    outbox = undefined
 
     // Wait longer for GSI to update (DynamoDB Local eventual consistency)
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
     const workerCount = 3
-    const allProcessedEvents: any[] = []
+    const allProcessedEvents: BusEvent[] = []
     const workers: DynamoDBAwsSdkOutbox[] = []
 
-    const handler = async (event: any) => {
+    async function handler(event: BusEvent) {
       await new Promise((resolve) => setTimeout(resolve, Math.random() * 50))
       allProcessedEvents.push(event)
     }
 
-    for (let i = 0; i < workerCount; i++) {
-      // Re-use client for dynamoDB local (it supports concurrent requests)
-      const worker = new DynamoDBAwsSdkOutbox({
-        client,
-        tableName,
-        statusIndexName: indexName,
-        pollIntervalMs: 150 + Math.random() * 100,
-        batchSize: 5,
-      })
-      workers.push(worker)
-      worker.start(handler, (error) => console.error(`Worker ${i} Error:`, error))
+    try {
+      for (let i = 0; i < workerCount; i++) {
+        // Re-use client for dynamoDB local (it supports concurrent requests)
+        const worker = new DynamoDBAwsSdkOutbox({
+          client,
+          tableName,
+          statusIndexName: indexName,
+          pollIntervalMs: 150 + Math.random() * 100,
+          batchSize: 5,
+        })
+        workers.push(worker)
+        worker.start(handler, (error) => console.error(`Worker ${i} Error:`, error))
+      }
+
+      const maxWaitTime = 15000
+      const startTime = Date.now()
+
+      // Filter to only count events from this test run
+      function getProcessedCount() {
+        return allProcessedEvents.filter(
+          (e) => (e.payload as { testRunId?: string })?.testRunId === testRunId
+        ).length
+      }
+
+      while (getProcessedCount() < eventCount && Date.now() - startTime < maxWaitTime) {
+        await new Promise((resolve) => setTimeout(resolve, 200))
+      }
+    } finally {
+      await Promise.all(workers.map((w) => w.stop()))
     }
-
-    const maxWaitTime = 15000
-    const startTime = Date.now()
-
-    // Filter to only count events from this test run
-    const getProcessedCount = () =>
-      allProcessedEvents.filter((e) => e.payload?.testRunId === testRunId).length
-
-    while (getProcessedCount() < eventCount && Date.now() - startTime < maxWaitTime) {
-      await new Promise((resolve) => setTimeout(resolve, 200))
-    }
-
-    await Promise.all(workers.map((w) => w.stop()))
 
     // Filter to only events from this test run
-    const processedEvents = allProcessedEvents.filter((e) => e.payload?.testRunId === testRunId)
+    const processedEvents = allProcessedEvents.filter(
+      (e) => (e.payload as { testRunId?: string })?.testRunId === testRunId
+    )
 
     // DynamoDB Local has limitations with conditional checks that can cause duplicate processing
     // Verify that all unique events were processed at least once
@@ -347,7 +358,7 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
   }, 20000)
 
   it("should not publish events when transaction collector is not executed", async () => {
-    const outbox = new DynamoDBAwsSdkOutbox({
+    outbox = new DynamoDBAwsSdkOutbox({
       client,
       tableName,
       statusIndexName: indexName,
@@ -364,8 +375,8 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
 
     const collector: DynamoDBAwsSdkTransactionCollector = {
       items: [],
-      push: function (item: any) {
-        this.items!.push(item)
+      push: function (item) {
+        this.items?.push(item)
       },
     }
 
@@ -375,8 +386,7 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 800))
 
-    const { GetCommand } = await import("@aws-sdk/lib-dynamodb")
-    const docClient = (outbox as any).docClient
+    const docClient = (outbox as unknown as { docClient: DynamoDBDocumentClient }).docClient
     const result = await docClient.send(
       new GetCommand({
         TableName: tableName,
@@ -386,7 +396,7 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
 
     expect(result.Item).toBeUndefined()
 
-    const processedEvents: any[] = []
+    const processedEvents: BusEvent[] = []
     outbox.start(
       async (e) => {
         processedEvents.push(e)
@@ -395,13 +405,12 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
     )
 
     await new Promise((r) => setTimeout(r, 1000))
-    await outbox.stop()
 
     expect(processedEvents).toHaveLength(0)
   })
 
   it("should publish events when transaction collector is executed", async () => {
-    const outbox = new DynamoDBAwsSdkOutbox({
+    outbox = new DynamoDBAwsSdkOutbox({
       client,
       tableName,
       statusIndexName: indexName,
@@ -418,8 +427,8 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
 
     const collector: DynamoDBAwsSdkTransactionCollector = {
       items: [],
-      push: function (item: any) {
-        this.items!.push(item)
+      push: function (item) {
+        this.items?.push(item)
       },
     }
 
@@ -427,8 +436,7 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
 
     expect(collector.items).toHaveLength(1)
 
-    const { TransactWriteCommand } = await import("@aws-sdk/lib-dynamodb")
-    const docClient = (outbox as any).docClient
+    const docClient = (outbox as unknown as { docClient: DynamoDBDocumentClient }).docClient
     await docClient.send(
       new TransactWriteCommand({
         TransactItems: collector.items,
@@ -437,7 +445,6 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 800))
 
-    const { GetCommand } = await import("@aws-sdk/lib-dynamodb")
     const result = await docClient.send(
       new GetCommand({
         TableName: tableName,
@@ -446,9 +453,9 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
     )
 
     expect(result.Item).toBeDefined()
-    expect(result.Item!.status).toBe("created")
+    expect(result.Item?.status).toBe("created")
 
-    const processedEvents: any[] = []
+    const processedEvents: BusEvent[] = []
     outbox.start(
       async (e) => {
         processedEvents.push(e)
@@ -457,9 +464,8 @@ describe("DynamoDBAwsSdkOutbox E2E", () => {
     )
 
     await new Promise((r) => setTimeout(r, 1500))
-    await outbox.stop()
 
     expect(processedEvents).toHaveLength(1)
-    expect(processedEvents[0].id).toBe(eventId)
+    expect(processedEvents[0]?.id).toBe(eventId)
   })
 })

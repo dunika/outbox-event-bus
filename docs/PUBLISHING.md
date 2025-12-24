@@ -147,8 +147,8 @@ pnpm -r test
 
 | Script | Description |
 |--------|-------------|
-| `pnpm publish:interactive` | Full publish pipeline wrapper (auth → build → lint → test → release) |
-| `pnpm release` | Changesets publish command (build + changeset publish) |
+| `pnpm publish:interactive` | Full publish pipeline wrapper (auth → build → lint → test → publish) |
+| `pnpm release` | Alias for `pnpm publish:interactive` |
 | `pnpm changeset` | Create a new changeset |
 | `pnpm version-packages` | Consume changesets and update versions |
 
